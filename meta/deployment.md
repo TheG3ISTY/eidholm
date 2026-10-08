@@ -98,7 +98,8 @@ People on the same Wi-Fi share one connection as far as this is concerned. If yo
 ## Costs to watch
 
 - The header in the client shows tokens and estimated USD for the current session (prices are constants at the top of the `<script>` in `web/index.html`).
-- Every turn re-sends canon + rules + party + the log tail + recent chat. The canon is placed first in the system prompt so the prefix is identical turn to turn, which is what prompt caching needs. Check the usage page in the Mistral console after the first sessions to see actual numbers.
+- **The GM only reads what the scene needs.** At the end of every answer it writes a hidden scene tag (mode, place, people present, factions, topics); the next turn loads just the matching canon sections, economy and rules sections, and full entries for the people present or named. Everything else appears in an index (titles and one line per person), and the GM can call a `lookup` tool for anything it needs. A keyword scan of what the players typed backs the tag up. A typical turn is roughly a third of what it would be with the whole library (about 14,000 to 20,000 characters instead of ~57,000); character creation loads nearly everything, on purpose.
+- The logic lives in `api/context.js` (chunking, topics, selection). Stable parts (instructions, core canon, dice rules) come first in the prompt, scene parts after.
 - Use the **Large** toggle for climactic scenes only.
 
 ## Session workflow (saving)

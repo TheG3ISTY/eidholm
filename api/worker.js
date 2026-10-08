@@ -15,6 +15,10 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { rollDice, describeRoll } from "./dice.js";
+import {
+  chunkCanon, chunkMarkdown, economyTopics, rulesTopics, selectContext,
+  parseSceneTag, formatSceneTag, lookup, personLine, personFull,
+} from "./context.js";
 
 const STATE_FILES = {
   canon: "world/worldbuilding.md",
@@ -391,22 +395,6 @@ async function castView(env, gm) {
   });
 }
 
-// What the GM reads each turn: active people in full, dormant and dead as one line.
-function castPrompt(castText, live) {
-  const merged = parseCast(mergeCast(castText, live, { sessionNo: 0, endOfSession: false }) ?? castText);
-  if (!merged.length) return "(nobody remembered yet)";
-  const line = (c) => `- ${c.name}${c.role ? `, ${c.role}` : ""}${c.where ? ` (${c.where})` : ""}`;
-  const active = merged.filter((c) => (c.status || "active") === "active");
-  const rest = merged.filter((c) => c.status === "dormant" || c.status === "dead");
-  return [
-    ...active.map((c) => {
-      const f = Object.entries(c).filter(([k]) => !["name", "status", "first_seen_session", "last_seen_session", "pillar"].includes(k));
-      return `- ${c.pillar ? "[fixed figure] " : ""}${c.name}: ` + f.map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join("; ");
-    }),
-    ...(rest.length ? ["Dormant or dead (one line each):", ...rest.map((c) => `${line(c)} [${c.status}]`)] : []),
-  ].join("\n");
-}
-
 function nextSessionNumber(log) {
   const nums = [...String(log || "").matchAll(/^## Session (\d+)/gm)].map((m) => Number(m[1]));
   return (nums.length ? Math.max(...nums) : 0) + 1;
@@ -704,6 +692,7 @@ export class Table extends DurableObject {
         state.resolvingSince = 0;
         state.spend = { small: { in: 0, out: 0 }, large: { in: 0, out: 0 } };
         state.session = null;
+        state.scene = null;
         if (msg.clearSeen || msg.upToId === undefined) {
           // End of session (or a discarded scene): drop what was written, forget who was seen.
           const upTo = msg.castUpTo || Infinity;
@@ -773,6 +762,7 @@ export class Table extends DurableObject {
       session: s.session || null,   // { no, date, path, savedAt, savedBy } once first saved
       revealGmRolls: !!s.revealGmRolls,
       cast: s.cast || { pending: {}, seen: [] },   // people the GM chose to remember this session
+      scene: s.scene || null,                      // the GM's last scene tag
       requests: s.requests || [],   // rolls the GM asked for: { rid, round, seatId, order, type, label, ..., status }
       nextRid: s.nextRid || 1,
     };
@@ -992,14 +982,19 @@ export class Table extends DurableObject {
     await this.commit(state);
 
     let result;
+    const ctx = { seats: state.seats };
     try {
       const repo = await loadState(this.env);
+      const library = buildLibrary(repo);
+      const cast = parseCast(mergeCast(repo.cast, state.cast, { sessionNo: 0, endOfSession: false }) ?? repo.cast);
+      const sel = selectContext({ library, cast, scene: state.scene, recent: recentText(state) });
+      ctx.library = library; ctx.cast = cast;
       const messages = [
-        { role: "system", content: buildSystemPrompt(repo, castPrompt(repo.cast, state.cast)) },
+        { role: "system", content: buildSystemPrompt(repo, sel) },
         ...buildConversation(state),
       ];
       const model = tier === "large" ? this.env.MODEL_LARGE : this.env.MODEL;
-      result = await gmTurn(this.env, model, messages, { seats: state.seats });
+      result = await gmTurn(this.env, model, messages, ctx);
       result.model = model;
     } catch (err) {
       const fresh = await this.load();
@@ -1011,6 +1006,9 @@ export class Table extends DurableObject {
 
     // Re-read: other commands may have landed while the GM was thinking.
     const fresh = await this.load();
+    // The hidden scene tag: players never see it; it decides what the GM reads next turn.
+    const tagged = parseSceneTag(result.reply);
+    if (tagged.scene) fresh.scene = tagged.scene;
     for (const r of result.rolls) {
       fresh.messages.push({
         id: fresh.nextId++, kind: "gmroll", round, purpose: r.purpose,
@@ -1018,7 +1016,7 @@ export class Table extends DurableObject {
       });
     }
     fresh.messages.push({
-      id: fresh.nextId++, kind: "gm", round, text: result.reply, ts: Date.now(),
+      id: fresh.nextId++, kind: "gm", round, text: tagged.text, scene: tagged.scene, ts: Date.now(),
       model: result.model, usage: result.usage,
     });
     for (const r of result.remember || []) {
@@ -1194,17 +1192,22 @@ function buildConversation(state) {
     out.push({ role: "user", content });
     if (gm) out.push({
       role: "assistant",
-      content: (gmDice.length ? `[Your dice this round: ${gmDice.map(rollLine).join("; ")}]\n\n` : "") + gm.text,
+      content: (gmDice.length ? `[Your dice this round: ${gmDice.map(rollLine).join("; ")}]\n\n` : "") + gm.text +
+        (gm.scene ? "\n\n" + formatSceneTag(gm.scene) : ""),
     });
   }
   return out;
 }
 
-function buildSystemPrompt(state, castText = "(nobody remembered yet)") {
+function buildSystemPrompt(state, sel) {
   const logTail = state.log.length > LOG_TAIL_CHARS
     ? "[...earlier entries omitted...]\n" + state.log.slice(-LOG_TAIL_CHARS)
     : state.log;
+  const block = (chunks) => chunks.map((c) => `### ${c.title}\n${c.text}`).join("\n\n");
+  const core = sel.loadedCanon.filter((c) => c.topics.includes("core"));
+  const scene = sel.loadedCanon.filter((c) => !c.topics.includes("core"));
 
+  // Stable parts first (instructions, core canon, dice rules), scene-specific parts after.
   return `You are the Game Master of EIDHOLM, a techfantasy text RPG played in a browser by a group sharing one scene.
 
 ## How you run the game
@@ -1219,7 +1222,11 @@ function buildSystemPrompt(state, castText = "(nobody remembered yet)") {
 - If a player is seated without a character, or their character is not in the PARTY file yet, help them create one alongside the scene, without stalling the others.
 - NPCs have their own agendas, faiths and fears. Minds of glass are people, not appliances.
 - REMEMBERING PEOPLE. Improvise minor NPCs freely. Call remember_npc the moment one becomes important, by these rules: a debt, favor, promise, contract or Exchange deal ties them to a character (Ledger); they hurt a character, were hurt by one, or survived a fight with the party (Blood); they know something about a character or the plot (Secrets); they hold real power, including any bank enforcer assigned to a character's debt (Office); they are a mind of glass that pledged itself to or was hired by a character; a player asks about them again, goes looking for them, or flags them (a "(table) ... asks you to remember" line); or a named NPC appears in a second, separate scene. Never one-off shopkeepers, crowds, or people the party walked past. Call remember_npc again whenever something important about them changes (attitude, debts, where they are, death). Small property changes hands constantly in Eidholm, so a shop with a new face behind the counter needs no explanation.
-- Stay inside the canon below. Do not contradict it. You may invent local detail (names, streets, minor NPCs) that fits it.
+- Stay inside the canon. Do not contradict it. You may invent local detail (names, streets, minor NPCs) that fits it.
+- WHAT YOU READ. To save cost you are given only what this scene needs: the core canon, the sections LOADED FOR THIS SCENE, and full entries for the people present or named. Everything else is listed in the INDEX by title or one line, so you know it exists. If you need something from the INDEX that is not loaded, call the lookup tool with a few words (it costs a little, so only when it matters). Never guess at canon you have not been shown.
+- THE SCENE TAG. End EVERY answer with exactly one final line, which the players never see:
+  [[scene: mode=<combat|trade|travel|social|explore|downtime|creation>; where=<place>; present=<names of NPCs in the scene, comma-separated>; factions=<powers involved>; topics=<a few keywords>]]
+  It decides what you are given next turn, so keep it accurate: name every NPC who is present or about to be, and the place.
 - THE RIM AND THE FROZEN ARCHIVE ARE DELIBERATELY UNDEFINED. Never explain what the Archive is, who or what records at the pole, or why it deletes. Rumour, dread and contradiction only. No revelations, ever.
   - The Rim has NO fixed figures. Never invent a leader, a seat, a name, a motive or an explanation for the Archive or for what the Silence copies for.
   - Every encounter touching the Rim leaves more questions than it answers.
@@ -1233,23 +1240,50 @@ function buildSystemPrompt(state, castText = "(nobody remembered yet)") {
   - Your own rolls may be hidden from the players; describe outcomes in the fiction rather than announcing your numbers.
 - The rules system is unfinished (see RULES). When an outcome is uncertain and matters, say so, propose how it could be resolved, and mark any mechanic you introduce as [PROVISIONAL] so the table can adopt or reject it.
 
-## CANON (settled; do not alter)
-${state.canon}
+## CORE CANON (always true; do not alter)
+${block(core)}
 
-## RULES (draft, open for design)
-${state.rules || "(none yet)"}
+## RULES
+${block(sel.loadedRules)}
 
-## ECONOMY & EQUIPMENT (designed; use these prices, tiers and item scales)
-${state.economy || "(none yet)"}
+## LOADED FOR THIS SCENE (mode: ${sel.mode || "not set"})
+### Canon
+${block(scene) || "(nothing extra)"}
 
-## CAST (people worth remembering; secrets here are for you only)
-${castText}
+### Economy & equipment
+${block(sel.loadedEconomy) || "(not needed this scene)"}
+
+### People present or named (full; secrets are for you only)
+${sel.full.map(personFull).join("\n") || "(nobody in particular)"}
+
+## INDEX (exists, not loaded; use lookup if you need it)
+- Canon: ${sel.index.canon.join(" · ") || "-"}
+- Economy: ${sel.index.economy.join(" · ") || "-"}
+- Rules: ${sel.index.rules.join(" · ") || "-"}
+- People:
+${sel.index.people.map((p) => "  - " + personLine(p)).join("\n") || "  - (nobody remembered yet)"}
 
 ## PARTY (live state)
 ${state.party || "(empty roster)"}
 
 ## CAMPAIGN LOG (most recent)
 ${logTail || "(no sessions yet)"}`;
+}
+
+// Split the repo files into the chunks the selector works with.
+function buildLibrary(repo) {
+  return {
+    canon: chunkCanon(repo.canon),
+    economy: chunkMarkdown(repo.economy, "economy", economyTopics),
+    rules: chunkMarkdown(repo.rules, "rules", rulesTopics, { level: 3 }),
+  };
+}
+
+// What happened this round, plus the GM's last answer: the keyword backup to the scene tag.
+function recentText(state) {
+  const lastGm = [...state.messages].reverse().find((m) => m.kind === "gm");
+  const now = state.messages.filter((m) => m.round === state.round && ["act", "flag", "roll"].includes(m.kind));
+  return [lastGm?.text || "", ...now.map((m) => m.kind === "roll" ? (m.label || "") : m.text)].join("\n");
 }
 
 async function mistralRequest(env, body) {
@@ -1346,6 +1380,18 @@ DICE_TOOLS.push({
     },
   },
 });
+DICE_TOOLS.push({
+  type: "function",
+  function: {
+    name: "lookup",
+    description: "Read a canon, economy or rules section, or a remembered person, that is listed in the INDEX but not loaded. Costs a little; use only when it matters.",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string", description: "A few words: a section title, a place, a faction or a person's name" } },
+      required: ["query"],
+    },
+  },
+});
 const MAX_GM_TOOL_ROUNDS = 4;
 
 // Turn the GM's request_rolls arguments into stored requests, or explain what's wrong.
@@ -1399,6 +1445,14 @@ async function gmTurn(env, model, messages, ctx = {}) {
       let args = {};
       try { args = typeof call.function?.arguments === "string" ? JSON.parse(call.function.arguments) : (call.function?.arguments || {}); } catch {}
       let content;
+      if (call.function?.name === "lookup") {
+        const hits = lookup(args.query, ctx.library || { canon: [], economy: [], rules: [] }, ctx.cast || []);
+        const content = hits.length
+          ? hits.map((d) => d.id?.startsWith("person:") ? personFull(JSON.parse(d.text)) : `### ${d.title}\n${d.text}`).join("\n\n").slice(0, 6000)
+          : "Nothing found for that. Check the INDEX titles.";
+        convo.push({ role: "tool", tool_call_id: call.id, name: "lookup", content });
+        continue;
+      }
       if (call.function?.name === "remember_npc") {
         const name = clean(String(args.name || ""), 80);
         if (name) {

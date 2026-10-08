@@ -14,6 +14,7 @@ campaign/log.md           session log + world clock
 campaign/cast.json        people the GM remembers (written at Save / End)
 api/worker.js             Cloudflare Worker: gate, state loader, Mistral proxy, shared table
 api/dice.js               dice engine: real randomness for players and the GM
+api/context.js            what the GM reads each turn: scene-based loading of canon, rules, economy, people
 rules/economy.md          currency, prices, gear tiers, item scales
 wrangler.toml             Worker config (no secrets in here), at repo root
 web/index.html            browser client, served by the Worker
