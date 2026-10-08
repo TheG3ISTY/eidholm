@@ -79,7 +79,7 @@ Until all three exist, Settings stays sealed (and without `GITHUB_WRITE_TOKEN`, 
 
 ## The shared table (Durable Object)
 
-The live session (seats, presence, actions, GM replies, spend) is stored in a Durable Object called `Table`, declared in `wrangler.toml`. It deploys automatically with the Worker; nothing to set up in the dashboard. **New** in the client wipes the shared scene for everyone (seats stay), so export first.
+The live session (seats, presence, actions, GM replies, spend) is stored in a Durable Object called `Table`, declared in `wrangler.toml`. It deploys automatically with the Worker; nothing to set up in the dashboard. Only the GM can clear the scene, by ending the session (saved) or discarding it, both in Settings.
 
 Browsers connect over a WebSocket. Because browsers can't send custom headers on a WebSocket, the client first trades the password for a signed ticket at `POST /api/ticket` (valid 60 s), then opens `/api/ws?ticket=...`. A forged or expired ticket is rejected before reaching the table.
 
@@ -101,12 +101,19 @@ People on the same Wi-Fi share one connection as far as this is concerned. If yo
 - Every turn re-sends canon + rules + party + the log tail + recent chat. The canon is placed first in the system prompt so the prefix is identical turn to turn, which is what prompt caching needs. Check the usage page in the Mistral console after the first sessions to see actual numbers.
 - Use the **Large** toggle for climactic scenes only.
 
-## Session workflow (state commits)
+## Session workflow (saving)
 
-The Worker only **reads** state. After a session:
+Saving is built in. In **Settings → The session**:
 
-1. Click **Export** in the client to download the transcript.
-2. Update `characters/party.json` and append a session entry to `campaign/log.md` (Claude can do this from the export).
-3. Commit with a `session:` message. Tag milestones (`git tag session-01`).
+1. **End session…** reads the live scene and asks the GM (one small Mistral call) to draft a summary: what happened, debts and enemies, suggested sheet changes, who joined or left, open threads. Without Mistral, or if the call fails, you write the summary yourself in the same box.
+2. Give the session a **title**, check the **world clock**, edit the summary.
+3. **Commit and end session** writes **one commit** (`session: end session N: Title`) containing:
+   - `campaign/sessions/YYYY-MM-DD-session-NN.md`, the full transcript word for word, with arrivals, departures and any unresolved actions noted;
+   - a new entry at the bottom of `campaign/log.md`, which is what the GM reads every turn;
+   - the new world clock in `characters/party.json`, if it changed.
 
-Commit prefixes: `session:` / `turn:` for state, `canon:` for lore (only by explicit decision), `rules:` for adopted mechanics, `app:` for code.
+   The transcript is taken at the moment you commit, so lines posted while you were editing are included. Then the scene clears for everyone; seats stay.
+
+Players joining, leaving or stepping away mid-session are recorded as lines in the scene, so the archive, the summary and the GM all know who was there for what.
+
+**Discard scene** (also in Settings) throws the scene away without saving, for test runs. Players can no longer clear the scene themselves.

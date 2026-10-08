@@ -26,7 +26,7 @@ const STATE_CACHE_SECONDS = 60;
 const TICKET_TTL_MS = 60_000;
 const MAX_TEXT = 2000;          // per action / table-talk message
 const MAX_NAME = 40;
-const MAX_STORED_MESSAGES = 600;
+const MAX_STORED_MESSAGES = 1500;   // a long evening; End session archives it all
 const SNAPSHOT_MESSAGES = 300;
 const GM_HISTORY_ROUNDS = 12;   // past rounds sent to the GM for continuity
 const STALE_RESOLVE_MS = 120_000;
@@ -131,7 +131,241 @@ async function handleAdmin(action, request, env) {
     }
   }
 
+  if (action === "prepare-end") return json(await prepareEnd(env));
+
+  if (action === "end-session") {
+    if (!env.GITHUB_WRITE_TOKEN) return json({ error: "No GITHUB_WRITE_TOKEN is set, so nothing can be saved to the repo." }, 501);
+    try {
+      return json(await endSession(env, body));
+    } catch (err) {
+      return json({ error: err.message }, err.status || 502);
+    }
+  }
+
+  if (action === "discard-scene") {
+    await tableCall(env, { t: "reset" });
+    return json({ ok: true });
+  }
+
   return json({ error: "Unknown setting." }, 404);
+}
+
+async function tableCall(env, msg) {
+  const stub = env.TABLE.get(env.TABLE.idFromName("main"));
+  const res = await stub.fetch("https://table/admin", { method: "POST", body: JSON.stringify(msg) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw httpError(data.error || `Table error ${res.status}`, res.status);
+  return data;
+}
+
+// ---------------- end of session ----------------
+
+async function prepareEnd(env) {
+  const scene = await tableCall(env, { t: "export" });
+  const repo = await loadState(env);
+  const sessionNo = nextSessionNumber(repo.log);
+  let party = {};
+  try { party = JSON.parse(repo.party || "{}"); } catch {}
+  const playable = scene.messages.filter((m) => m.kind !== "event");
+
+  let draft = "", draftError = null;
+  if (!playable.length) {
+    draftError = "The scene is empty, so there is nothing to summarise.";
+  } else {
+    try {
+      const out = await callMistral(env, env.MODEL, [
+        { role: "system", content: SUMMARY_PROMPT },
+        { role: "user", content: transcriptText(scene).slice(-60000) },
+      ]);
+      draft = out.reply.trim();
+    } catch (err) {
+      draftError = `The GM couldn't draft a summary (${err.message}). Write it yourself below.`;
+    }
+  }
+  return {
+    sessionNo,
+    date: today(),
+    worldClock: party.world_clock || "",
+    messageCount: scene.messages.length,
+    rounds: scene.round,
+    pending: scene.messages.filter((m) => m.round === scene.round && isPending(m)).length,
+    resolving: scene.resolving,
+    draft,
+    draftError,
+    archivePath: archivePath(sessionNo, today()),
+  };
+}
+
+const SUMMARY_PROMPT = `You are the chronicler of EIDHOLM, a techfantasy tabletop RPG. Summarise the session transcript you are given for the campaign log the Game Master will read before the next session.
+
+Write Markdown bullets only, no heading, under 250 words, in this order:
+- What happened, in order, with character names.
+- Decisions, debts, promises, enemies and allies made.
+- Changes to characters worth writing onto their sheets (wounds, scars, gear, standing). Phrase them as suggestions; do not invent numbers.
+- Who joined or left the table during the session, and roughly when.
+- Open threads to pick up next time.
+Never explain the Rim or the Frozen Archive. Do not invent events that are not in the transcript.`;
+
+async function endSession(env, body) {
+  const title = clean(body.title, 120) || "Untitled";
+  const summary = clean(body.summary, 8000, true);
+  const worldClock = clean(body.worldClock, 120);
+  if (!summary) throw httpError("Write at least a short summary before ending the session.", 400);
+
+  // Take the scene as it is now, not as it was when the draft was made.
+  const scene = await tableCall(env, { t: "export" });
+  if (scene.resolving) throw httpError("The GM is answering right now. Wait a moment, then end the session.", 409);
+  const upToId = scene.messages.reduce((mx, m) => Math.max(mx, m.id), 0);
+
+  const repo = await readFilesFresh(env, [STATE_FILES.log, STATE_FILES.party]);
+  const sessionNo = nextSessionNumber(repo[STATE_FILES.log]);
+  const date = today();
+  const path = archivePath(sessionNo, date);
+
+  // 1. the archive
+  const archive = transcriptMarkdown(scene, { sessionNo, title, date, worldClock });
+
+  // 2. the log: append the entry, keep the "World clock" line at the top current
+  let log = repo[STATE_FILES.log] || "# Eidholm: Campaign Log\n";
+  if (worldClock) {
+    log = /^\*\*World clock:\*\*.*$/m.test(log)
+      ? log.replace(/^\*\*World clock:\*\*.*$/m, `**World clock:** ${worldClock}`)
+      : log.replace(/^(# .*\n)/, `$1\n**World clock:** ${worldClock}\n`);
+  }
+  log = log.replace(/\n*No sessions played yet\.[^\n]*\n?/, "\n");
+  log = log.replace(/\s*$/, "\n") + `\n## Session ${sessionNo}: ${title} (${date})\n` +
+    (worldClock ? `**World clock:** ${worldClock}  \n` : "") +
+    `**Transcript:** [${path}](${path.replace(/^campaign\//, "")})\n\n${summary}\n`;
+
+  const files = { [path]: archive, [STATE_FILES.log]: log };
+
+  // 3. the party file's clock, if it changed
+  if (worldClock && repo[STATE_FILES.party]) {
+    try {
+      const party = JSON.parse(repo[STATE_FILES.party]);
+      if (party.world_clock !== worldClock) {
+        party.world_clock = worldClock;
+        files[STATE_FILES.party] = JSON.stringify(party, null, 2) + "\n";
+      }
+    } catch {}
+  }
+
+  // All of it as ONE commit.
+  const sha = await commitFiles(env, files, `session: end session ${sessionNo}: ${title}`);
+
+  for (const f of [STATE_FILES.log, STATE_FILES.party]) {
+    await caches.default.delete(new Request(`https://eidholm-state.cache/${env.GITHUB_BRANCH}/${f}`));
+  }
+  await tableCall(env, { t: "reset", upToId });
+  await tableCall(env, { t: "partyChanged" });
+  return { ok: true, sessionNo, archivePath: path, commit: sha };
+}
+
+function nextSessionNumber(log) {
+  const nums = [...String(log || "").matchAll(/^## Session (\d+)/gm)].map((m) => Number(m[1]));
+  return (nums.length ? Math.max(...nums) : 0) + 1;
+}
+
+function archivePath(n, date) {
+  return `campaign/sessions/${date}-session-${String(n).padStart(2, "0")}.md`;
+}
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function who(m) {
+  return m.character ? `${m.character} (${m.author})` : m.author;
+}
+
+// Plain text for the summariser.
+function transcriptText(scene) {
+  return scene.messages.map((m) => {
+    if (m.kind === "gm") return `GM: ${m.text}`;
+    if (m.kind === "act") return `[round ${m.round}] ${who(m)}: ${m.text}`;
+    if (m.kind === "pass") return `[round ${m.round}] ${who(m)} passes.`;
+    if (m.kind === "event") return `[round ${m.round}] (table) ${m.text}`;
+    return `(out of character) ${m.author}: ${m.text}`;
+  }).join("\n\n");
+}
+
+// The archive file: the whole session, word for word.
+function transcriptMarkdown(scene, { sessionNo, title, date, worldClock }) {
+  const tokens = ["small", "large"].reduce((n, t) => n + (scene.spend?.[t]?.in || 0) + (scene.spend?.[t]?.out || 0), 0);
+  const events = scene.messages.filter((m) => m.kind === "event");
+  const body = scene.messages.map((m) => {
+    if (m.kind === "gm") return `**GM:**\n\n${m.text}`;
+    if (m.kind === "act") return `**${who(m)}:** ${m.text}`;
+    if (m.kind === "pass") return `*${who(m)} passes.*`;
+    if (m.kind === "event") return `> *${m.text}*`;
+    return `> OOC ${m.author}: ${m.text}`;
+  }).join("\n\n");
+  const pending = scene.messages.filter((m) => m.round === scene.round && isPending(m));
+  return `# Session ${sessionNo}: ${title}
+
+- **Date:** ${date}
+- **World clock at the end:** ${worldClock || "unchanged"}
+- **Rounds:** ${scene.round - (pending.length ? 0 : 1)}
+- **Seats at the end:** ${scene.seats.map((s) => `${label(s)}${s.present ? "" : " (absent)"}`).join(", ") || "none"}
+- **Arrivals and departures:** ${events.length ? events.map((e) => e.text).join(" · ") : "none"}
+- **Tokens:** ${tokens.toLocaleString("en")}
+${pending.length ? `- **Unresolved at the end:** ${pending.length} action(s) were still waiting for the GM.\n` : ""}
+---
+
+${body || "*Nothing was played.*"}
+`;
+}
+
+async function readFilesFresh(env, paths) {
+  const base = env.GITHUB_API || "https://api.github.com";
+  const out = {};
+  await Promise.all(paths.map(async (path) => {
+    const res = await fetch(`${base}/repos/${env.GITHUB_REPO}/contents/${path}?ref=${env.GITHUB_BRANCH}`, {
+      headers: {
+        Authorization: `Bearer ${env.GITHUB_WRITE_TOKEN}`,
+        Accept: "application/vnd.github.raw+json",
+        "User-Agent": "eidholm-worker",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (res.status === 404) { out[path] = ""; return; }
+    if (!res.ok) throw httpError(`Could not read ${path} (GitHub ${res.status}).`, 502);
+    out[path] = await res.text();
+  }));
+  return out;
+}
+
+// Several files in a single commit, via the Git Data API.
+async function commitFiles(env, files, message) {
+  const base = env.GITHUB_API || "https://api.github.com";
+  const repo = `${base}/repos/${env.GITHUB_REPO}`;
+  const headers = {
+    Authorization: `Bearer ${env.GITHUB_WRITE_TOKEN}`,
+    Accept: "application/vnd.github+json",
+    "Content-Type": "application/json",
+    "User-Agent": "eidholm-worker",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+  const gh = async (path, init = {}) => {
+    const res = await fetch(repo + path, { headers, ...init });
+    if (!res.ok) throw httpError(`GitHub refused the save (${res.status} on ${path.split("/").slice(0, 3).join("/")}). Check the write token's permissions.`, 502);
+    return res.json();
+  };
+  const ref = await gh(`/git/ref/heads/${env.GITHUB_BRANCH}`);
+  const parent = await gh(`/git/commits/${ref.object.sha}`);
+  const tree = await gh(`/git/trees`, {
+    method: "POST",
+    body: JSON.stringify({
+      base_tree: parent.tree.sha,
+      tree: Object.entries(files).map(([path, content]) => ({ path, mode: "100644", type: "blob", content })),
+    }),
+  });
+  const commit = await gh(`/git/commits`, {
+    method: "POST",
+    body: JSON.stringify({ message, tree: tree.sha, parents: [ref.object.sha] }),
+  });
+  await gh(`/git/refs/heads/${env.GITHUB_BRANCH}`, { method: "PATCH", body: JSON.stringify({ sha: commit.sha }) });
+  return commit.sha;
 }
 
 // Every change to characters/party.json goes through here: read the current
@@ -284,11 +518,26 @@ export class Table extends DurableObject {
       const msg = await request.json().catch(() => ({}));
       const state = await this.load();
       if (msg.t === "removeSeat") {
-        const before = state.seats.length;
+        const gone = state.seats.find((s) => s.id === msg.id);
+        if (!gone) return json({ error: "That seat no longer exists." }, 404);
         state.seats = state.seats.filter((s) => s.id !== msg.id);
-        if (state.seats.length === before) return json({ error: "That seat no longer exists." }, 404);
+        addEvent(state, `${label(gone)} leaves the table.`, gone);
         state.messages = state.messages.filter((m) => !(m.round === state.round && isPending(m) && m.seatId === msg.id));
         if (!(await this.maybeAutoResolve(state))) await this.commit(state);
+        return json({ ok: true });
+      }
+      if (msg.t === "export") {
+        return json({ seats: state.seats, messages: state.messages, round: state.round, spend: state.spend, resolving: isResolving(state) });
+      }
+      if (msg.t === "reset") {
+        // Only clear what was archived: anything newer stays for the next session.
+        const upTo = Number(msg.upToId) || Infinity;
+        state.messages = state.messages.filter((m) => m.id > upTo);
+        for (const m of state.messages) m.round = 1;
+        state.round = 1;
+        state.resolvingSince = 0;
+        state.spend = { small: { in: 0, out: 0 }, large: { in: 0, out: 0 } };
+        await this.commit(state);
         return json({ ok: true });
       }
       if (msg.t === "partyChanged") {
@@ -382,6 +631,7 @@ export class Table extends DurableObject {
         if (!player) throw new Error("A name is needed to take a seat.");
         const s = { id: "s" + crypto.randomUUID().slice(0, 8), player, character: clean(msg.character, MAX_NAME), present: true };
         state.seats.push(s);
+        addEvent(state, s.character ? `${s.character} (${s.player}) takes a seat.` : `${s.player} takes a seat, without a character yet.`, s);
         send(ws, { t: "joined", seatId: s.id });
         return this.commit(state);
       }
@@ -390,9 +640,14 @@ export class Table extends DurableObject {
         const s = seat(msg.id);
         if (!s) throw new Error("That seat no longer exists.");
         const p = msg.patch || {};
-        if (typeof p.present === "boolean") s.present = p.present;
+        const before = label(s);
         if (typeof p.player === "string" && clean(p.player, MAX_NAME)) s.player = clean(p.player, MAX_NAME);
         if (typeof p.character === "string") s.character = clean(p.character, MAX_NAME);
+        if (label(s) !== before) addEvent(state, `${before} is now known as ${label(s)}.`, s);
+        if (typeof p.present === "boolean" && p.present !== s.present) {
+          s.present = p.present;
+          addEvent(state, s.present ? `${label(s)} is back at the table.` : `${label(s)} steps away (marked absent).`, s);
+        }
         // Marking someone absent can complete a round.
         if (await this.maybeAutoResolve(state)) return;
         return this.commit(state);
@@ -447,13 +702,8 @@ export class Table extends DurableObject {
         return this.commit(state);
       }
 
-      case "reset": {
-        state.messages = [];
-        state.round = 1;
-        state.resolvingSince = 0;
-        state.spend = { small: { in: 0, out: 0 }, large: { in: 0, out: 0 } };
-        return this.commit(state);
-      }
+      case "reset":
+        throw new Error("Only the Game Master can end or discard a session, from Settings.");
 
       default:
         throw new Error("Unknown command.");
@@ -523,6 +773,12 @@ export class Table extends DurableObject {
   }
 }
 
+// Arrivals, departures and presence changes are part of the record: everyone
+// sees them, they are archived, and the GM sees them in the round they happened.
+function addEvent(state, text, seat) {
+  state.messages.push({ id: state.nextId++, kind: "event", round: state.round, seatId: seat?.id, text, ts: Date.now() });
+}
+
 function isPending(m) {
   return m.kind === "act" || m.kind === "pass";
 }
@@ -550,11 +806,12 @@ function buildConversation(state) {
 
   const out = [];
   for (const r of rounds) {
-    const acts = state.messages.filter((m) => m.round === r && isPending(m));
+    const acts = state.messages.filter((m) => m.round === r && (isPending(m) || m.kind === "event"));
     const gm = state.messages.find((m) => m.round === r && m.kind === "gm");
-    if (!acts.length && !gm) continue;
+    if (!acts.some(isPending) && !gm) continue;
 
     const lines = acts.map((m) => {
+      if (m.kind === "event") return `- (at the table) ${m.text}`;
       const who = m.character ? `${m.character} (played by ${m.author})` : m.author;
       return m.kind === "pass" ? `- ${who} passes this beat.` : `- ${who}: ${m.text}`;
     });
@@ -583,7 +840,9 @@ function buildSystemPrompt(state) {
 - Characters marked absent are elsewhere. Never narrate them acting or speaking.
 - Second person plural when addressing the group, by character name when addressing one. Present tense. Vivid but economical: usually 2 to 5 paragraphs, then hand control back with a situation the table can act on.
 - Never decide what player characters think, say, or choose.
+- Players may join or leave mid-session; "(at the table)" lines tell you when. Weave arrivals and departures into the fiction plausibly.
 - If the party roster is empty, the table is in character creation: help each player build a character that fits the canon, one question at a time, and summarise each finished character clearly so it can be written to the party file.
+- If a player is seated without a character, or their character is not in the PARTY file yet, help them create one alongside the scene, without stalling the others.
 - NPCs have their own agendas, faiths and fears. Minds of glass are people, not appliances.
 - Stay inside the canon below. Do not contradict it. You may invent local detail (names, streets, minor NPCs) that fits it.
 - THE RIM AND THE FROZEN ARCHIVE ARE DELIBERATELY UNDEFINED. Never explain what the Archive is, who or what records at the pole, or why it deletes. Rumour, dread and contradiction only. No revelations, ever.

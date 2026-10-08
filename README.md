@@ -36,7 +36,10 @@ Everyone with the password plays the **same live scene** from their own device.
 - **Settings** (separate username + password) lets the GM remove seats, and turns the Party tab into an editor: edit, create, rename and delete character sheets, set the world clock. Every change is a commit. Players see all sheets read-only and can't remove anyone.
 - Absent characters are elsewhere in the story; the GM never narrates them.
 
-The live session lives in a Durable Object (`Table` in `api/worker.js`). The repo stays the long-term record; export a session and commit it to the log.
+- Arrivals, departures and presence changes are recorded in the scene as they happen.
+- **End session** (in Settings) archives the full transcript to `campaign/sessions/`, adds a GM-drafted, GM-edited summary to `campaign/log.md` and updates the world clock, all in one commit.
+
+The live session lives in a Durable Object (`Table` in `api/worker.js`); the repo is the long-term record.
 
 ## In the client
 

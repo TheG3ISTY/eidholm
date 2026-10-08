@@ -137,6 +137,8 @@
   .who { display: block; font-style: normal; font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; color: var(--ink-dim); margin-bottom: 2px; }
   .who .tag { color: var(--ember); margin-left: 6px; }
   .turn.pass { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); padding-left: 16px; }
+  .turn.event { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-dim); text-align: center; opacity: 0.8; }
+  .turn.event::before, .turn.event::after { content: " ── "; color: var(--line); }
   .turn.ooc { font-family: var(--mono); font-size: 13px; color: var(--ink-dim); padding-left: 16px; white-space: pre-wrap; }
   .turn.ooc b { color: var(--glass); font-weight: 500; }
   .turn.err { color: var(--danger); font-family: var(--mono); font-size: 13px; }
@@ -213,6 +215,9 @@
   .ghost.danger:hover { border-color: var(--danger); color: var(--ink); background: rgba(192,83,63,0.25); }
   .ghost:disabled { opacity: 0.4; cursor: default; }
   .set-foot { margin-top: 22px; }
+  .warn { border-left: 2px solid var(--ember); padding: 4px 10px; font-size: 15px; color: var(--ink); margin: 0 0 10px; }
+  .ok-msg { border-left: 2px solid var(--glass); padding: 4px 10px; font-size: 15px; margin: 0 0 10px; }
+  .small { font-size: 14px; }
   .edit-card { display: grid; gap: 8px; }
   .edit-card.dirty { border-color: var(--ember-dim); }
   .edit-card h3 { margin-bottom: 0; }
@@ -285,7 +290,6 @@
       <button type="button" class="ghost" id="codex-open" title="Table, party, log, rules and world (no tokens spent)">Codex</button>
       <button type="button" class="ghost" id="settings-open" title="Game Master settings (username and password)">Settings</button>
       <button type="button" class="ghost" id="export" title="Download the shared scene as Markdown">Export</button>
-      <button type="button" class="ghost" id="reset" title="Clear the shared scene for everyone">New</button>
       <button type="button" class="ghost" id="lock" title="Leave and forget the password on this device">Lock</button>
     </div>
   </header>
@@ -450,7 +454,11 @@
     ws.onopen = () => { retry = 0; $("conn").classList.add("live"); };
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch { return; }
-      if (m.t === "state") { table = m; route(); }
+      if (m.t === "state") {
+        // A fresh scene (session ended or discarded) also clears this device's local lines.
+        if (table && table.messages.length && !m.messages.length) { notes = []; errors = []; }
+        table = m; route();
+      }
       else if (m.t === "joined") takeSeat(m.seatId);
       else if (m.t === "error") pushError(m.text);
       else if (m.t === "party-changed") partyChanged();
@@ -484,11 +492,6 @@
     b.addEventListener("click", () => send({ t: "tier", tier: b.dataset.tier }));
   });
 
-  $("reset").addEventListener("click", () => {
-    if (!confirm("Start a new scene for EVERYONE at the table? The shared chat is wiped. Export first if you want to keep it.")) return;
-    notes = []; errors = [];
-    send({ t: "reset" });
-  });
 
   $("export").addEventListener("click", () => {
     if (!table) return;
@@ -498,6 +501,7 @@
       if (m.kind === "gm") return `**GM:**\n\n${m.text}`;
       if (m.kind === "act") return `**${who}:** ${m.text}`;
       if (m.kind === "pass") return `*${who} passes.*`;
+      if (m.kind === "event") return `> *${m.text}*`;
       return `> OOC ${m.author}: ${m.text}`;
     }).join("\n\n---\n\n");
     const t = totals();
@@ -616,6 +620,9 @@
         } else if (m.kind === "pass") {
           div.className = "turn pass";
           div.textContent = `${who} passes${isPend ? " (pending)" : ""}.`;
+        } else if (m.kind === "event") {
+          div.className = "turn event";
+          div.textContent = m.text;
         } else if (m.kind === "ooc") {
           div.className = "turn ooc";
           div.innerHTML = `<b>${escapeHtml(m.author)}:</b> `;
@@ -840,7 +847,10 @@
       return;
     }
     $("codex-status").textContent = "Unsealed · every action is checked by the server";
-    body.innerHTML = `<h3 class="set-h">Seats at the table</h3>
+    body.innerHTML = `<h3 class="set-h">The session</h3>
+      <p class="muted">End session archives the whole scene word for word, adds your summary to the campaign log, updates the world clock, all as one commit, then clears the scene. Seats stay.</p>
+      <div id="set-session"></div>
+      <h3 class="set-h">Seats at the table</h3>
       <p class="muted">Removes the seat for everyone, right now. The scene and the party file are untouched.</p>
       <div id="set-seats"></div>
       <h3 class="set-h">Characters in the party file</h3>
@@ -850,6 +860,64 @@
     $("admin-seal").addEventListener("click", () => { sealSettings(); renderSettings(); });
     renderSettingsSeats();
     renderSettingsParty(force);
+    renderSessionIdle();
+  }
+
+  function renderSessionIdle(notice = "") {
+    const box = $("set-session");
+    if (!box) return;
+    box.innerHTML = (notice ? `<p class="ok-msg">${notice}</p>` : "") +
+      `<div class="ebar"><button type="button" class="ghost" id="end-prep">End session…</button>
+       <button type="button" class="ghost danger" id="discard">Discard scene</button></div>`;
+    $("end-prep").addEventListener("click", prepareEndSession);
+    $("discard").addEventListener("click", async () => {
+      if (!confirm("Throw away the current scene WITHOUT saving it? This can't be undone. (Seats stay.)")) return;
+      try { await adminCall("discard-scene"); notes = []; errors = []; renderSessionIdle("Scene discarded."); }
+      catch (err) { if (err.message !== "locked") alert(err.message); }
+    });
+  }
+
+  async function prepareEndSession() {
+    const box = $("set-session");
+    box.innerHTML = '<p class="muted">Reading the scene and asking the GM for a summary draft…</p>';
+    let prep;
+    try { prep = await adminCall("prepare-end"); }
+    catch (err) { if (err.message !== "locked") renderSessionIdle(); if (err.message !== "locked") alert(err.message); return; }
+    if (!prep.messageCount) { renderSessionIdle("The scene is empty. Nothing to save."); return; }
+    const warn = [];
+    if (prep.draftError) warn.push(prep.draftError);
+    if (prep.pending) warn.push(`${prep.pending} action(s) are still waiting for the GM. They'll be archived as unresolved.`);
+    if (prep.resolving) warn.push("The GM is answering right now. Wait for it before committing.");
+    box.innerHTML = `
+      ${warn.map((w) => `<p class="warn">${escapeHtml(w)}</p>`).join("")}
+      <div class="card edit-card">
+        <div class="erow"><label>session</label><input class="field" value="Session ${prep.sessionNo} · ${escapeHtml(prep.date)}" disabled></div>
+        <div class="erow"><label>title</label><input class="field" id="end-title" maxlength="120" placeholder="e.g. Ash at the Gate"></div>
+        <div class="erow"><label>world clock</label><input class="field" id="end-clock" maxlength="120" value="${escapeHtml(prep.worldClock)}"></div>
+        <div class="erow"><label>summary</label><textarea class="field" id="end-summary" rows="12" placeholder="- What happened&#10;- Debts and enemies&#10;- Who joined or left&#10;- Open threads"></textarea></div>
+        <p class="muted small">${prep.messageCount} lines over ${prep.rounds} round(s) will be archived to <code>${escapeHtml(prep.archivePath)}</code>. Anything posted while you edit is included too.</p>
+        <div class="ebar"><span class="emsg" id="end-msg"></span>
+          <button type="button" class="ghost" id="end-cancel">Cancel</button>
+          <button type="button" class="ghost" id="end-commit">Commit and end session</button></div>
+      </div>`;
+    $("end-summary").value = prep.draft || "";
+    $("end-title").focus();
+    $("end-cancel").addEventListener("click", () => renderSessionIdle());
+    $("end-commit").addEventListener("click", async (e) => {
+      const title = $("end-title").value.trim();
+      const summary = $("end-summary").value.trim();
+      if (!title) { $("end-msg").textContent = "Give the session a title."; return; }
+      if (!summary) { $("end-msg").textContent = "Write at least a short summary."; return; }
+      if (!confirm(`End session ${prep.sessionNo} "${title}" for everyone? The scene will be archived and cleared.`)) return;
+      e.target.disabled = true; $("end-msg").textContent = "Saving…";
+      try {
+        const res = await adminCall("end-session", { title, summary, worldClock: $("end-clock").value });
+        notes = []; errors = []; codexState = null;
+        renderSessionIdle(`Session ${res.sessionNo} saved. Transcript: <code>${escapeHtml(res.archivePath)}</code>`);
+      } catch (err) {
+        if (err.message !== "locked") { $("end-msg").textContent = err.message; e.target.disabled = false; }
+      }
+    });
   }
 
   function renderSettingsSeats() {
@@ -926,6 +994,7 @@
     codexState = null;
     const open = $("codex").classList.contains("open");
     if (!open || !(codexTab === "party" || codexTab === "settings")) return;
+    if (codexTab === "settings") { if (admin) renderSettingsParty(true); return; }
     if (editorDirty) { $("codex-status").textContent = "The party file changed elsewhere. Save or Refresh when you're done."; return; }
     renderCodex(true);
   }
