@@ -71,7 +71,7 @@ Add these as **Secrets** (Settings → Variables and Secrets):
 |---|---|
 | `ADMIN_USERNAME` | the Settings username |
 | `ADMIN_PASSWORD` | the Settings password (use a different one from `GAME_PASSWORD`) |
-| `GITHUB_WRITE_TOKEN` | a **second** fine-grained token: only `TheG3ISTY/eidholm`, **Contents: Read and write**. Only used for deleting characters from the party file. |
+| `GITHUB_WRITE_TOKEN` | a **second** fine-grained token: only `TheG3ISTY/eidholm`, **Contents: Read and write**. Used for sheet edits, saving and ending sessions. |
 
 Once unsealed, the **Party** tab in the Codex becomes an editor on that device: change any field, add or remove fields, rename, create characters, and set the world clock and location. Players always see every sheet, read-only, and their screens refresh the moment a change is saved.
 
@@ -103,12 +103,17 @@ People on the same Wi-Fi share one connection as far as this is concerned. If yo
 
 ## Session workflow (saving)
 
-Saving is built in. In **Settings → The session**:
+Saving is built in, with two buttons:
+
+- **Save** (on your own seat chip in the roster strip, anyone at the table): a checkpoint. The transcript so far is committed to this session's archive file (`session: save session N (checkpoint by ...)`); play continues. Every later save updates the same file. One save per 30 seconds for the whole table; the header shows when and by whom it was last saved. The live scene is already stored safely on Cloudflare, so Save is about getting the record into the repo early, not about rescuing the game.
+- **End session** (Settings, GM only): closes the evening, as below.
+
+In **Settings → The session**:
 
 1. **End session…** reads the live scene and asks the GM (one small Mistral call) to draft a summary: what happened, debts and enemies, suggested sheet changes, who joined or left, open threads. Without Mistral, or if the call fails, you write the summary yourself in the same box.
 2. Give the session a **title**, check the **world clock**, edit the summary.
 3. **Commit and end session** writes **one commit** (`session: end session N: Title`) containing:
-   - `campaign/sessions/YYYY-MM-DD-session-NN.md`, the full transcript word for word, with arrivals, departures and any unresolved actions noted;
+   - `campaign/sessions/YYYY-MM-DD-session-NN.md`, the full transcript word for word, with arrivals, departures and any unresolved actions noted (the same file any checkpoint saves wrote to; a session keeps its number and date even past midnight);
    - a new entry at the bottom of `campaign/log.md`, which is what the GM reads every turn;
    - the new world clock in `characters/party.json`, if it changed.
 

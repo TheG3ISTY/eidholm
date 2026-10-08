@@ -37,7 +37,8 @@ Everyone with the password plays the **same live scene** from their own device.
 - Absent characters are elsewhere in the story; the GM never narrates them.
 
 - Arrivals, departures and presence changes are recorded in the scene as they happen.
-- **End session** (in Settings) archives the full transcript to `campaign/sessions/`, adds a GM-drafted, GM-edited summary to `campaign/log.md` and updates the world clock, all in one commit.
+- **Save** (on your own seat chip, anyone) commits the transcript so far to this session's archive file; play continues.
+- **End session** (Settings, GM only) archives the final transcript to `campaign/sessions/`, adds a GM-drafted, GM-edited summary to `campaign/log.md` and updates the world clock, all in one commit, then clears the scene.
 
 The live session lives in a Durable Object (`Table` in `api/worker.js`); the repo is the long-term record.
 

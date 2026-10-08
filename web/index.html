@@ -123,6 +123,9 @@
     font-family: var(--mono); font-size: 11px; color: var(--ink-dim); padding: 1px 6px;
   }
   .chip button:hover { color: var(--ink); border-color: var(--ink-dim); }
+  .chip button.save { border-color: var(--brass); color: var(--brass); }
+  .chip button.save:hover:not(:disabled) { background: var(--brass); color: var(--bg); }
+  .chip button:disabled { opacity: 0.5; cursor: default; }
 
   #log { flex: 1; overflow-y: auto; padding: 28px 16px 12px; }
   .turn { max-width: 720px; margin: 0 auto 22px; }
@@ -287,6 +290,7 @@
         <button type="button" data-tier="large" title="mistral-large: climactic scenes only">Large</button>
       </div>
       <span class="meter" id="meter">0 tok · <b>$0.0000</b></span>
+      <span class="meter" id="saved-stamp"></span>
       <button type="button" class="ghost" id="codex-open" title="Table, party, log, rules and world (no tokens spent)">Codex</button>
       <button type="button" class="ghost" id="settings-open" title="Game Master settings (username and password)">Settings</button>
       <button type="button" class="ghost" id="export" title="Download the shared scene as Markdown">Export</button>
@@ -537,6 +541,27 @@
 
   $("pass").addEventListener("click", () => send({ t: "pass", seatId: mySeat }));
 
+  // Checkpoint save: anyone at the table. Writes the transcript so far to the repo; play continues.
+  let saving = false;
+  async function saveNow() {
+    if (saving) return;
+    saving = true; render();
+    try {
+      const r = await fetch(API + "/api/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Game-Password": password },
+        body: JSON.stringify({ seatId: mySeat }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.status === 401) return lock("The word has changed.");
+      if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+    } catch (err) {
+      pushError("Save failed: " + err.message);
+    } finally {
+      saving = false; render();
+    }
+  }
+
   function clearInput() { msg.value = ""; msg.style.height = "auto"; }
 
   // ================= render =================
@@ -564,6 +589,9 @@
     document.querySelectorAll(".seg button").forEach((b) => b.classList.toggle("on", b.dataset.tier === table.tier));
     const t = totals();
     $("meter").innerHTML = `${t.tokens.toLocaleString()} tok · <b>$${t.usd.toFixed(4)}</b>`;
+    $("saved-stamp").textContent = table.saved
+      ? `Saved ${new Date(table.saved.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${table.saved.by ? " by " + table.saved.by : ""}`
+      : "";
 
     // roster
     const roster = $("roster");
@@ -574,6 +602,15 @@
       const st = !s.present ? ["absent", ""] : answered.get(s.id) === "act" ? ["acted", "acted"]
         : answered.get(s.id) === "pass" ? ["passed", "passed"] : ["waiting", ""];
       chip.innerHTML = `<span class="name">${escapeHtml(seatLabel(s))}</span><span class="status ${st[1]}">${st[0]}</span>`;
+      if (s.id === mySeat) {
+        const sv = document.createElement("button");
+        sv.type = "button"; sv.className = "save";
+        sv.textContent = saving ? "Saving…" : "Save";
+        sv.disabled = saving;
+        sv.title = "Save the session so far to the repo. Play continues.";
+        sv.addEventListener("click", saveNow);
+        chip.appendChild(sv);
+      }
       const tog = document.createElement("button");
       tog.type = "button";
       tog.textContent = s.present ? "Mark absent" : "Mark present";
@@ -866,7 +903,10 @@
   function renderSessionIdle(notice = "") {
     const box = $("set-session");
     if (!box) return;
-    box.innerHTML = (notice ? `<p class="ok-msg">${notice}</p>` : "") +
+    const st = table && table.saved
+      ? `<p class="muted small">Session ${table.saved.no} last saved at ${new Date(table.saved.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${table.saved.by ? " by " + escapeHtml(table.saved.by) : ""}. Anyone at the table can press <b>Save</b> on their own seat chip; only you can end the session.</p>`
+      : '<p class="muted small">Not saved yet this session. Anyone at the table can press <b>Save</b> on their own seat chip; only you can end the session.</p>';
+    box.innerHTML = (notice ? `<p class="ok-msg">${notice}</p>` : "") + st +
       `<div class="ebar"><button type="button" class="ghost" id="end-prep">End session…</button>
        <button type="button" class="ghost danger" id="discard">Discard scene</button></div>`;
     $("end-prep").addEventListener("click", prepareEndSession);

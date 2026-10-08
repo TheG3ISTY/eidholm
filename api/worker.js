@@ -30,6 +30,7 @@ const MAX_STORED_MESSAGES = 1500;   // a long evening; End session archives it a
 const SNAPSHOT_MESSAGES = 300;
 const GM_HISTORY_ROUNDS = 12;   // past rounds sent to the GM for continuity
 const STALE_RESOLVE_MS = 120_000;
+const SAVE_COOLDOWN_MS = 30_000;   // one checkpoint save per 30 s for the whole table
 
 // The bouncer: wrong guesses per connection, per gate.
 const MAX_FAILS = 5;
@@ -67,6 +68,15 @@ export default {
 
       if (url.pathname === "/api/check") return json({ ok: true });
       if (url.pathname === "/api/ticket") return json({ ticket: await makeTicket(env.GAME_PASSWORD) });
+      if (url.pathname === "/api/save") {
+        if (!env.GITHUB_WRITE_TOKEN) return json({ error: "Saving isn't set up yet (no GITHUB_WRITE_TOKEN on the Worker)." }, 501);
+        const body = await request.json().catch(() => ({}));
+        try {
+          return json(await saveCheckpoint(env, body.seatId));
+        } catch (err) {
+          return json({ error: err.message, retryAfter: err.retryAfter }, err.status || 502);
+        }
+      }
 
       // Second gate: the Game Master's settings. Needs the admin password as well.
       if (url.pathname.startsWith("/api/admin/")) {
@@ -163,7 +173,7 @@ async function tableCall(env, msg) {
 async function prepareEnd(env) {
   const scene = await tableCall(env, { t: "export" });
   const repo = await loadState(env);
-  const sessionNo = nextSessionNumber(repo.log);
+  const sessionNo = scene.session?.no || nextSessionNumber(repo.log);
   let party = {};
   try { party = JSON.parse(repo.party || "{}"); } catch {}
   const playable = scene.messages.filter((m) => m.kind !== "event");
@@ -192,7 +202,8 @@ async function prepareEnd(env) {
     resolving: scene.resolving,
     draft,
     draftError,
-    archivePath: archivePath(sessionNo, today()),
+    archivePath: scene.session?.path || archivePath(sessionNo, today()),
+    savedAt: scene.session?.savedAt || 0,
   };
 }
 
@@ -218,9 +229,10 @@ async function endSession(env, body) {
   const upToId = scene.messages.reduce((mx, m) => Math.max(mx, m.id), 0);
 
   const repo = await readFilesFresh(env, [STATE_FILES.log, STATE_FILES.party]);
-  const sessionNo = nextSessionNumber(repo[STATE_FILES.log]);
-  const date = today();
-  const path = archivePath(sessionNo, date);
+  // A session that was already checkpointed keeps its number, date and file.
+  const sessionNo = scene.session?.no || nextSessionNumber(repo[STATE_FILES.log]);
+  const date = scene.session?.date || today();
+  const path = scene.session?.path || archivePath(sessionNo, date);
 
   // 1. the archive
   const archive = transcriptMarkdown(scene, { sessionNo, title, date, worldClock });
@@ -259,6 +271,34 @@ async function endSession(env, body) {
   await tableCall(env, { t: "reset", upToId });
   await tableCall(env, { t: "partyChanged" });
   return { ok: true, sessionNo, archivePath: path, commit: sha };
+}
+
+// Mid-session checkpoint: the transcript so far goes into this session's
+// archive file (the same file every time); the scene keeps going.
+async function saveCheckpoint(env, seatId) {
+  let scene = await tableCall(env, { t: "export" });
+  let session = scene.session?.no ? scene.session : null;
+  if (!session) {
+    const repo = await readFilesFresh(env, [STATE_FILES.log]);
+    const no = nextSessionNumber(repo[STATE_FILES.log]);
+    session = { no, date: today(), path: archivePath(no, today()) };
+  }
+  const claim = await tableCall(env, { t: "claimSave", session: { no: session.no, date: session.date, path: session.path } })
+    .catch((err) => { if (err.status === 429) err.retryAfter = 30; throw err; });
+  session = claim.session;
+  scene = await tableCall(env, { t: "export" });
+
+  const seat = scene.seats.find((s) => s.id === seatId);
+  const by = seat ? label(seat) : "the table";
+  try {
+    const archive = transcriptMarkdown(scene, { sessionNo: session.no, title: "in progress", date: session.date, worldClock: "" });
+    await commitFiles(env, { [session.path]: archive }, `session: save session ${session.no} (checkpoint by ${by})`);
+    await tableCall(env, { t: "markSaved", ok: true, by });
+    return { ok: true, sessionNo: session.no, path: session.path };
+  } catch (err) {
+    await tableCall(env, { t: "markSaved", ok: false }).catch(() => {});
+    throw err;
+  }
 }
 
 function nextSessionNumber(log) {
@@ -303,7 +343,7 @@ function transcriptMarkdown(scene, { sessionNo, title, date, worldClock }) {
   const pending = scene.messages.filter((m) => m.round === scene.round && isPending(m));
   return `# Session ${sessionNo}: ${title}
 
-- **Date:** ${date}
+- **Date:** ${date}${title === "in progress" ? "\n- **Status:** in progress (checkpoint save)" : ""}
 - **World clock at the end:** ${worldClock || "unchanged"}
 - **Rounds:** ${scene.round - (pending.length ? 0 : 1)}
 - **Seats at the end:** ${scene.seats.map((s) => `${label(s)}${s.present ? "" : " (absent)"}`).join(", ") || "none"}
@@ -527,7 +567,21 @@ export class Table extends DurableObject {
         return json({ ok: true });
       }
       if (msg.t === "export") {
-        return json({ seats: state.seats, messages: state.messages, round: state.round, spend: state.spend, resolving: isResolving(state) });
+        return json({ seats: state.seats, messages: state.messages, round: state.round, spend: state.spend, resolving: isResolving(state), session: state.session });
+      }
+      if (msg.t === "claimSave") {
+        // Cooldown, checked and claimed in one step so two players can't both save at once.
+        const last = state.session?.savingAt || state.session?.savedAt || 0;
+        const wait = SAVE_COOLDOWN_MS - (Date.now() - last);
+        if (wait > 0) return json({ error: `Saved moments ago. Next save possible in ${Math.ceil(wait / 1000)} s.`, retryAfter: Math.ceil(wait / 1000) }, 429);
+        state.session = { ...(state.session || {}), ...(msg.session || {}), savingAt: Date.now() };
+        await this.save(state);
+        return json({ ok: true, session: state.session });
+      }
+      if (msg.t === "markSaved") {
+        state.session = { ...(state.session || {}), savingAt: 0, savedAt: msg.ok ? Date.now() : state.session?.savedAt || 0, savedBy: msg.ok ? msg.by : state.session?.savedBy };
+        await this.commit(state);
+        return json({ ok: true });
       }
       if (msg.t === "reset") {
         // Only clear what was archived: anything newer stays for the next session.
@@ -537,6 +591,7 @@ export class Table extends DurableObject {
         state.round = 1;
         state.resolvingSince = 0;
         state.spend = { small: { in: 0, out: 0 }, large: { in: 0, out: 0 } };
+        state.session = null;
         await this.commit(state);
         return json({ ok: true });
       }
@@ -585,6 +640,7 @@ export class Table extends DurableObject {
       tier: s.tier || "small",
       spend: s.spend || { small: { in: 0, out: 0 }, large: { in: 0, out: 0 } },
       nextId: s.nextId || 1,
+      session: s.session || null,   // { no, date, path, savedAt, savedBy } once first saved
     };
   }
 
@@ -604,6 +660,7 @@ export class Table extends DurableObject {
       resolving: isResolving(state),
       tier: state.tier,
       spend: state.spend,
+      saved: state.session?.savedAt ? { at: state.session.savedAt, by: state.session.savedBy, no: state.session.no } : null,
     };
   }
 
