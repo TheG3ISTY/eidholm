@@ -1,0 +1,19 @@
+name = "eidholm"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+
+# The browser client is served from ../web by the same Worker: one deploy, one URL.
+[assets]
+directory = "../web"
+binding = "ASSETS"
+
+[vars]
+MODEL = "mistral-small-latest"
+MODEL_LARGE = "mistral-large-latest"
+GITHUB_REPO = "TheG3ISTY/eidholm"
+GITHUB_BRANCH = "main"
+
+# Secrets are NOT stored here. Set them with:
+#   wrangler secret put GAME_PASSWORD
+#   wrangler secret put MISTRAL_API_KEY
+#   wrangler secret put GITHUB_TOKEN
