@@ -20,6 +20,7 @@ const STATE_FILES = {
   canon: "world/worldbuilding.md",
   rules: "rules/resolution.md",
   economy: "rules/economy.md",
+  cast: "campaign/cast.json",
   party: "characters/party.json",
   log: "campaign/log.md",
 };
@@ -32,7 +33,11 @@ const MAX_STORED_MESSAGES = 1500;   // a long evening; End session archives it a
 const SNAPSHOT_MESSAGES = 300;
 const GM_HISTORY_ROUNDS = 12;   // past rounds sent to the GM for continuity
 const STALE_RESOLVE_MS = 120_000;
-const SAVE_COOLDOWN_MS = 30_000;   // one checkpoint save per 30 s for the whole table
+const SAVE_COOLDOWN_MS = 30_000;
+const DORMANT_AFTER_SESSIONS = 3;
+// Who may know what about a remembered person.
+const CAST_PUBLIC = ["name", "role", "faction", "where", "look", "attitude", "ledger", "status", "last_seen_session"];
+const CAST_GM_ONLY = ["wants", "secret", "notes", "reason"];   // one checkpoint save per 30 s for the whole table
 
 // The bouncer: wrong guesses per connection, per gate.
 const MAX_FAILS = 5;
@@ -95,9 +100,17 @@ export default {
         if (!admin.ok) return json({ error: "The settings stay sealed." }, 403);
         return handleAdmin(url.pathname.slice("/api/admin/".length), request, env);
       }
+      if (url.pathname === "/api/cast") {
+        try {
+          return json({ cast: await castView(env, false) });
+        } catch (err) {
+          return json({ error: `Could not read the cast: ${err.message}` }, 502);
+        }
+      }
       if (url.pathname === "/api/state") {
         try {
-          return json(await loadState(env));
+          const { cast, ...state } = await loadState(env);   // the cast has secrets; it goes through /api/cast
+          return json(state);
         } catch (err) {
           return json({ error: `Could not read game state from GitHub: ${err.message}` }, 502);
         }
@@ -116,6 +129,8 @@ export default {
 async function handleAdmin(action, request, env) {
   let body = {};
   try { body = await request.json(); } catch {}
+
+  if (action === "cast") return json({ cast: await castView(env, true) });
 
   if (action === "check") {
     return json({ ok: true, canWriteRepo: !!env.GITHUB_WRITE_TOKEN });
@@ -230,7 +245,7 @@ async function endSession(env, body) {
   if (scene.resolving) throw httpError("The GM is answering right now. Wait a moment, then end the session.", 409);
   const upToId = scene.messages.reduce((mx, m) => Math.max(mx, m.id), 0);
 
-  const repo = await readFilesFresh(env, [STATE_FILES.log, STATE_FILES.party]);
+  const repo = await readFilesFresh(env, [STATE_FILES.log, STATE_FILES.party, STATE_FILES.cast]);
   // A session that was already checkpointed keeps its number, date and file.
   const sessionNo = scene.session?.no || nextSessionNumber(repo[STATE_FILES.log]);
   const date = scene.session?.date || today();
@@ -253,6 +268,11 @@ async function endSession(env, body) {
 
   const files = { [path]: archive, [STATE_FILES.log]: log };
 
+  // 4. the cast: this session's remembered people merged in, everyone seen
+  //    marked, anyone unseen for DORMANT_AFTER_SESSIONS sessions goes dormant
+  const castJson = mergeCast(repo[STATE_FILES.cast], scene.cast, { sessionNo, endOfSession: true });
+  if (castJson !== null) files[STATE_FILES.cast] = castJson;
+
   // 3. the party file's clock, if it changed
   if (worldClock && repo[STATE_FILES.party]) {
     try {
@@ -267,10 +287,10 @@ async function endSession(env, body) {
   // All of it as ONE commit.
   const sha = await commitFiles(env, files, `session: end session ${sessionNo}: ${title}`);
 
-  for (const f of [STATE_FILES.log, STATE_FILES.party]) {
+  for (const f of [STATE_FILES.log, STATE_FILES.party, STATE_FILES.cast]) {
     await caches.default.delete(new Request(`https://eidholm-state.cache/${env.GITHUB_BRANCH}/${f}`));
   }
-  await tableCall(env, { t: "reset", upToId });
+  await tableCall(env, { t: "reset", upToId, castUpTo: scene.cast?.exportedAt || Date.now(), clearSeen: true });
   await tableCall(env, { t: "partyChanged" });
   return { ok: true, sessionNo, archivePath: path, commit: sha };
 }
@@ -294,13 +314,97 @@ async function saveCheckpoint(env, seatId) {
   const by = seat ? label(seat) : "the table";
   try {
     const archive = transcriptMarkdown(scene, { sessionNo: session.no, title: "in progress", date: session.date, worldClock: "" });
-    await commitFiles(env, { [session.path]: archive }, `session: save session ${session.no} (checkpoint by ${by})`);
+    const files = { [session.path]: archive };
+    if (Object.keys(scene.cast?.pending || {}).length) {
+      const repo = await readFilesFresh(env, [STATE_FILES.cast]);
+      const castJson = mergeCast(repo[STATE_FILES.cast], scene.cast, { sessionNo: session.no, endOfSession: false });
+      if (castJson !== null) files[STATE_FILES.cast] = castJson;
+    }
+    await commitFiles(env, files, `session: save session ${session.no} (checkpoint by ${by})`);
+    if (files[STATE_FILES.cast]) {
+      await caches.default.delete(new Request(`https://eidholm-state.cache/${env.GITHUB_BRANCH}/${STATE_FILES.cast}`));
+      await tableCall(env, { t: "castCommitted", upTo: scene.cast.exportedAt });
+    }
     await tableCall(env, { t: "markSaved", ok: true, by });
     return { ok: true, sessionNo: session.no, path: session.path };
   } catch (err) {
     await tableCall(env, { t: "markSaved", ok: false }).catch(() => {});
     throw err;
   }
+}
+
+// ---------------- the cast ----------------
+
+function parseCast(text) {
+  try {
+    const data = JSON.parse(text || "{}");
+    return Array.isArray(data.cast) ? data.cast.filter((c) => c && c.name) : [];
+  } catch {
+    return [];
+  }
+}
+
+const castKey = (name) => String(name || "").trim().toLowerCase();
+
+// Repo cast + this session's pending changes. Returns the new file text,
+// or null when nothing would change.
+function mergeCast(repoText, live, { sessionNo, endOfSession }) {
+  const cast = parseCast(repoText);
+  const byKey = new Map(cast.map((c) => [castKey(c.name), c]));
+  const pending = live?.pending || {};
+  const seen = new Set([...(live?.seen || []), ...Object.keys(pending)]);
+  let changed = false;
+
+  for (const [key, change] of Object.entries(pending)) {
+    const { at, ...fields } = change;
+    let entry = byKey.get(key);
+    if (!entry) {
+      entry = { name: fields.name, status: "active", first_seen_session: sessionNo };
+      cast.push(entry);
+      byKey.set(key, entry);
+    }
+    for (const [k, v] of Object.entries(fields)) if (v !== undefined && v !== null && v !== "") entry[k] = v;
+    changed = true;
+  }
+
+  if (endOfSession) {
+    for (const entry of cast) {
+      if (seen.has(castKey(entry.name))) {
+        if (entry.last_seen_session !== sessionNo) { entry.last_seen_session = sessionNo; changed = true; }
+        if (entry.status === "dormant") { entry.status = "active"; changed = true; }
+      } else if (entry.status === "active" && sessionNo - (entry.last_seen_session || entry.first_seen_session || sessionNo) >= DORMANT_AFTER_SESSIONS) {
+        entry.status = "dormant";
+        changed = true;
+      }
+    }
+  }
+  return changed ? JSON.stringify({ cast }, null, 2) + "\n" : null;
+}
+
+// The cast as the table sees it right now: repo + live changes; secrets stripped unless GM.
+async function castView(env, gm) {
+  const [repo, live] = await Promise.all([loadState(env), tableCall(env, { t: "castPending" })]);
+  const merged = parseCast(mergeCast(repo.cast, live, { sessionNo: 0, endOfSession: false }) ?? repo.cast);
+  return merged.map((c) => {
+    const keep = gm ? [...CAST_PUBLIC, ...CAST_GM_ONLY, "first_seen_session"] : CAST_PUBLIC;
+    return Object.fromEntries(Object.entries(c).filter(([k]) => keep.includes(k)));
+  });
+}
+
+// What the GM reads each turn: active people in full, dormant and dead as one line.
+function castPrompt(castText, live) {
+  const merged = parseCast(mergeCast(castText, live, { sessionNo: 0, endOfSession: false }) ?? castText);
+  if (!merged.length) return "(nobody remembered yet)";
+  const line = (c) => `- ${c.name}${c.role ? `, ${c.role}` : ""}${c.where ? ` (${c.where})` : ""}`;
+  const active = merged.filter((c) => (c.status || "active") === "active");
+  const rest = merged.filter((c) => c.status === "dormant" || c.status === "dead");
+  return [
+    ...active.map((c) => {
+      const f = Object.entries(c).filter(([k]) => !["name", "status", "first_seen_session", "last_seen_session"].includes(k));
+      return `- ${c.name}: ` + f.map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join("; ");
+    }),
+    ...(rest.length ? ["Dormant or dead (one line each):", ...rest.map((c) => `${line(c)} [${c.status}]`)] : []),
+  ].join("\n");
 }
 
 function nextSessionNumber(log) {
@@ -328,6 +432,7 @@ function transcriptText(scene) {
     if (m.kind === "pass") return `[round ${m.round}] ${who(m)} passes.`;
     if (m.kind === "event") return `[round ${m.round}] (table) ${m.text}`;
     if (m.kind === "roll") return `[round ${m.round}] ${who(m)} rolls ${rollLine(m)}`;
+    if (m.kind === "flag") return `[round ${m.round}] (table) ${m.author} asks the GM to remember ${m.text}`;
     if (m.kind === "gmroll") return `[round ${m.round}] GM rolls ${rollLine(m)}`;
     return `(out of character) ${m.author}: ${m.text}`;
   }).join("\n\n");
@@ -343,6 +448,7 @@ function transcriptMarkdown(scene, { sessionNo, title, date, worldClock }) {
     if (m.kind === "pass") return `*${who(m)} passes.*`;
     if (m.kind === "event") return `> *${m.text}*`;
     if (m.kind === "roll") return `🎲 **${who(m)}** rolls ${rollLine(m)} · ${describeRoll(m)}`;
+    if (m.kind === "flag") return `> *${m.author} asks the GM to remember ${m.text}.*`;
     if (m.kind === "gmroll") return `🎲 *GM* rolls ${rollLine(m)} · ${describeRoll(m)}`;
     return `> OOC ${m.author}: ${m.text}`;
   }).join("\n\n");
@@ -573,7 +679,7 @@ export class Table extends DurableObject {
         return json({ ok: true });
       }
       if (msg.t === "export") {
-        return json({ seats: state.seats, messages: state.messages, round: state.round, spend: state.spend, resolving: isResolving(state), session: state.session });
+        return json({ seats: state.seats, messages: state.messages, round: state.round, spend: state.spend, resolving: isResolving(state), session: state.session, cast: { ...state.cast, exportedAt: Date.now() } });
       }
       if (msg.t === "claimSave") {
         // Cooldown, checked and claimed in one step so two players can't both save at once.
@@ -598,7 +704,22 @@ export class Table extends DurableObject {
         state.resolvingSince = 0;
         state.spend = { small: { in: 0, out: 0 }, large: { in: 0, out: 0 } };
         state.session = null;
+        if (msg.clearSeen || msg.upToId === undefined) {
+          // End of session (or a discarded scene): drop what was written, forget who was seen.
+          const upTo = msg.castUpTo || Infinity;
+          for (const [k, v] of Object.entries(state.cast.pending)) if ((v.at || 0) <= upTo) delete state.cast.pending[k];
+          state.cast.seen = [];
+        }
         await this.commit(state);
+        return json({ ok: true });
+      }
+      if (msg.t === "castPending") {
+        return json({ ...state.cast, exportedAt: Date.now() });
+      }
+      if (msg.t === "castCommitted") {
+        // Only drop changes that made it into the commit; later ones stay pending.
+        for (const [k, v] of Object.entries(state.cast.pending)) if ((v.at || 0) <= (msg.upTo || 0)) delete state.cast.pending[k];
+        await this.save(state);
         return json({ ok: true });
       }
       if (msg.t === "partyChanged") {
@@ -651,6 +772,7 @@ export class Table extends DurableObject {
       nextId: s.nextId || 1,
       session: s.session || null,   // { no, date, path, savedAt, savedBy } once first saved
       revealGmRolls: !!s.revealGmRolls,
+      cast: s.cast || { pending: {}, seen: [] },   // people the GM chose to remember this session
       requests: s.requests || [],   // rolls the GM asked for: { rid, round, seatId, order, type, label, ..., status }
       nextRid: s.nextRid || 1,
     };
@@ -808,6 +930,17 @@ export class Table extends DurableObject {
         return this.commit(state);
       }
 
+      case "remember": {
+        const s = seat(msg.seatId);
+        const name = clean(msg.name, 80);
+        if (!s || !name) throw new Error("Remember whom? Try /remember Teodor");
+        state.messages.push({
+          id: state.nextId++, kind: "flag", round: state.round, seatId: s.id,
+          author: s.player, character: s.character, text: name, ts: Date.now(),
+        });
+        return this.commit(state);
+      }
+
       case "ooc": {
         const s = seat(msg.seatId);
         const text = clean(msg.text, MAX_TEXT, true);
@@ -862,7 +995,7 @@ export class Table extends DurableObject {
     try {
       const repo = await loadState(this.env);
       const messages = [
-        { role: "system", content: buildSystemPrompt(repo) },
+        { role: "system", content: buildSystemPrompt(repo, castPrompt(repo.cast, state.cast)) },
         ...buildConversation(state),
       ];
       const model = tier === "large" ? this.env.MODEL_LARGE : this.env.MODEL;
@@ -888,6 +1021,11 @@ export class Table extends DurableObject {
       id: fresh.nextId++, kind: "gm", round, text: result.reply, ts: Date.now(),
       model: result.model, usage: result.usage,
     });
+    for (const r of result.remember || []) {
+      const key = castKey(r.name);
+      fresh.cast.pending[key] = { ...(fresh.cast.pending[key] || {}), ...r, at: Date.now() };
+      if (!fresh.cast.seen.includes(key)) fresh.cast.seen.push(key);
+    }
     // Anything still owed from this round lapses; the GM's new requests open the next one.
     for (const r of fresh.requests) if (r.round === round && r.status === "pending") r.status = "lapsed";
     let order = 0;
@@ -1031,7 +1169,7 @@ function buildConversation(state) {
 
   const out = [];
   for (const r of rounds) {
-    const acts = state.messages.filter((m) => m.round === r && (isAnswer(m) || (m.kind === "event" && m.sub !== "asks")));
+    const acts = state.messages.filter((m) => m.round === r && (isAnswer(m) || m.kind === "flag" || (m.kind === "event" && m.sub !== "asks")));
     const gm = state.messages.find((m) => m.round === r && m.kind === "gm");
     const gmDice = state.messages.filter((m) => m.round === r && m.kind === "gmroll");
     if (!acts.some(isAnswer) && !gm) continue;
@@ -1040,6 +1178,7 @@ function buildConversation(state) {
       if (m.kind === "event") return `- (at the table) ${m.text}`;
       const who = m.character ? `${m.character} (played by ${m.author})` : m.author;
       if (m.kind === "roll") return `- ${who} rolls ${rollLine(m)}`;
+      if (m.kind === "flag") return `- (table) ${m.author} asks you to remember ${m.text}. Flag them with remember_npc.`;
       return m.kind === "pass" ? `- ${who} passes this beat.` : `- ${who}: ${m.text}`;
     });
     const unrolled = state.requests.filter((q) => q.round === r && (q.status === "pending" || q.status === "lapsed"));
@@ -1061,7 +1200,7 @@ function buildConversation(state) {
   return out;
 }
 
-function buildSystemPrompt(state) {
+function buildSystemPrompt(state, castText = "(nobody remembered yet)") {
   const logTail = state.log.length > LOG_TAIL_CHARS
     ? "[...earlier entries omitted...]\n" + state.log.slice(-LOG_TAIL_CHARS)
     : state.log;
@@ -1079,6 +1218,7 @@ function buildSystemPrompt(state) {
 - If the party roster is empty, the table is in character creation: help each player build a character that fits the canon, one question at a time, and summarise each finished character clearly so it can be written to the party file.
 - If a player is seated without a character, or their character is not in the PARTY file yet, help them create one alongside the scene, without stalling the others.
 - NPCs have their own agendas, faiths and fears. Minds of glass are people, not appliances.
+- REMEMBERING PEOPLE. Improvise minor NPCs freely. Call remember_npc the moment one becomes important, by these rules: a debt, favor, promise, contract or Exchange deal ties them to a character (Ledger); they hurt a character, were hurt by one, or survived a fight with the party (Blood); they know something about a character or the plot (Secrets); they hold real power, including any bank enforcer assigned to a character's debt (Office); they are a mind of glass that pledged itself to or was hired by a character; a player asks about them again, goes looking for them, or flags them (a "(table) ... asks you to remember" line); or a named NPC appears in a second, separate scene. Never one-off shopkeepers, crowds, or people the party walked past. Call remember_npc again whenever something important about them changes (attitude, debts, where they are, death). Small property changes hands constantly in Eidholm, so a shop with a new face behind the counter needs no explanation.
 - Stay inside the canon below. Do not contradict it. You may invent local detail (names, streets, minor NPCs) that fits it.
 - THE RIM AND THE FROZEN ARCHIVE ARE DELIBERATELY UNDEFINED. Never explain what the Archive is, who or what records at the pole, or why it deletes. Rumour, dread and contradiction only. No revelations, ever.
 - DICE. Chance uses D&D 5e rules: d20 tests against a DC or Armor Class, advantage and disadvantage, natural 20 and 1 on attacks, damage dice, death saves.
@@ -1096,6 +1236,9 @@ ${state.rules || "(none yet)"}
 
 ## ECONOMY & EQUIPMENT (designed; use these prices, tiers and item scales)
 ${state.economy || "(none yet)"}
+
+## CAST (people worth remembering; secrets here are for you only)
+${castText}
 
 ## PARTY (live state)
 ${state.party || "(empty roster)"}
@@ -1173,6 +1316,31 @@ DICE_TOOLS.push({
     },
   },
 });
+DICE_TOOLS.push({
+  type: "function",
+  function: {
+    name: "remember_npc",
+    description: "Flag a non-player character as important, or update one already remembered. Fields you leave out keep their old values.",
+    parameters: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Their name, exactly as used in the story" },
+        role: { type: "string", description: "What they are, e.g. 'fence in the Slag Ward'" },
+        faction: { type: "string" },
+        where: { type: "string", description: "Where the party can find them" },
+        look: { type: "string", description: "One line of appearance and voice" },
+        attitude: { type: "string", description: "How they feel about the party: hostile, wary, neutral, friendly, devoted, or a short phrase" },
+        ledger: { type: "string", description: "Debts, favors or deals with characters, if any" },
+        wants: { type: "string", description: "What they really want (GM only)" },
+        secret: { type: "string", description: "What they hide (GM only)" },
+        notes: { type: "string", description: "Anything else to keep (GM only)" },
+        status: { type: "string", enum: ["active", "dead"], description: "Set 'dead' when they die" },
+        reason: { type: "string", description: "Which rule made them important" },
+      },
+      required: ["name"],
+    },
+  },
+});
 const MAX_GM_TOOL_ROUNDS = 4;
 
 // Turn the GM's request_rolls arguments into stored requests, or explain what's wrong.
@@ -1207,6 +1375,7 @@ async function gmTurn(env, model, messages, ctx = {}) {
   const convo = [...messages];
   const rolls = [];
   const requests = [];
+  const remember = [];
   const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
   for (let i = 0; i <= MAX_GM_TOOL_ROUNDS; i++) {
     const data = await mistralRequest(env, {
@@ -1218,13 +1387,28 @@ async function gmTurn(env, model, messages, ctx = {}) {
     const calls = msg.tool_calls || [];
     if (!calls.length) {
       if (!msg.content) throw new Error("Mistral sent an empty reply");
-      return { reply: msg.content, usage, rolls, requests };
+      return { reply: msg.content, usage, rolls, requests, remember };
     }
     convo.push({ role: "assistant", content: msg.content || "", tool_calls: calls });
     for (const call of calls) {
       let args = {};
       try { args = typeof call.function?.arguments === "string" ? JSON.parse(call.function.arguments) : (call.function?.arguments || {}); } catch {}
       let content;
+      if (call.function?.name === "remember_npc") {
+        const name = clean(String(args.name || ""), 80);
+        if (name) {
+          const entry = { name };
+          for (const k of [...CAST_PUBLIC, ...CAST_GM_ONLY]) {
+            if (k === "name" || k === "last_seen_session" || args[k] == null) continue;
+            if (k === "status" && !["active", "dead"].includes(args[k])) continue;
+            entry[k] = clean(String(args[k]), 300);
+          }
+          remember.push(entry);
+        }
+        convo.push({ role: "tool", tool_call_id: call.id, name: "remember_npc",
+          content: JSON.stringify(name ? { remembered: name } : { error: "A name is required." }) });
+        continue;
+      }
       if (call.function?.name === "request_rolls") {
         const { requests: got, problems } = parseRequests(args, ctx.seats || []);
         requests.push(...got);

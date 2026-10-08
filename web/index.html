@@ -191,6 +191,7 @@
   .turn.roll .oc.failure, .turn.roll .oc.miss { color: var(--danger); }
   .turn.event { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-dim); text-align: center; opacity: 0.8; }
   .turn.event::before, .turn.event::after { content: " ── "; color: var(--line); }
+  .turn.event.flag { color: var(--brass); }
   .turn.ooc { font-family: var(--mono); font-size: 13px; color: var(--ink-dim); padding-left: 16px; white-space: pre-wrap; }
   .turn.ooc b { color: var(--glass); font-weight: 500; }
   .turn.err { color: var(--danger); font-family: var(--mono); font-size: 13px; }
@@ -272,6 +273,9 @@
   .ghost.danger:hover { border-color: var(--danger); color: var(--ink); background: rgba(192,83,63,0.25); }
   .ghost:disabled { opacity: 0.4; cursor: default; }
   .set-foot { margin-top: 22px; }
+  .card.faded { opacity: 0.6; }
+  .gm-only { margin-top: 10px; border-top: 1px dashed var(--ember-dim); padding-top: 8px; }
+  .gm-only > span { font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; color: var(--ember); }
   .switch { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 13px; cursor: pointer; margin: 4px 0 6px; }
   .switch input { width: 16px; height: 16px; accent-color: var(--ember); }
   .warn { border-left: 2px solid var(--ember); padding: 4px 10px; font-size: 15px; color: var(--ink); margin: 0 0 10px; }
@@ -393,6 +397,7 @@
   <nav class="tabs" role="tablist">
     <button type="button" data-tab="table" class="on">TABLE</button>
     <button type="button" data-tab="party">PARTY</button>
+    <button type="button" data-tab="people">PEOPLE</button>
     <button type="button" data-tab="log">LOG</button>
     <button type="button" data-tab="rules">RULES</button>
     <button type="button" data-tab="canon">WORLD</button>
@@ -580,6 +585,7 @@
       if (m.kind === "roll") return `🎲 **${who}** rolls ${m.label ? m.label + ": " : ""}${m.expr} = ${m.total} (${describeRoll(m)})`;
       if (m.kind === "gmroll") return m.hidden ? "🎲 *The GM rolls behind the screen.*" : `🎲 *GM* rolls ${m.purpose ? m.purpose + ": " : ""}${m.expr} = ${m.total} (${describeRoll(m)})`;
       if (m.kind === "event") return `> *${m.text}*`;
+      if (m.kind === "flag") return `> *${m.author} asks the GM to remember ${m.text}.*`;
       return `> OOC ${m.author}: ${m.text}`;
     }).join("\n\n---\n\n");
     const t = totals();
@@ -763,6 +769,9 @@
               `<span class="rb">${escapeHtml(describeRoll(m))}</span>` +
               (m.nat === 20 ? '<span class="tag">NATURAL 20</span>' : m.nat === 1 ? '<span class="tag">NATURAL 1</span>' : "") + oc + secret;
           }
+        } else if (m.kind === "flag") {
+          div.className = "turn event flag";
+          div.textContent = `${m.author} asks the GM to remember ${m.text}.`;
         } else if (m.kind === "event") {
           div.className = "turn event";
           div.textContent = m.text;
@@ -928,13 +937,14 @@
     const body = $("codex-body");
     if (codexTab === "table") { renderTableTab(); return; }
     if (codexTab === "settings") { renderSettings(force); return; }
+    if (codexTab === "people") { renderPeople(); return; }
     if (!codexState || force) body.innerHTML = '<p class="muted">Reading the repo…</p>';
     let st;
     try { st = await loadState(force); } catch (err) {
       if (err.message !== "locked") body.innerHTML = '<p class="muted">Could not read the repo: ' + escapeHtml(err.message) + "</p>";
       return;
     }
-    if (codexTab === "table" || codexTab === "settings") return;
+    if (codexTab === "table" || codexTab === "settings" || codexTab === "people") return;
     body.className = "codex-body md";
     if (codexTab === "party") {
       if (admin && admin.canWriteRepo) { renderPartyEditor(st); return; }
@@ -1362,9 +1372,53 @@
     return out;
   }
 
+  // ================= people the GM remembers =================
+  // Players get the public half from /api/cast; an unsealed GM gets everything.
+  async function loadCast() {
+    if (admin) return (await adminCall("cast")).cast;
+    const r = await fetch(API + "/api/cast", { method: "POST", headers: { "X-Game-Password": password } });
+    if (r.status === 401) { lock("The word has changed."); throw new Error("locked"); }
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+    return data.cast;
+  }
+
+  async function renderPeople() {
+    const body = $("codex-body");
+    body.className = "codex-body";
+    body.innerHTML = '<p class="muted">Reading who the GM remembers…</p>';
+    let cast;
+    try { cast = await loadCast(); } catch (err) {
+      if (err.message !== "locked") body.innerHTML = '<p class="muted">Could not read the cast: ' + escapeHtml(err.message) + "</p>";
+      return;
+    }
+    if (codexTab !== "people") return;
+    $("codex-status").textContent = admin ? "Unsealed · GM-only notes shown" : "People the GM has chosen to remember";
+    body.innerHTML = '<p class="muted">The people who matter to your story. The GM decides who goes here, and anyone at the table can ask it to with <code>/remember name</code>.</p>';
+    if (!cast.length) { body.insertAdjacentHTML("beforeend", '<p class="muted">Nobody yet.</p>'); return; }
+    const groups = [["active", "In play"], ["dormant", "Not seen for a while"], ["dead", "Dead"]];
+    for (const [st, title] of groups) {
+      const people = cast.filter((c) => (c.status || "active") === st);
+      if (!people.length) continue;
+      body.insertAdjacentHTML("beforeend", `<h3 class="set-h">${title}</h3>`);
+      for (const c of people) {
+        const pub = [["role", c.role], ["faction", c.faction], ["where", c.where], ["look", c.look], ["attitude", c.attitude], ["ledger", c.ledger]]
+          .filter(([, v]) => v);
+        const gm = admin ? [["wants", c.wants], ["secret", c.secret], ["notes", c.notes], ["why remembered", c.reason]].filter(([, v]) => v) : [];
+        const kv = (rows) => '<dl class="kv">' + rows.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("") + "</dl>";
+        body.insertAdjacentHTML("beforeend",
+          `<div class="card${st !== "active" ? " faded" : ""}"><h3>${escapeHtml(c.name)}</h3>` +
+          (pub.length ? kv(pub) : '<p class="muted">Not much known yet.</p>') +
+          (gm.length ? '<div class="gm-only"><span>GM ONLY</span>' + kv(gm) + "</div>" : "") + "</div>");
+      }
+    }
+  }
+
   // ================= slash commands (local, no tokens) =================
   const HELP = [
     ["/roll", "roll everything the GM asked you for, in order (same as the buttons on the left)"],
+    ["/remember name", "ask the GM to remember someone (everyone sees it)"],
+    ["/people", "the people the GM remembers"],
     ["/party", "everyone in the party file, with the world clock"],
     ["/sheet name", "one character's sheet (name can be partial)"],
     ["/log", "the most recent part of the campaign log"],
@@ -1382,6 +1436,12 @@
     const c = (cmd || "").toLowerCase();
 
     if (c === "codex") return openCodex();
+    if (c === "remember") {
+      if (!arg) return note("REMEMBER", "<p>Remember whom? <code>/remember Teodor</code> asks the GM to keep that person in its memory.</p>");
+      send({ t: "remember", seatId: mySeat, name: arg });
+      return;
+    }
+    if (c === "people") { codexTab = "people"; document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x.dataset.tab === "people")); return openCodex(); }
     if (c === "roll" || c === "r") {
       const owed = (table.requests || []).filter((r) => r.seatId === mySeat);
       if (!owed.length) return note("ROLL", '<p class="muted">Nothing to roll right now. When the GM needs a roll, buttons appear on the left, and <code>/roll</code> rolls them all in order. The idle die at the bottom left is always there for fidgeting.</p>');
