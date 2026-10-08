@@ -4,10 +4,12 @@
 //   POST /api/check   password check, no side effects
 //   POST /api/state   read-only repo state for the Codex (never calls Mistral)
 //   POST /api/ticket  short-lived signed ticket for opening the live connection
+//   POST /api/admin/* settings; also needs X-Admin-User + X-Admin-Password
 // WebSocket:
 //   GET  /api/ws?ticket=...   live connection to the shared table
 //
-// Secrets: GAME_PASSWORD, MISTRAL_API_KEY, GITHUB_TOKEN
+// Secrets: GAME_PASSWORD, MISTRAL_API_KEY, GITHUB_TOKEN (read-only)
+// Settings secrets: ADMIN_USERNAME, ADMIN_PASSWORD, GITHUB_WRITE_TOKEN (contents read+write)
 // Vars:    MODEL, MODEL_LARGE, GITHUB_REPO, GITHUB_BRANCH
 // Optional dev overrides: MISTRAL_URL, GITHUB_API
 
@@ -56,6 +58,18 @@ export default {
 
       if (url.pathname === "/api/check") return json({ ok: true });
       if (url.pathname === "/api/ticket") return json({ ticket: await makeTicket(env.GAME_PASSWORD) });
+
+      // Second gate: the Game Master's settings. Needs the admin password as well.
+      if (url.pathname.startsWith("/api/admin/")) {
+        // Username and password are both checked, always both, so a wrong
+        // answer never reveals which half was wrong.
+        const [userOk, passOk] = await Promise.all([
+          passwordMatches(headerText(request, "X-Admin-User"), env.ADMIN_USERNAME),
+          passwordMatches(headerText(request, "X-Admin-Password"), env.ADMIN_PASSWORD),
+        ]);
+        if (!(userOk && passOk)) return json({ error: "The settings stay sealed." }, 403);
+        return handleAdmin(url.pathname.slice("/api/admin/".length), request, env);
+      }
       if (url.pathname === "/api/state") {
         try {
           return json(await loadState(env));
@@ -71,6 +85,121 @@ export default {
 };
 
 // ======================================================================
+// Settings (admin)
+// ======================================================================
+
+async function handleAdmin(action, request, env) {
+  let body = {};
+  try { body = await request.json(); } catch {}
+
+  if (action === "check") {
+    return json({ ok: true, canWriteRepo: !!env.GITHUB_WRITE_TOKEN });
+  }
+
+  if (action === "remove-seat") {
+    const stub = env.TABLE.get(env.TABLE.idFromName("main"));
+    const res = await stub.fetch("https://table/admin", {
+      method: "POST",
+      body: JSON.stringify({ t: "removeSeat", id: body.id }),
+    });
+    return new Response(res.body, { status: res.status, headers: { "Content-Type": "application/json" } });
+  }
+
+  if (action === "delete-character") {
+    if (!env.GITHUB_WRITE_TOKEN) {
+      return json({ error: "No GITHUB_WRITE_TOKEN is set, so the party file can't be changed from here." }, 501);
+    }
+    const name = clean(body.name, 200);
+    if (!name) return json({ error: "Which character?" }, 400);
+    try {
+      const result = await deleteCharacterFromRepo(env, name);
+      return json(result);
+    } catch (err) {
+      return json({ error: err.message }, err.status || 502);
+    }
+  }
+
+  return json({ error: "Unknown setting." }, 404);
+}
+
+// Removes one character from characters/party.json with a real commit,
+// so the change is visible and recoverable in the repo history.
+async function deleteCharacterFromRepo(env, name) {
+  const path = STATE_FILES.party;
+  const base = env.GITHUB_API || "https://api.github.com";
+  const url = `${base}/repos/${env.GITHUB_REPO}/contents/${path}`;
+  const headers = {
+    Authorization: `Bearer ${env.GITHUB_WRITE_TOKEN}`,
+    Accept: "application/vnd.github+json",
+    "User-Agent": "eidholm-worker",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+
+  const cur = await fetch(`${url}?ref=${env.GITHUB_BRANCH}`, { headers });
+  if (!cur.ok) throw httpError(`Could not read the party file (GitHub ${cur.status}).`, 502);
+  const file = await cur.json();
+  const data = JSON.parse(fromBase64(file.content));
+
+  const target = name.toLowerCase();
+  let removed = null;
+  if (Array.isArray(data.party)) {
+    const keep = [];
+    for (const m of data.party) {
+      if (!removed && String(m?.name || "").toLowerCase() === target) removed = m.name;
+      else keep.push(m);
+    }
+    data.party = keep;
+  } else if (data.party && typeof data.party === "object") {
+    for (const k of Object.keys(data.party)) {
+      if (!removed && k.toLowerCase() === target) { removed = k; delete data.party[k]; }
+    }
+  }
+  if (!removed) throw httpError(`No character called "${name}" in the party file.`, 404);
+
+  const put = await fetch(url, {
+    method: "PUT",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: `session: remove character ${removed} (via game settings)`,
+      content: toBase64(JSON.stringify(data, null, 2) + "\n"),
+      sha: file.sha,
+      branch: env.GITHUB_BRANCH,
+    }),
+  });
+  if (put.status === 409) throw httpError("The party file changed at the same moment. Try again.", 409);
+  if (!put.ok) throw httpError(`GitHub refused the change (${put.status}). Check the write token's permissions.`, 502);
+
+  // Make the Codex and the GM see the change immediately.
+  await caches.default.delete(new Request(`https://eidholm-state.cache/${env.GITHUB_BRANCH}/${path}`));
+  return { ok: true, removed };
+}
+
+function httpError(message, status) {
+  const e = new Error(message);
+  e.status = status;
+  return e;
+}
+
+function toBase64(text) {
+  const bytes = new TextEncoder().encode(text);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+function fromBase64(b64) {
+  const bin = atob(String(b64).replace(/\s/g, ""));
+  return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+}
+
+// Header values are sent URI-encoded so names with umlauts or accents survive.
+function headerText(request, name) {
+  const v = request.headers.get(name);
+  if (!v) return "";
+  try { return decodeURIComponent(v); } catch { return v; }
+}
+
+// ======================================================================
 // The shared table
 // ======================================================================
 //
@@ -82,6 +211,23 @@ export default {
 
 export class Table extends DurableObject {
   async fetch(request) {
+    // Admin commands arrive as plain POSTs from the Worker itself, which has
+    // already checked the admin username and password. Players only ever
+    // reach the table through the WebSocket below.
+    if (request.headers.get("Upgrade") !== "websocket") {
+      const msg = await request.json().catch(() => ({}));
+      const state = await this.load();
+      if (msg.t === "removeSeat") {
+        const before = state.seats.length;
+        state.seats = state.seats.filter((s) => s.id !== msg.id);
+        if (state.seats.length === before) return json({ error: "That seat no longer exists." }, 404);
+        state.messages = state.messages.filter((m) => !(m.round === state.round && isPending(m) && m.seatId === msg.id));
+        if (!(await this.maybeAutoResolve(state))) await this.commit(state);
+        return json({ ok: true });
+      }
+      return json({ error: "Unknown admin command." }, 400);
+    }
+
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
     const state = await this.load();
@@ -181,12 +327,8 @@ export class Table extends DurableObject {
         return this.commit(state);
       }
 
-      case "removeSeat": {
-        state.seats = state.seats.filter((s) => s.id !== msg.id);
-        state.messages = state.messages.filter((m) => !(m.round === state.round && isPending(m) && m.seatId === msg.id));
-        if (await this.maybeAutoResolve(state)) return;
-        return this.commit(state);
-      }
+      case "removeSeat":
+        throw new Error("Only the Game Master can remove seats, from Settings.");
 
       case "act":
       case "pass": {

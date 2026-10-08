@@ -205,6 +205,14 @@
   .seat-row .field { padding: 7px 10px; font-size: 13px; }
   .seat-row .actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
+  .set-h { font-family: var(--display); font-weight: 600; font-size: 20px; color: var(--brass); margin: 18px 0 4px; }
+  .set-h:first-child { margin-top: 0; }
+  .set-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid var(--line); background: var(--bg-2); padding: 8px 10px; margin-bottom: 6px; }
+  .set-row small { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
+  .ghost.danger { border-color: rgba(192,83,63,0.5); color: var(--danger); }
+  .ghost.danger:hover { border-color: var(--danger); color: var(--ink); background: rgba(192,83,63,0.25); }
+  .ghost:disabled { opacity: 0.4; cursor: default; }
+  .set-foot { margin-top: 22px; }
   .turn.sys { border: 1px dashed var(--line); padding: 12px 14px; font-size: 16px; background: rgba(26,23,20,0.6); }
   .turn.sys::before {
     content: attr(data-label); display: block;
@@ -263,6 +271,7 @@
       </div>
       <span class="meter" id="meter">0 tok · <b>$0.0000</b></span>
       <button type="button" class="ghost" id="codex-open" title="Table, party, log, rules and world (no tokens spent)">Codex</button>
+      <button type="button" class="ghost" id="settings-open" title="Game Master settings (username and password)">Settings</button>
       <button type="button" class="ghost" id="export" title="Download the shared scene as Markdown">Export</button>
       <button type="button" class="ghost" id="reset" title="Clear the shared scene for everyone">New</button>
       <button type="button" class="ghost" id="lock" title="Leave and forget the password on this device">Lock</button>
@@ -299,6 +308,7 @@
     <button type="button" data-tab="log">LOG</button>
     <button type="button" data-tab="rules">RULES</button>
     <button type="button" data-tab="canon">WORLD</button>
+    <button type="button" data-tab="settings">SETTINGS</button>
   </nav>
   <div class="codex-body" id="codex-body"></div>
   <div class="codex-status" id="codex-status"></div>
@@ -363,6 +373,7 @@
     if (ws) try { ws.close(); } catch {}
     password = "";
     store.del("sessionStorage", "eidholm.pw");
+    sealSettings();
     closeCodex();
     show("gate");
     $("pw").value = "";
@@ -641,6 +652,7 @@
     $("send").disabled = blocked; $("pass").disabled = blocked;
 
     if ($("codex").classList.contains("open") && codexTab === "table") renderTableTab();
+    if ($("codex").classList.contains("open") && codexTab === "settings" && admin) renderSettingsSeats();
   }
 
   function formatProse(text) {
@@ -683,16 +695,24 @@
     renderCodex();
   }));
 
+  function openTab(tab) {
+    codexTab = tab;
+    document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x.dataset.tab === tab));
+    openCodex();
+  }
+  $("settings-open").addEventListener("click", () => openTab("settings"));
+
   async function renderCodex(force = false) {
     const body = $("codex-body");
     if (codexTab === "table") { renderTableTab(); return; }
+    if (codexTab === "settings") { renderSettings(force); return; }
     if (!codexState || force) body.innerHTML = '<p class="muted">Reading the repo…</p>';
     let st;
     try { st = await loadState(force); } catch (err) {
       if (err.message !== "locked") body.innerHTML = '<p class="muted">Could not read the repo: ' + escapeHtml(err.message) + "</p>";
       return;
     }
-    if (codexTab === "table") return;
+    if (codexTab === "table" || codexTab === "settings") return;
     body.className = "codex-body md";
     if (codexTab === "party") body.innerHTML = renderParty(st.party);
     else if (codexTab === "log") body.innerHTML = renderMarkdown(st.log) || '<p class="muted">No log yet.</p>';
@@ -735,13 +755,146 @@
       const mk = (text, fn, title) => { const b = document.createElement("button"); b.type = "button"; b.className = "ghost"; b.textContent = text; b.title = title || ""; b.addEventListener("click", fn); act.appendChild(b); };
       mk(s.present ? "Present · mark absent" : "Absent · mark present", () => send({ t: "seat", id: s.id, patch: { present: !s.present } }), "Toggle presence");
       if (s.id !== mySeat) mk("Sit here", () => { takeSeat(s.id); renderTableTab(); }, "Play this seat from this device");
-      mk("Remove", () => { if (confirm(`Remove ${seatLabel(s)} from the table?`)) send({ t: "removeSeat", id: s.id }); }, "Remove this seat");
       body.appendChild(row);
     }
     const add = document.createElement("button");
     add.type = "button"; add.className = "ghost"; add.textContent = "Switch seat / add someone";
     add.addEventListener("click", () => { closeCodex(); mySeat = ""; store.del("localStorage", "eidholm.seat"); route(); });
     body.appendChild(add);
+  }
+
+  // ================= settings (Game Master only) =================
+  // A second gate: admin username + password, checked by the server on every call.
+  let admin = null;   // { user, pass, canWriteRepo } once unlocked, this tab only
+  try { admin = JSON.parse(store.get("sessionStorage", "eidholm.admin") || "null"); } catch { admin = null; }
+
+  async function adminCall(action, body = {}, creds = admin) {
+    const r = await fetch(API + "/api/admin/" + action, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Game-Password": password,
+        "X-Admin-User": encodeURIComponent(creds.user),
+        "X-Admin-Password": encodeURIComponent(creds.pass),
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.status === 401) { lock("The word has changed."); throw new Error("locked"); }
+    if (r.status === 403) { sealSettings(); throw new Error(data.error || "The settings stay sealed."); }
+    if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+    return data;
+  }
+
+  function sealSettings() {
+    admin = null;
+    store.del("sessionStorage", "eidholm.admin");
+  }
+
+  function renderSettings(force = false) {
+    const body = $("codex-body");
+    body.className = "codex-body";
+    if (!admin) {
+      $("codex-status").textContent = "Sealed";
+      body.innerHTML = `<p class="muted">Game Master settings. Players don't need this.</p>
+        <form id="admin-form" class="stack" autocomplete="off">
+          <input id="admin-user" class="field" placeholder="Username" autocomplete="username" required>
+          <input id="admin-pass" class="field" type="password" placeholder="Password" autocomplete="current-password" required>
+          <button class="btn" type="submit">Unseal</button>
+        </form>
+        <div class="gate-msg" id="admin-msg"></div>`;
+      $("admin-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const creds = { user: $("admin-user").value, pass: $("admin-pass").value };
+        $("admin-msg").textContent = "";
+        try {
+          const res = await adminCall("check", {}, creds);
+          admin = { ...creds, canWriteRepo: res.canWriteRepo };
+          store.set("sessionStorage", "eidholm.admin", JSON.stringify(admin));
+          renderSettings();
+        } catch (err) {
+          if (err.message !== "locked") $("admin-msg").textContent = err.message;
+        }
+      });
+      $("admin-user").focus();
+      return;
+    }
+    $("codex-status").textContent = "Unsealed · every action is checked by the server";
+    body.innerHTML = `<h3 class="set-h">Seats at the table</h3>
+      <p class="muted">Removes the seat for everyone, right now. The scene and the party file are untouched.</p>
+      <div id="set-seats"></div>
+      <h3 class="set-h">Characters in the party file</h3>
+      <p class="muted">Deletes the permanent sheet from <code>characters/party.json</code> with a commit, so it can always be recovered from the repo history.</p>
+      <div id="set-party"><p class="muted">Reading the repo…</p></div>
+      <div class="set-foot"><button type="button" class="ghost" id="admin-seal">Seal settings</button></div>`;
+    $("admin-seal").addEventListener("click", () => { sealSettings(); renderSettings(); });
+    renderSettingsSeats();
+    renderSettingsParty(force);
+  }
+
+  function renderSettingsSeats() {
+    const box = $("set-seats");
+    if (!box || !table) return;
+    box.innerHTML = "";
+    if (!table.seats.length) { box.innerHTML = '<p class="muted">Nobody is seated.</p>'; return; }
+    for (const s of table.seats) {
+      const row = document.createElement("div");
+      row.className = "set-row";
+      row.innerHTML = `<span><b>${escapeHtml(seatLabel(s))}</b> <small>${s.character ? escapeHtml(s.player) + " · " : ""}${s.present ? "present" : "absent"}${s.id === mySeat ? " · you" : ""}</small></span>`;
+      const del = document.createElement("button");
+      del.type = "button"; del.className = "ghost danger"; del.textContent = "Remove seat";
+      del.addEventListener("click", async () => {
+        if (!confirm(`Remove the seat "${seatLabel(s)}" from the table for everyone?`)) return;
+        del.disabled = true;
+        try { await adminCall("remove-seat", { id: s.id }); }
+        catch (err) { if (err.message !== "locked") { alert(err.message); renderSettings(); } }
+      });
+      row.appendChild(del);
+      box.appendChild(row);
+    }
+  }
+
+  async function renderSettingsParty(force) {
+    const box = $("set-party");
+    if (!box) return;
+    if (!admin.canWriteRepo) {
+      box.innerHTML = '<p class="muted">Not available: the <code>GITHUB_WRITE_TOKEN</code> secret is not set on the Worker.</p>';
+      return;
+    }
+    let st;
+    try { st = await loadState(true); } catch (err) {
+      if (err.message !== "locked") box.innerHTML = '<p class="muted">Could not read the repo: ' + escapeHtml(err.message) + "</p>";
+      return;
+    }
+    $("codex-status").textContent = "Unsealed · every action is checked by the server";
+    const { members, error } = parseParty(st.party);
+    if (error) { box.innerHTML = '<p class="muted">party.json is not valid JSON, fix it in the repo first.</p>'; return; }
+    box.innerHTML = "";
+    if (!members.length) { box.innerHTML = '<p class="muted">The party file is empty.</p>'; return; }
+    for (const m of members) {
+      const name = String(m.name || "");
+      const row = document.createElement("div");
+      row.className = "set-row";
+      row.innerHTML = `<span><b>${escapeHtml(name || "unnamed")}</b></span>`;
+      const del = document.createElement("button");
+      del.type = "button"; del.className = "ghost danger"; del.textContent = "Delete character";
+      del.disabled = !name;
+      del.addEventListener("click", async () => {
+        const typed = prompt(`This deletes "${name}" from the party file with a commit.\n\nType the name to confirm:`);
+        if (typed === null) return;
+        if (typed.trim().toLowerCase() !== name.toLowerCase()) { alert("The name didn't match. Nothing was deleted."); return; }
+        del.disabled = true; del.textContent = "Deleting…";
+        try {
+          await adminCall("delete-character", { name });
+          codexState = null;
+          renderSettingsParty(true);
+        } catch (err) {
+          if (err.message !== "locked") { alert(err.message); renderSettingsParty(true); }
+        }
+      });
+      row.appendChild(del);
+      box.appendChild(row);
+    }
   }
 
   // ================= slash commands (local, no tokens) =================

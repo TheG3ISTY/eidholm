@@ -11,6 +11,7 @@ One deploy, one URL.
 | Cloudflare account | already created |
 | Node.js 18+ | to run `wrangler` |
 | Game password | you choose it; this is what players type at the gate |
+| Settings username + password | you choose them; only the GM needs these |
 | Mistral API key | console.mistral.ai → API Keys |
 | GitHub token (read-only) | see below |
 
@@ -59,6 +60,20 @@ GITHUB_TOKEN=...
 ```
 
 Then run `wrangler dev` from the repo root and open the local URL it prints.
+
+## Settings (the Game Master gate)
+
+A second lock, separate from the player password. The **Settings** button in the client asks for a username and password; behind it the GM can remove seats from the live table and delete characters from `characters/party.json`. Players can no longer remove seats at all: the server refuses it unless the admin credentials are sent.
+
+Add these as **Secrets** (Settings → Variables and Secrets):
+
+| Secret | What it is |
+|---|---|
+| `ADMIN_USERNAME` | the Settings username |
+| `ADMIN_PASSWORD` | the Settings password (use a different one from `GAME_PASSWORD`) |
+| `GITHUB_WRITE_TOKEN` | a **second** fine-grained token: only `TheG3ISTY/eidholm`, **Contents: Read and write**. Only used for deleting characters from the party file. |
+
+Until all three exist, Settings stays sealed (and without `GITHUB_WRITE_TOKEN`, only the seat controls work). Every deletion from the party file is a real commit (`session: remove character ...`), so it can be undone from the repo history.
 
 ## The shared table (Durable Object)
 

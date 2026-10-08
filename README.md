@@ -20,7 +20,7 @@ meta/deployment.md        deploy, secrets, costs, session workflow
 ## Ground rules
 
 - **The Rim stays undefined.** The Frozen Archive is a narrative joker. Nobody, GM included, explains it.
-- **No secrets in the repo.** Password, Mistral key and GitHub token exist only as Cloudflare secrets.
+- **No secrets in the repo.** Passwords, the Mistral key and both GitHub tokens exist only as Cloudflare secrets.
 - **A wrong password costs nothing.** The gate runs before any GitHub or Mistral call.
 - Single `main` branch. Commit prefixes: `canon:` lore, `rules:` mechanics, `session:` / `turn:` state, `app:` code. Tags for milestones.
 
@@ -33,6 +33,7 @@ Everyone with the password plays the **same live scene** from their own device.
 - Present players post actions whenever they like. The GM answers **once every present character has acted or passed**, or earlier when anyone presses **Resolve now**.
 - Posting again before the GM answers replaces your action; **Take mine back** withdraws it.
 - `OOC: ...` is table talk: everyone sees it, the GM does not, and it doesn't count as your action.
+- **Settings** (separate username + password) lets the GM remove seats and delete characters from the party file. Players can't remove anyone.
 - Absent characters are elsewhere in the story; the GM never narrates them.
 
 The live session lives in a Durable Object (`Table` in `api/worker.js`). The repo stays the long-term record; export a session and commit it to the log.
