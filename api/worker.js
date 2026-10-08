@@ -18,6 +18,7 @@ import { DurableObject } from "cloudflare:workers";
 const STATE_FILES = {
   canon: "world/worldbuilding.md",
   rules: "rules/resolution.md",
+  economy: "rules/economy.md",
   party: "characters/party.json",
   log: "campaign/log.md",
 };
@@ -910,6 +911,9 @@ ${state.canon}
 
 ## RULES (draft, open for design)
 ${state.rules || "(none yet)"}
+
+## ECONOMY & EQUIPMENT (designed; use these prices, tiers and item scales)
+${state.economy || "(none yet)"}
 
 ## PARTY (live state)
 ${state.party || "(empty roster)"}

@@ -191,6 +191,11 @@
   .md ul { margin: 0 0 0.8em; padding-left: 1.2em; }
   .md li { margin-bottom: 0.25em; }
   .md code { font-family: var(--mono); font-size: 0.85em; color: var(--glass); }
+  .md .tbl { overflow-x: auto; margin: 0 0 1em; }
+  .md table { border-collapse: collapse; font-size: 14px; width: 100%; }
+  .md th, .md td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; vertical-align: top; }
+  .md th { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: var(--ink-dim); text-transform: uppercase; font-weight: 500; background: var(--bg-2); }
+  .md blockquote { margin: 0 0 1em; padding: 6px 12px; border-left: 2px solid var(--brass); color: var(--ink); background: var(--bg-2); }
   .md hr { border: 0; border-top: 1px solid var(--line); margin: 1.2em 0; }
 
   .clock { font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; color: var(--ember); margin-bottom: 14px; }
@@ -778,7 +783,7 @@
       body.innerHTML = renderParty(st.party);
     }
     else if (codexTab === "log") body.innerHTML = renderMarkdown(st.log) || '<p class="muted">No log yet.</p>';
-    else if (codexTab === "rules") body.innerHTML = renderMarkdown(st.rules) || '<p class="muted">No rules yet.</p>';
+    else if (codexTab === "rules") body.innerHTML = (renderMarkdown(st.rules) + (st.economy ? "<hr>" + renderMarkdown(st.economy) : "")) || '<p class="muted">No rules yet.</p>';
     else body.innerHTML = renderMarkdown(st.canon) || '<p class="muted">No canon found.</p>';
     body.scrollTop = 0;
   }
@@ -1199,6 +1204,7 @@
     ["/sheet name", "one character's sheet (name can be partial)"],
     ["/log", "the most recent part of the campaign log"],
     ["/rules", "the current rules draft"],
+    ["/economy", "money, prices, gear tiers and item scales"],
     ["/world word", "search the canon, e.g. /world Kalvane"],
     ["/table", "who is present and who has answered this round"],
     ["/codex", "open the Codex"],
@@ -1237,6 +1243,7 @@
       const tail = st.log.length > 2500 ? "…\n\n" + st.log.slice(st.log.lastIndexOf("\n## ", st.log.length - 2500) + 1 || -2500) : st.log;
       note("LOG", renderMarkdown(tail) || '<p class="muted">No log yet.</p>');
     } else if (c === "rules") note("RULES", renderMarkdown(st.rules) || '<p class="muted">No rules yet.</p>');
+    else if (c === "economy" || c === "prices") note("ECONOMY", renderMarkdown(st.economy) || '<p class="muted">No economy rules yet.</p>');
     else if (c === "world" || c === "canon") {
       if (!arg) return note("WORLD", "<p>The canon is long. Search it with <code>/world word</code>, or open the <code>/codex</code> for the whole thing.</p>");
       const blocks = cleanMd(st.canon).split(/\n{2,}/).filter((b) => b.toLowerCase().includes(arg.toLowerCase()));
@@ -1269,12 +1276,27 @@
   function renderMarkdown(text) {
     const src = cleanMd(text);
     if (!src) return "";
-    let out = "", para = [], list = [];
+    let out = "", para = [], list = [], table = [], quote = [];
     const flushPara = () => { if (para.length) { out += "<p>" + para.map(inline).join("<br>") + "</p>"; para = []; } };
     const flushList = () => { if (list.length) { out += "<ul>" + list.map((l) => "<li>" + inline(l) + "</li>").join("") + "</ul>"; list = []; } };
+    const flushQuote = () => { if (quote.length) { out += "<blockquote>" + quote.map(inline).join("<br>") + "</blockquote>"; quote = []; } };
+    const cells = (row) => row.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+    const flushTable = () => {
+      if (!table.length) return;
+      const rows = table.filter((r) => !/^\s*\|?\s*:?-{2,}/.test(r));
+      const [head, ...bodyRows] = rows;
+      out += '<div class="tbl"><table><thead><tr>' + cells(head).map((c) => "<th>" + inline(c) + "</th>").join("") + "</tr></thead><tbody>" +
+        bodyRows.map((r) => "<tr>" + cells(r).map((c) => "<td>" + inline(c) + "</td>").join("") + "</tr>").join("") + "</tbody></table></div>";
+      table = [];
+    };
+    const flushAll = () => { flushPara(); flushList(); flushTable(); flushQuote(); };
     for (const raw of src.split("\n")) {
       const line = raw.replace(/\s+$/, "");
       let m;
+      if (/^\s*\|/.test(line)) { flushPara(); flushList(); flushQuote(); table.push(line); continue; }
+      if (table.length) flushTable();
+      if ((m = line.match(/^>\s?(.*)$/))) { flushPara(); flushList(); quote.push(m[1]); continue; }
+      if (quote.length) flushQuote();
       if (!line.trim()) { flushPara(); flushList(); }
       else if ((m = line.match(/^(#{1,3})\s+(.*)$/))) { flushPara(); flushList(); out += `<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`; }
       else if (/^[IVXL]+\.\s+[A-Z][A-Z\s&—,'-]+(\s*\([^)]*\))?$/.test(line.trim())) { flushPara(); flushList(); out += "<h2>" + inline(line.trim()) + "</h2>"; }
@@ -1282,7 +1304,7 @@
       else if ((m = line.match(/^\s*[-*]\s+(.*)$/))) { flushPara(); list.push(m[1]); }
       else { flushList(); para.push(line.trim()); }
     }
-    flushPara(); flushList();
+    flushAll();
     return out;
   }
   function parseParty(raw) {
