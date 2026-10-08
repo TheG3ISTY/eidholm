@@ -2,6 +2,10 @@ name = "eidholm"
 main = "api/worker.js"
 compatibility_date = "2025-09-01"
 
+# Never let a deploy (including the automatic ones from GitHub pushes) delete
+# variables or secrets that were set in the Cloudflare dashboard.
+keep_vars = true
+
 # The browser client is served from web/ by the same Worker: one deploy, one URL.
 [assets]
 directory = "web"
