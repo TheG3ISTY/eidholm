@@ -105,15 +105,14 @@ async function handleAdmin(action, request, env) {
     return new Response(res.body, { status: res.status, headers: { "Content-Type": "application/json" } });
   }
 
-  if (action === "delete-character") {
+  if (action === "delete-character" || action === "save-character" || action === "save-meta") {
     if (!env.GITHUB_WRITE_TOKEN) {
       return json({ error: "No GITHUB_WRITE_TOKEN is set, so the party file can't be changed from here." }, 501);
     }
-    const name = clean(body.name, 200);
-    if (!name) return json({ error: "Which character?" }, 400);
     try {
-      const result = await deleteCharacterFromRepo(env, name);
-      return json(result);
+      if (action === "delete-character") return json(await deleteCharacter(env, clean(body.name, 200)));
+      if (action === "save-character") return json(await saveCharacter(env, body.original, body.character));
+      return json(await saveMeta(env, body));
     } catch (err) {
       return json({ error: err.message }, err.status || 502);
     }
@@ -122,9 +121,10 @@ async function handleAdmin(action, request, env) {
   return json({ error: "Unknown setting." }, 404);
 }
 
-// Removes one character from characters/party.json with a real commit,
-// so the change is visible and recoverable in the repo history.
-async function deleteCharacterFromRepo(env, name) {
+// Every change to characters/party.json goes through here: read the current
+// file, change it, write it back as a real commit (so it is visible and
+// recoverable in the repo history), then tell everyone at the table.
+async function updatePartyFile(env, message, mutate) {
   const path = STATE_FILES.party;
   const base = env.GITHUB_API || "https://api.github.com";
   const url = `${base}/repos/${env.GITHUB_REPO}/contents/${path}`;
@@ -138,40 +138,93 @@ async function deleteCharacterFromRepo(env, name) {
   const cur = await fetch(`${url}?ref=${env.GITHUB_BRANCH}`, { headers });
   if (!cur.ok) throw httpError(`Could not read the party file (GitHub ${cur.status}).`, 502);
   const file = await cur.json();
-  const data = JSON.parse(fromBase64(file.content));
-
-  const target = name.toLowerCase();
-  let removed = null;
-  if (Array.isArray(data.party)) {
-    const keep = [];
-    for (const m of data.party) {
-      if (!removed && String(m?.name || "").toLowerCase() === target) removed = m.name;
-      else keep.push(m);
-    }
-    data.party = keep;
-  } else if (data.party && typeof data.party === "object") {
-    for (const k of Object.keys(data.party)) {
-      if (!removed && k.toLowerCase() === target) { removed = k; delete data.party[k]; }
-    }
+  let data;
+  try {
+    data = JSON.parse(fromBase64(file.content) || "{}");
+  } catch {
+    throw httpError("party.json in the repo is not valid JSON. Fix it there first.", 409);
   }
-  if (!removed) throw httpError(`No character called "${name}" in the party file.`, 404);
+  if (!data || typeof data !== "object" || Array.isArray(data)) data = {};
+  data.party = partyList(data);
+
+  const result = mutate(data);
 
   const put = await fetch(url, {
     method: "PUT",
     headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify({
-      message: `session: remove character ${removed} (via game settings)`,
+      message,
       content: toBase64(JSON.stringify(data, null, 2) + "\n"),
       sha: file.sha,
       branch: env.GITHUB_BRANCH,
     }),
   });
-  if (put.status === 409) throw httpError("The party file changed at the same moment. Try again.", 409);
+  if (put.status === 409) throw httpError("The party file changed at the same moment. Reload and try again.", 409);
   if (!put.ok) throw httpError(`GitHub refused the change (${put.status}). Check the write token's permissions.`, 502);
 
-  // Make the Codex and the GM see the change immediately.
+  // The Codex and the GM see the change immediately, and every open screen refreshes.
   await caches.default.delete(new Request(`https://eidholm-state.cache/${env.GITHUB_BRANCH}/${path}`));
-  return { ok: true, removed };
+  const stub = env.TABLE.get(env.TABLE.idFromName("main"));
+  await stub.fetch("https://table/admin", { method: "POST", body: JSON.stringify({ t: "partyChanged" }) }).catch(() => {});
+  return { ok: true, ...result };
+}
+
+// Normalise the roster to an array of { name, ... } whatever shape it had.
+function partyList(data) {
+  const p = data.party ?? data.characters ?? [];
+  delete data.characters;
+  if (Array.isArray(p)) return p.filter((m) => m && typeof m === "object");
+  if (p && typeof p === "object") return Object.entries(p).map(([name, v]) => ({ name, ...(v || {}) }));
+  return [];
+}
+
+function sameName(a, b) {
+  return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+}
+
+async function deleteCharacter(env, name) {
+  if (!name) throw httpError("Which character?", 400);
+  let removed;
+  return updatePartyFile(env, `session: remove character ${name} (via game settings)`, (data) => {
+    const i = data.party.findIndex((m) => sameName(m.name, name));
+    if (i < 0) throw httpError(`No character called "${name}" in the party file.`, 404);
+    removed = data.party[i].name;
+    data.party.splice(i, 1);
+    return { removed };
+  });
+}
+
+async function saveCharacter(env, original, character) {
+  if (!character || typeof character !== "object" || Array.isArray(character)) throw httpError("That isn't a character sheet.", 400);
+  const name = clean(character.name, 80);
+  if (!name) throw httpError("Every character needs a name.", 400);
+  character.name = name;
+  if (JSON.stringify(character).length > 20000) throw httpError("That sheet is too large.", 400);
+
+  const what = !original ? `create character ${name}`
+    : sameName(original, name) ? `edit character ${name}`
+    : `rename character ${original} to ${name}`;
+  return updatePartyFile(env, `session: ${what} (via game settings)`, (data) => {
+    const clash = data.party.findIndex((m) => sameName(m.name, name));
+    if (original) {
+      const i = data.party.findIndex((m) => sameName(m.name, original));
+      if (i < 0) throw httpError(`"${original}" is no longer in the party file. Reload first.`, 409);
+      if (clash >= 0 && clash !== i) throw httpError(`There is already a character called "${name}".`, 409);
+      data.party[i] = character;
+    } else {
+      if (clash >= 0) throw httpError(`There is already a character called "${name}".`, 409);
+      data.party.push(character);
+    }
+    return { saved: name };
+  });
+}
+
+async function saveMeta(env, body) {
+  return updatePartyFile(env, "session: set world clock / location (via game settings)", (data) => {
+    if (typeof body.world_clock === "string") data.world_clock = clean(body.world_clock, 120);
+    if (typeof body.location === "string") data.location = clean(body.location, 120) || null;
+    return {};
+  });
 }
 
 function httpError(message, status) {
@@ -223,6 +276,11 @@ export class Table extends DurableObject {
         if (state.seats.length === before) return json({ error: "That seat no longer exists." }, 404);
         state.messages = state.messages.filter((m) => !(m.round === state.round && isPending(m) && m.seatId === msg.id));
         if (!(await this.maybeAutoResolve(state))) await this.commit(state);
+        return json({ ok: true });
+      }
+      if (msg.t === "partyChanged") {
+        const payload = JSON.stringify({ t: "party-changed" });
+        for (const ws of this.ctx.getWebSockets()) { try { ws.send(payload); } catch {} }
         return json({ ok: true });
       }
       return json({ error: "Unknown admin command." }, 400);

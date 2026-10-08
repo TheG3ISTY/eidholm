@@ -73,6 +73,8 @@ Add these as **Secrets** (Settings → Variables and Secrets):
 | `ADMIN_PASSWORD` | the Settings password (use a different one from `GAME_PASSWORD`) |
 | `GITHUB_WRITE_TOKEN` | a **second** fine-grained token: only `TheG3ISTY/eidholm`, **Contents: Read and write**. Only used for deleting characters from the party file. |
 
+Once unsealed, the **Party** tab in the Codex becomes an editor on that device: change any field, add or remove fields, rename, create characters, and set the world clock and location. Players always see every sheet, read-only, and their screens refresh the moment a change is saved.
+
 Until all three exist, Settings stays sealed (and without `GITHUB_WRITE_TOKEN`, only the seat controls work). Every deletion from the party file is a real commit (`session: remove character ...`), so it can be undone from the repo history.
 
 ## The shared table (Durable Object)

@@ -33,7 +33,7 @@ Everyone with the password plays the **same live scene** from their own device.
 - Present players post actions whenever they like. The GM answers **once every present character has acted or passed**, or earlier when anyone presses **Resolve now**.
 - Posting again before the GM answers replaces your action; **Take mine back** withdraws it.
 - `OOC: ...` is table talk: everyone sees it, the GM does not, and it doesn't count as your action.
-- **Settings** (separate username + password) lets the GM remove seats and delete characters from the party file. Players can't remove anyone.
+- **Settings** (separate username + password) lets the GM remove seats, and turns the Party tab into an editor: edit, create, rename and delete character sheets, set the world clock. Every change is a commit. Players see all sheets read-only and can't remove anyone.
 - Absent characters are elsewhere in the story; the GM never narrates them.
 
 The live session lives in a Durable Object (`Table` in `api/worker.js`). The repo stays the long-term record; export a session and commit it to the log.

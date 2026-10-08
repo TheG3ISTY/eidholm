@@ -213,6 +213,18 @@
   .ghost.danger:hover { border-color: var(--danger); color: var(--ink); background: rgba(192,83,63,0.25); }
   .ghost:disabled { opacity: 0.4; cursor: default; }
   .set-foot { margin-top: 22px; }
+  .edit-card { display: grid; gap: 8px; }
+  .edit-card.dirty { border-color: var(--ember-dim); }
+  .edit-card h3 { margin-bottom: 0; }
+  .ename { font-family: var(--display); font-size: 22px; font-weight: 600; padding: 6px 10px; }
+  .erows { display: grid; gap: 6px; }
+  .erow { display: grid; grid-template-columns: minmax(80px, 30%) 1fr auto; gap: 6px; align-items: start; }
+  .erow label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: var(--ink-dim); text-transform: uppercase; padding-top: 9px; }
+  .meta-row, .edit-card > .erow:has(label) { grid-template-columns: minmax(80px, 30%) 1fr; }
+  .erow .field { padding: 6px 9px; font-size: 13px; }
+  .erow textarea.field { resize: vertical; min-height: 34px; font-family: var(--mono); }
+  .ebar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .emsg { flex: 1; font-family: var(--mono); font-size: 11px; color: var(--danger); min-width: 80px; }
   .turn.sys { border: 1px dashed var(--line); padding: 12px 14px; font-size: 16px; background: rgba(26,23,20,0.6); }
   .turn.sys::before {
     content: attr(data-label); display: block;
@@ -439,6 +451,7 @@
       if (m.t === "state") { table = m; route(); }
       else if (m.t === "joined") takeSeat(m.seatId);
       else if (m.t === "error") pushError(m.text);
+      else if (m.t === "party-changed") partyChanged();
     };
     ws.onclose = () => {
       $("conn").classList.remove("live");
@@ -714,7 +727,10 @@
     }
     if (codexTab === "table" || codexTab === "settings") return;
     body.className = "codex-body md";
-    if (codexTab === "party") body.innerHTML = renderParty(st.party);
+    if (codexTab === "party") {
+      if (admin && admin.canWriteRepo) { renderPartyEditor(st); return; }
+      body.innerHTML = renderParty(st.party);
+    }
     else if (codexTab === "log") body.innerHTML = renderMarkdown(st.log) || '<p class="muted">No log yet.</p>';
     else if (codexTab === "rules") body.innerHTML = renderMarkdown(st.rules) || '<p class="muted">No rules yet.</p>';
     else body.innerHTML = renderMarkdown(st.canon) || '<p class="muted">No canon found.</p>';
@@ -812,6 +828,7 @@
           admin = { ...creds, canWriteRepo: res.canWriteRepo };
           store.set("sessionStorage", "eidholm.admin", JSON.stringify(admin));
           renderSettings();
+          if (admin.canWriteRepo) $("codex-status").textContent = "Unsealed · the Party tab is now editable";
         } catch (err) {
           if (err.message !== "locked") $("admin-msg").textContent = err.message;
         }
@@ -895,6 +912,173 @@
       row.appendChild(del);
       box.appendChild(row);
     }
+  }
+
+  // ================= party editor (unsealed GMs only) =================
+  // Everyone reads every sheet in the Party tab. Once Settings are unsealed on
+  // this device, the same tab becomes an editor; every save is a commit.
+  let editorDirty = false;
+
+  function partyChanged() {
+    codexState = null;
+    const open = $("codex").classList.contains("open");
+    if (!open || !(codexTab === "party" || codexTab === "settings")) return;
+    if (editorDirty) { $("codex-status").textContent = "The party file changed elsewhere. Save or Refresh when you're done."; return; }
+    renderCodex(true);
+  }
+
+  // Each value keeps its shape: numbers stay numbers, lists stay lists.
+  function kindOf(v) {
+    if (typeof v === "number") return "num";
+    if (typeof v === "boolean") return "bool";
+    if (v === null || v === undefined) return "text";
+    if (Array.isArray(v) && v.every((x) => x === null || typeof x !== "object")) return "list";
+    if (typeof v === "object") return "json";
+    return "text";
+  }
+  function toEditText(v, kind) {
+    if (kind === "list") return v.join(", ");
+    if (kind === "json") return JSON.stringify(v, null, 2);
+    if (v === null || v === undefined) return "";
+    return String(v);
+  }
+  function fromEditText(raw, kind, key) {
+    const t = raw.trim();
+    if (kind === "auto") {
+      if (/^-?\d+(\.\d+)?$/.test(t)) return Number(t);
+      if (t === "true" || t === "false") return t === "true";
+      if (/^[\[{]/.test(t)) kind = "json"; else return t;
+    }
+    if (kind === "num") {
+      if (t === "") return null;
+      const n = Number(t.replace(",", "."));
+      if (Number.isNaN(n)) throw new Error(`"${key}" must be a number.`);
+      return n;
+    }
+    if (kind === "bool") {
+      if (!/^(true|false)$/i.test(t)) throw new Error(`"${key}" must be true or false.`);
+      return t.toLowerCase() === "true";
+    }
+    if (kind === "list") return t ? t.split(",").map((x) => x.trim()).filter(Boolean) : [];
+    if (kind === "json") {
+      try { return JSON.parse(t || "null"); } catch { throw new Error(`"${key}" isn't valid structured data. Check brackets and quotes.`); }
+    }
+    return raw.replace(/\s+$/, "");
+  }
+
+  function renderPartyEditor(st) {
+    const body = $("codex-body");
+    body.className = "codex-body";
+    editorDirty = false;
+    const p = parseParty(st.party);
+    if (p.error) { body.innerHTML = '<p class="muted">party.json in the repo is not valid JSON. Fix it there first.</p>'; return; }
+    $("codex-status").textContent = "Editing · each save is a commit to the party file";
+    body.innerHTML = "";
+
+    const intro = document.createElement("p");
+    intro.className = "muted";
+    intro.textContent = "Settings are unsealed, so every sheet is editable here. Players see the same sheets read-only. Numbers stay numbers; lists are comma-separated; structured values keep their brackets.";
+    body.appendChild(intro);
+
+    // world clock + location
+    const meta = document.createElement("div");
+    meta.className = "card edit-card";
+    meta.innerHTML = `<h3>The world</h3>
+      <div class="erow"><label>world clock</label><input class="field" data-m="world_clock" value="${escapeHtml(p.data.world_clock || "")}"></div>
+      <div class="erow"><label>location</label><input class="field" data-m="location" value="${escapeHtml(p.data.location || "")}"></div>
+      <div class="ebar"><span class="emsg"></span><button type="button" class="ghost" data-act="save">Save</button></div>`;
+    meta.addEventListener("input", () => { editorDirty = true; });
+    meta.querySelector('[data-act="save"]').addEventListener("click", async (e) => {
+      const msgEl = meta.querySelector(".emsg");
+      e.target.disabled = true; msgEl.textContent = "Saving…";
+      try {
+        await adminCall("save-meta", { world_clock: meta.querySelector('[data-m="world_clock"]').value, location: meta.querySelector('[data-m="location"]').value });
+        codexState = null; renderCodex(true);
+      } catch (err) { if (err.message !== "locked") { msgEl.textContent = err.message; e.target.disabled = false; } }
+    });
+    body.appendChild(meta);
+
+    for (const m of p.members) body.appendChild(characterEditor(m));
+
+    const add = document.createElement("button");
+    add.type = "button"; add.className = "ghost"; add.textContent = "+ New character";
+    add.addEventListener("click", () => {
+      const card = characterEditor({ name: "" }, true);
+      body.insertBefore(card, add);
+      card.querySelector('[data-k="__name"]').focus();
+      editorDirty = true;
+    });
+    body.appendChild(add);
+  }
+
+  function characterEditor(member, isNew = false) {
+    const original = isNew ? null : String(member.name || "");
+    const card = document.createElement("div");
+    card.className = "card edit-card";
+    card.innerHTML = `<input class="field ename" data-k="__name" placeholder="Character name" value="${escapeHtml(member.name || "")}">
+      <div class="erows"></div>
+      <div class="ebar">
+        <button type="button" class="ghost" data-act="add">+ Field</button>
+        <span class="emsg"></span>
+        ${isNew ? "" : '<button type="button" class="ghost" data-act="revert">Revert</button>'}
+        <button type="button" class="ghost" data-act="save">${isNew ? "Create" : "Save"}</button>
+      </div>`;
+    const rows = card.querySelector(".erows");
+    for (const [k, v] of Object.entries(member)) if (k !== "name") rows.appendChild(fieldRow(k, v, kindOf(v)));
+    if (isNew) rows.appendChild(fieldRow("", "", "auto"));
+
+    card.addEventListener("input", () => { editorDirty = true; card.classList.add("dirty"); });
+    card.querySelector('[data-act="add"]').addEventListener("click", () => {
+      const r = fieldRow("", "", "auto"); rows.appendChild(r); r.querySelector("input").focus();
+    });
+    const rv = card.querySelector('[data-act="revert"]');
+    if (rv) rv.addEventListener("click", () => { card.replaceWith(characterEditor(member)); });
+    card.querySelector('[data-act="save"]').addEventListener("click", async (e) => {
+      const msgEl = card.querySelector(".emsg");
+      msgEl.textContent = "";
+      let character;
+      try { character = collectCharacter(card); } catch (err) { msgEl.textContent = err.message; return; }
+      e.target.disabled = true; msgEl.textContent = "Saving…";
+      try {
+        await adminCall("save-character", { original, character });
+        codexState = null; renderCodex(true);
+      } catch (err) { if (err.message !== "locked") { msgEl.textContent = err.message; e.target.disabled = false; } }
+    });
+    return card;
+  }
+
+  function fieldRow(key, value, kind) {
+    const row = document.createElement("div");
+    row.className = "erow";
+    row.dataset.kind = kind;
+    const text = kind === "auto" ? String(value ?? "") : toEditText(value, kind);
+    const big = kind === "json" || text.length > 60 || text.includes("\n");
+    row.innerHTML = `<input class="field ekey" placeholder="field" value="${escapeHtml(key)}">` +
+      (big ? `<textarea class="field eval" rows="${Math.min(10, text.split("\n").length + 1)}"></textarea>` : `<input class="field eval" value="">`) +
+      `<button type="button" class="ghost" title="Remove this field">✕</button>`;
+    row.querySelector(".eval").value = text;
+    const hint = { num: "number", bool: "true / false", list: "comma-separated", json: "structured" }[kind];
+    if (hint) row.querySelector(".eval").placeholder = hint;
+    row.querySelector("button").addEventListener("click", () => {
+      editorDirty = true; row.closest(".edit-card").classList.add("dirty"); row.remove();
+    });
+    return row;
+  }
+
+  function collectCharacter(card) {
+    const name = card.querySelector('[data-k="__name"]').value.trim();
+    if (!name) throw new Error("Every character needs a name.");
+    const out = { name };
+    for (const row of card.querySelectorAll(".erow")) {
+      const key = row.querySelector(".ekey").value.trim();
+      const raw = row.querySelector(".eval").value;
+      if (!key && !raw.trim()) continue;
+      if (!key) throw new Error("A field has a value but no name.");
+      if (key.toLowerCase() === "name") throw new Error('Use the name box at the top, not a field called "name".');
+      if (key in out) throw new Error(`"${key}" appears twice.`);
+      out[key] = fromEditText(raw, row.dataset.kind, key);
+    }
+    return out;
   }
 
   // ================= slash commands (local, no tokens) =================
