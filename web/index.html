@@ -171,6 +171,66 @@
   textarea:focus { border-color: var(--brass); }
   .hint { max-width: 720px; margin: 6px auto 0; font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
 
+  /* ---------- codex drawer ---------- */
+  #codex {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: min(520px, 100vw);
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    box-shadow: -20px 0 60px rgba(0,0,0,0.5);
+    transform: translateX(100%);
+    transition: transform 0.22s ease;
+    display: flex; flex-direction: column;
+    z-index: 20;
+  }
+  #codex.open { transform: none; }
+  .codex-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+  }
+  .codex-head h2 { margin: 0; font-family: var(--display); font-weight: 600; letter-spacing: 0.14em; font-size: 20px; }
+  .tabs { display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .tabs button {
+    background: transparent; border: 0; border-bottom: 2px solid transparent;
+    padding: 10px 12px; cursor: pointer; white-space: nowrap;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; color: var(--ink-dim);
+  }
+  .tabs button.on { color: var(--ink); border-bottom-color: var(--ember); }
+  .codex-body { flex: 1; overflow-y: auto; padding: 18px 16px 32px; font-size: 17px; }
+  .codex-status { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); padding: 8px 16px; border-top: 1px solid var(--line); }
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 15; display: none; }
+  .scrim.open { display: block; }
+
+  /* rendered markdown (codex + inline) */
+  .md h1, .md h2, .md h3 { font-family: var(--display); font-weight: 600; color: var(--brass); line-height: 1.25; margin: 1.2em 0 0.4em; }
+  .md h1 { font-size: 26px; } .md h2 { font-size: 22px; } .md h3 { font-size: 19px; }
+  .md > :first-child { margin-top: 0; }
+  .md p { margin: 0 0 0.8em; }
+  .md ul { margin: 0 0 0.8em; padding-left: 1.2em; }
+  .md li { margin-bottom: 0.25em; }
+  .md code { font-family: var(--mono); font-size: 0.85em; color: var(--glass); }
+  .md hr { border: 0; border-top: 1px solid var(--line); margin: 1.2em 0; }
+
+  /* party cards */
+  .clock { font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; color: var(--ember); margin-bottom: 14px; }
+  .card { border: 1px solid var(--line); background: var(--bg-2); padding: 14px; margin-bottom: 12px; }
+  .card h3 { margin: 0 0 8px; font-family: var(--display); font-size: 22px; font-weight: 600; color: var(--ink); }
+  .kv { display: grid; grid-template-columns: minmax(90px, 32%) 1fr; gap: 4px 12px; font-size: 15px; }
+  .kv dt { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: var(--ink-dim); text-transform: uppercase; padding-top: 3px; }
+  .kv dd { margin: 0; }
+  .kv dd .kv { margin-top: 2px; }
+  .muted { color: var(--ink-dim); font-style: italic; }
+
+  /* inline system notes from slash commands */
+  .turn.sys {
+    border: 1px dashed var(--line); padding: 12px 14px; font-size: 16px;
+    background: rgba(26,23,20,0.6);
+  }
+  .turn.sys::before {
+    content: attr(data-label);
+    display: block; font-family: var(--mono); font-size: 11px; letter-spacing: 0.2em; color: var(--glass); margin-bottom: 6px;
+  }
+
   @media (max-width: 560px) {
     body { font-size: 17px; }
     .gate-card h1 { font-size: 40px; }
@@ -202,6 +262,7 @@
         <button type="button" data-tier="large" title="mistral-large: climactic scenes only">Large</button>
       </div>
       <span class="meter" id="meter">0 tok · <b>$0.0000</b></span>
+      <button type="button" class="ghost" id="codex-open" title="Party, log, rules and world (no tokens spent)">Codex</button>
       <button type="button" class="ghost" id="export" title="Download this session as Markdown">Export</button>
       <button type="button" class="ghost" id="reset" title="Clear this session's chat">New</button>
       <button type="button" class="ghost" id="lock" title="Forget the password">Lock</button>
@@ -215,9 +276,28 @@
       <textarea id="msg" rows="1" placeholder="What do you do?"></textarea>
       <button class="btn" id="send" type="submit">Act</button>
     </div>
-    <div class="hint">Enter to send · Shift+Enter for a new line · start with OOC: to step out of the story</div>
+    <div class="hint">Enter to send · Shift+Enter for a new line · OOC: to step out of the story · /help for commands</div>
   </form>
 </section>
+
+<div class="scrim" id="scrim"></div>
+<aside id="codex" aria-label="Codex" aria-hidden="true">
+  <div class="codex-head">
+    <h2>CODEX</h2>
+    <div class="controls">
+      <button type="button" class="ghost" id="codex-refresh" title="Pull the latest from the repo">Refresh</button>
+      <button type="button" class="ghost" id="codex-close" title="Close">Close</button>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button type="button" data-tab="party" class="on">PARTY</button>
+    <button type="button" data-tab="log">LOG</button>
+    <button type="button" data-tab="rules">RULES</button>
+    <button type="button" data-tab="canon">WORLD</button>
+  </nav>
+  <div class="codex-body" id="codex-body"></div>
+  <div class="codex-status" id="codex-status">Not loaded yet</div>
+</aside>
 
 <script>
   // Same origin as the Worker. Change only if you host the page elsewhere.
@@ -305,7 +385,7 @@
 
   $("export").addEventListener("click", () => {
     const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
-    const body = history.map((m) => m.role === "user"
+    const body = history.filter((m) => m.role === "user" || m.role === "assistant").map((m) => m.role === "user"
       ? `**Player:** ${m.content}`
       : `**GM:**\n\n${m.content}`).join("\n\n---\n\n");
     const md = `# Eidholm session export (${stamp})\n\nTokens: ${spend.tokens} · est. $${spend.usd.toFixed(4)}\n\n---\n\n${body}\n`;
@@ -329,6 +409,15 @@
     e.preventDefault();
     const text = msg.value.trim();
     if (!text || busy) return;
+
+    // Slash commands are handled locally and never reach the GM.
+    if (text.startsWith("/")) {
+      msg.value = ""; msg.style.height = "auto";
+      await runCommand(text);
+      msg.focus();
+      return;
+    }
+
     busy = true; $("send").disabled = true;
     msg.value = ""; msg.style.height = "auto";
 
@@ -339,7 +428,7 @@
       const r = await fetch(API + "/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Game-Password": password },
-        body: JSON.stringify({ messages: history, tier }),
+        body: JSON.stringify({ messages: history.filter((m) => m.role === "user" || m.role === "assistant"), tier }),
       });
       if (r.status === 401) { history.pop(); persist(); $("lock").click(); $("gate-msg").textContent = "The word has changed."; return; }
       const data = await r.json().catch(() => ({}));
@@ -362,6 +451,206 @@
     }
   });
 
+  // ---------- codex: state from the repo (no tokens spent) ----------
+  let codexState = null;
+  let codexTab = "party";
+
+  async function loadState(force = false) {
+    if (codexState && !force) return codexState;
+    $("codex-status").textContent = "Reading the repo…";
+    const r = await fetch(API + "/api/state", { method: "POST", headers: { "X-Game-Password": password } });
+    if (r.status === 401) { $("lock").click(); $("gate-msg").textContent = "The word has changed."; throw new Error("locked"); }
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      $("codex-status").textContent = data.error || ("HTTP " + r.status);
+      throw new Error(data.error || ("HTTP " + r.status));
+    }
+    codexState = data;
+    $("codex-status").textContent = "Loaded from repo at " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return codexState;
+  }
+
+  function openCodex() {
+    $("codex").classList.add("open"); $("scrim").classList.add("open");
+    $("codex").setAttribute("aria-hidden", "false");
+    renderCodex();
+  }
+  function closeCodex() {
+    $("codex").classList.remove("open"); $("scrim").classList.remove("open");
+    $("codex").setAttribute("aria-hidden", "true");
+    msg.focus();
+  }
+  $("codex-open").addEventListener("click", openCodex);
+  $("codex-close").addEventListener("click", closeCodex);
+  $("scrim").addEventListener("click", closeCodex);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("codex").classList.contains("open")) closeCodex(); });
+  $("codex-refresh").addEventListener("click", () => renderCodex(true));
+  document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
+    codexTab = b.dataset.tab;
+    document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b));
+    renderCodex();
+  }));
+
+  async function renderCodex(force = false) {
+    const body = $("codex-body");
+    if (!codexState || force) body.innerHTML = '<p class="muted">Reading the repo…</p>';
+    let st;
+    try { st = await loadState(force); } catch (err) {
+      if (err.message !== "locked") body.innerHTML = '<p class="muted">Could not read the repo: ' + escapeHtml(err.message) + "</p>";
+      return;
+    }
+    body.className = "codex-body md";
+    if (codexTab === "party") body.innerHTML = renderParty(st.party);
+    else if (codexTab === "log") body.innerHTML = renderMarkdown(st.log) || '<p class="muted">No log yet.</p>';
+    else if (codexTab === "rules") body.innerHTML = renderMarkdown(st.rules) || '<p class="muted">No rules yet.</p>';
+    else body.innerHTML = renderMarkdown(st.canon) || '<p class="muted">No canon found.</p>';
+    body.scrollTop = 0;
+  }
+
+  // ---------- slash commands ----------
+  const HELP = [
+    ["/party", "everyone in the party, with the world clock"],
+    ["/sheet name", "one character's sheet (name can be partial)"],
+    ["/log", "the most recent part of the campaign log"],
+    ["/rules", "the current rules draft"],
+    ["/world word", "search the canon, e.g. /world Kalvane"],
+    ["/codex", "open the Codex drawer"],
+    ["/help", "this list"],
+  ];
+
+  async function runCommand(text) {
+    const [cmd, ...rest] = text.slice(1).trim().split(/\s+/);
+    const arg = rest.join(" ").trim();
+    const c = (cmd || "").toLowerCase();
+
+    if (c === "codex") { openCodex(); return; }
+    if (c === "help" || !c) { note("COMMANDS", helpHtml()); return; }
+
+    let st;
+    try { st = await loadState(); } catch (err) {
+      if (err.message !== "locked") appendError("Could not read the repo: " + err.message);
+      return;
+    }
+
+    if (c === "party") {
+      note("PARTY", renderParty(st.party));
+    } else if (c === "sheet") {
+      const { members } = parseParty(st.party);
+      if (!members.length) return note("SHEET", '<p class="muted">The roster is empty. Characters are made in session 1.</p>');
+      const found = arg
+        ? members.filter((m) => String(m.name || "").toLowerCase().includes(arg.toLowerCase()))
+        : members.length === 1 ? members : [];
+      if (found.length === 1) note("SHEET", renderCard(found[0]));
+      else note("SHEET", '<p>' + (arg && !found.length ? "No one called “" + escapeHtml(arg) + "”. " : "Whose sheet? ") +
+        "Party: " + members.map((m) => "<code>" + escapeHtml(m.name || "unnamed") + "</code>").join(", ") + "</p>");
+    } else if (c === "log") {
+      const tail = st.log.length > 2500 ? "…\n\n" + st.log.slice(st.log.lastIndexOf("\n## ", st.log.length - 2500) + 1 || -2500) : st.log;
+      note("LOG", renderMarkdown(tail) || '<p class="muted">No log yet.</p>');
+    } else if (c === "rules") {
+      note("RULES", renderMarkdown(st.rules) || '<p class="muted">No rules yet.</p>');
+    } else if (c === "world" || c === "canon") {
+      if (!arg) return note("WORLD", '<p>The canon is long. Search it with <code>/world word</code>, or open the <code>/codex</code> for the whole thing.</p>');
+      const blocks = cleanMd(st.canon).split(/\n{2,}/).filter((b) => b.toLowerCase().includes(arg.toLowerCase()));
+      note("WORLD · " + arg.toUpperCase(), blocks.length
+        ? renderMarkdown(blocks.slice(0, 4).join("\n\n")) + (blocks.length > 4 ? '<p class="muted">' + (blocks.length - 4) + " more passages in the Codex.</p>" : "")
+        : '<p class="muted">The canon says nothing about “' + escapeHtml(arg) + '”.</p>');
+    } else {
+      note("COMMANDS", "<p>Unknown command <code>/" + escapeHtml(cmd) + "</code>.</p>" + helpHtml());
+    }
+  }
+
+  function helpHtml() {
+    return "<ul>" + HELP.map(([k, v]) => "<li><code>" + k + "</code> " + v + "</li>").join("") + "</ul>" +
+      '<p class="muted">Commands read the repo directly and never cost tokens. The GM does not see them.</p>';
+  }
+
+  function note(label, html) {
+    history.push({ role: "note", label, html });
+    persist(); render();
+  }
+
+  // ---------- renderers ----------
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function inline(s) {
+    return escapeHtml(s)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, "$1<em>$2</em>");
+  }
+
+  // Strips HTML comments and Google-Docs-style backslash escapes (\# \-).
+  function cleanMd(text) {
+    return String(text || "")
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/\\([\\`*_{}\[\]()#+\-.!>])/g, "$1")
+      .trim();
+  }
+
+  function renderMarkdown(text) {
+    const src = cleanMd(text);
+    if (!src) return "";
+    let out = "", para = [], list = [];
+    const flushPara = () => { if (para.length) { out += "<p>" + para.map(inline).join("<br>") + "</p>"; para = []; } };
+    const flushList = () => { if (list.length) { out += "<ul>" + list.map((l) => "<li>" + inline(l) + "</li>").join("") + "</ul>"; list = []; } };
+    for (const raw of src.split("\n")) {
+      const line = raw.replace(/\s+$/, "");
+      let m;
+      if (!line.trim()) { flushPara(); flushList(); }
+      else if ((m = line.match(/^(#{1,3})\s+(.*)$/))) { flushPara(); flushList(); out += `<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`; }
+      else if (/^[IVXL]+\.\s+[A-Z][A-Z\s&—,'-]+(\s*\([^)]*\))?$/.test(line.trim())) { flushPara(); flushList(); out += "<h2>" + inline(line.trim()) + "</h2>"; }
+      else if (/^(-{3,}|\*{3,})$/.test(line.trim())) { flushPara(); flushList(); out += "<hr>"; }
+      else if ((m = line.match(/^\s*[-*]\s+(.*)$/))) { flushPara(); list.push(m[1]); }
+      else { flushList(); para.push(line.trim()); }
+    }
+    flushPara(); flushList();
+    return out;
+  }
+
+  function parseParty(raw) {
+    let data;
+    try { data = JSON.parse(raw || "{}"); } catch { return { error: true, raw }; }
+    let members = data.party ?? data.characters ?? [];
+    if (!Array.isArray(members)) members = Object.entries(members).map(([name, v]) => ({ name, ...(v || {}) }));
+    return { data, members };
+  }
+
+  function renderValue(v) {
+    if (v === null || v === undefined || v === "") return '<span class="muted">none</span>';
+    if (Array.isArray(v)) {
+      if (!v.length) return '<span class="muted">none</span>';
+      if (v.every((x) => typeof x !== "object" || x === null)) return escapeHtml(v.join(", "));
+      return v.map(renderValue).join("");
+    }
+    if (typeof v === "object") return renderKv(v);
+    return escapeHtml(v);
+  }
+
+  function renderKv(obj) {
+    return '<dl class="kv">' + Object.entries(obj).map(([k, v]) =>
+      "<dt>" + escapeHtml(k.replace(/_/g, " ")) + "</dt><dd>" + renderValue(v) + "</dd>").join("") + "</dl>";
+  }
+
+  function renderCard(member) {
+    const { name, ...rest } = member;
+    return '<div class="card"><h3>' + escapeHtml(name || "Unnamed") + "</h3>" +
+      (Object.keys(rest).length ? renderKv(rest) : '<p class="muted">An empty sheet.</p>') + "</div>";
+  }
+
+  function renderParty(raw) {
+    const p = parseParty(raw);
+    if (p.error) return '<p class="muted">party.json is not valid JSON:</p><pre>' + escapeHtml(raw) + "</pre>";
+    const { data, members } = p;
+    let html = "";
+    if (data.world_clock) html += '<div class="clock">' + escapeHtml(data.world_clock).toUpperCase() +
+      (data.location ? " · " + escapeHtml(data.location).toUpperCase() : "") + "</div>";
+    html += members.length ? members.map(renderCard).join("")
+      : '<p class="muted">The roster is empty. Characters are made in session 1.</p>';
+    return html;
+  }
+
   // ---------- render ----------
   function persist() {
     store.set("localStorage", "eidholm.history", JSON.stringify(history));
@@ -375,7 +664,11 @@
     }
     for (const m of history) {
       const div = document.createElement("div");
-      if (m.role === "user") {
+      if (m.role === "note") {
+        div.className = "turn sys md";
+        div.dataset.label = m.label || "CODEX";
+        div.innerHTML = m.html;
+      } else if (m.role === "user") {
         div.className = "turn you";
         div.textContent = m.content;
       } else {

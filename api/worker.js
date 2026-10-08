@@ -29,6 +29,7 @@ export default {
       if (!ok) return json({ error: "The gate does not open." }, 401);
 
       if (url.pathname === "/api/check") return json({ ok: true });
+      if (url.pathname === "/api/state") return handleState(env);
       if (url.pathname === "/api/chat") return handleChat(request, env);
       return json({ error: "Not found" }, 404);
     }
@@ -37,6 +38,17 @@ export default {
     return env.ASSETS.fetch(request);
   },
 };
+
+// Read-only view of the game state for the Codex and slash commands.
+// Never touches Mistral: costs nothing but a GitHub read.
+async function handleState(env) {
+  try {
+    const state = await loadState(env);
+    return json(state);
+  } catch (err) {
+    return json({ error: `Could not read game state from GitHub: ${err.message}` }, 502);
+  }
+}
 
 async function handleChat(request, env) {
   let body;
