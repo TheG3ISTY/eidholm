@@ -27,6 +27,15 @@ GITHUB_BRANCH = "main"
 name = "TABLE"
 class_name = "Table"
 
+# The bouncer: remembers wrong password guesses per connection.
+[[durable_objects.bindings]]
+name = "BOUNCER"
+class_name = "Bouncer"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Table"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Bouncer"]

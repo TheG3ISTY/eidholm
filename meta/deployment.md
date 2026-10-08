@@ -83,6 +83,12 @@ The live session (seats, presence, actions, GM replies, spend) is stored in a Du
 
 Browsers connect over a WebSocket. Because browsers can't send custom headers on a WebSocket, the client first trades the password for a signed ticket at `POST /api/ticket` (valid 60 s), then opens `/api/ws?ticket=...`. A forged or expired ticket is rejected before reaching the table.
 
+## The bouncer (wrong-password lockout)
+
+Both gates count wrong guesses per connection (IP), separately. After **5 wrong attempts within 15 minutes**, that gate is shut for that connection for **15 minutes**, and passwords aren't even checked while it's shut. A correct password clears the count. Failing the Settings login never blocks normal play.
+
+People on the same Wi-Fi share one connection as far as this is concerned. If you lock yourself out, wait it out, or play from mobile data. The numbers live at the top of `api/worker.js` (`MAX_FAILS`, `FAIL_WINDOW_MS`, `LOCKOUT_MS`).
+
 ## How the credit protection works
 
 - `/api/check`, `/api/state` and `/api/ticket` compare the `X-Game-Password` header against the secret **before anything else**. A wrong password returns 401 and never touches GitHub or Mistral. Zero spend.

@@ -21,7 +21,7 @@ meta/deployment.md        deploy, secrets, costs, session workflow
 
 - **The Rim stays undefined.** The Frozen Archive is a narrative joker. Nobody, GM included, explains it.
 - **No secrets in the repo.** Passwords, the Mistral key and both GitHub tokens exist only as Cloudflare secrets.
-- **A wrong password costs nothing.** The gate runs before any GitHub or Mistral call.
+- **A wrong password costs nothing.** The gate runs before any GitHub or Mistral call, and 5 wrong guesses lock that connection out for 15 minutes.
 - Single `main` branch. Commit prefixes: `canon:` lore, `rules:` mechanics, `session:` / `turn:` state, `app:` code. Tags for milestones.
 
 ## The shared table

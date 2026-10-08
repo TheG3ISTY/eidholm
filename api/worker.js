@@ -31,6 +31,11 @@ const SNAPSHOT_MESSAGES = 300;
 const GM_HISTORY_ROUNDS = 12;   // past rounds sent to the GM for continuity
 const STALE_RESOLVE_MS = 120_000;
 
+// The bouncer: wrong guesses per connection, per gate.
+const MAX_FAILS = 5;
+const FAIL_WINDOW_MS = 15 * 60_000;
+const LOCKOUT_MS = 15 * 60_000;
+
 // ======================================================================
 // Front door
 // ======================================================================
@@ -52,9 +57,13 @@ export default {
     if (url.pathname.startsWith("/api/")) {
       if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-      // The gate. Nothing below this line runs on a wrong password.
-      const ok = await passwordMatches(request.headers.get("X-Game-Password"), env.GAME_PASSWORD);
-      if (!ok) return json({ error: "The gate does not open." }, 401);
+      // The gate. Nothing below this line runs on a wrong password, and a
+      // connection that keeps guessing wrong is shut out before we even look.
+      const bouncer = env.BOUNCER.get(env.BOUNCER.idFromName(clientIp(request)));
+      const player = await guarded(bouncer, "player", () =>
+        passwordMatches(request.headers.get("X-Game-Password"), env.GAME_PASSWORD));
+      if (player.locked) return lockedOut(player.retryAfter);
+      if (!player.ok) return json({ error: "The gate does not open." }, 401);
 
       if (url.pathname === "/api/check") return json({ ok: true });
       if (url.pathname === "/api/ticket") return json({ ticket: await makeTicket(env.GAME_PASSWORD) });
@@ -63,11 +72,15 @@ export default {
       if (url.pathname.startsWith("/api/admin/")) {
         // Username and password are both checked, always both, so a wrong
         // answer never reveals which half was wrong.
-        const [userOk, passOk] = await Promise.all([
-          passwordMatches(headerText(request, "X-Admin-User"), env.ADMIN_USERNAME),
-          passwordMatches(headerText(request, "X-Admin-Password"), env.ADMIN_PASSWORD),
-        ]);
-        if (!(userOk && passOk)) return json({ error: "The settings stay sealed." }, 403);
+        const admin = await guarded(bouncer, "admin", async () => {
+          const [userOk, passOk] = await Promise.all([
+            passwordMatches(headerText(request, "X-Admin-User"), env.ADMIN_USERNAME),
+            passwordMatches(headerText(request, "X-Admin-Password"), env.ADMIN_PASSWORD),
+          ]);
+          return userOk && passOk;
+        });
+        if (admin.locked) return lockedOut(admin.retryAfter);
+        if (!admin.ok) return json({ error: "The settings stay sealed." }, 403);
         return handleAdmin(url.pathname.slice("/api/admin/".length), request, env);
       }
       if (url.pathname === "/api/state") {
@@ -603,6 +616,70 @@ async function callMistral(env, model, messages) {
   const reply = data?.choices?.[0]?.message?.content;
   if (!reply) throw new Error("Mistral sent an empty reply");
   return { reply, usage: data.usage || null };
+}
+
+// ======================================================================
+// The bouncer
+// ======================================================================
+//
+// One tiny Durable Object per connection (keyed by IP). It remembers wrong
+// guesses for each gate separately; after MAX_FAILS inside FAIL_WINDOW_MS the
+// gate is shut for LOCKOUT_MS, during which passwords aren't even checked.
+// A correct password clears that gate's record.
+
+export class Bouncer extends DurableObject {
+  async status(gate) {
+    const r = (await this.ctx.storage.get(gate)) || {};
+    const now = Date.now();
+    if (r.lockedUntil && r.lockedUntil > now) return { locked: true, retryAfter: Math.ceil((r.lockedUntil - now) / 1000) };
+    return { locked: false, fails: r.fails && now - r.since < FAIL_WINDOW_MS ? r.fails : 0 };
+  }
+
+  async fail(gate) {
+    const now = Date.now();
+    let r = (await this.ctx.storage.get(gate)) || {};
+    if (!r.since || now - r.since >= FAIL_WINDOW_MS || (r.lockedUntil && r.lockedUntil <= now)) r = { fails: 0, since: now };
+    r.fails += 1;
+    if (r.fails >= MAX_FAILS) r.lockedUntil = now + LOCKOUT_MS;
+    await this.ctx.storage.put(gate, r);
+    // Forget this connection entirely once nothing is left to remember.
+    await this.ctx.storage.setAlarm(now + Math.max(FAIL_WINDOW_MS, LOCKOUT_MS) + 60_000);
+    return r.lockedUntil ? { locked: true, retryAfter: Math.ceil(LOCKOUT_MS / 1000) } : { locked: false };
+  }
+
+  async clear(gate) {
+    await this.ctx.storage.delete(gate);
+  }
+
+  async alarm() {
+    await this.ctx.storage.deleteAll();
+  }
+}
+
+async function guarded(bouncer, gate, check) {
+  const st = await bouncer.status(gate);
+  if (st.locked) return st;
+  if (await check()) {
+    if (st.fails) await bouncer.clear(gate);
+    return { ok: true };
+  }
+  const after = await bouncer.fail(gate);
+  return after.locked ? after : { ok: false };
+}
+
+function lockedOut(retryAfter) {
+  const minutes = Math.max(1, Math.ceil(retryAfter / 60));
+  return new Response(JSON.stringify({
+    error: `Too many wrong attempts. This door stays shut for ${minutes} more minute${minutes === 1 ? "" : "s"}.`,
+    retryAfter,
+  }), {
+    status: 429,
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "Retry-After": String(retryAfter) },
+  });
+}
+
+function clientIp(request) {
+  return request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For")?.split(",")[0].trim() || "unknown";
 }
 
 // ======================================================================

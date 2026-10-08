@@ -368,7 +368,7 @@
       store.set("sessionStorage", "eidholm.pw", pw);
       connect();
     } else {
-      $("gate-msg").textContent = ok === false ? "The gate does not open." : "The gate is unreachable. Try again.";
+      $("gate-msg").textContent = typeof ok === "string" ? ok : ok === false ? "The gate does not open." : "The gate is unreachable. Try again.";
       $("pw").select();
     }
   });
@@ -376,6 +376,7 @@
   async function checkPassword(pw) {
     try {
       const r = await fetch(API + "/api/check", { method: "POST", headers: { "X-Game-Password": pw } });
+      if (r.status === 429) return (await r.json().catch(() => ({}))).error || "Too many wrong attempts. Try again later.";
       return r.ok ? true : r.status === 401 ? false : null;
     } catch { return null; }
   }
@@ -439,6 +440,7 @@
     try {
       const r = await fetch(API + "/api/ticket", { method: "POST", headers: { "X-Game-Password": password } });
       if (r.status === 401) return lock("The word has changed.");
+      if (r.status === 429) return lock((await r.json().catch(() => ({}))).error || "Too many wrong attempts. Try again later.");
       ticket = (await r.json()).ticket;
     } catch {
       return scheduleReconnect();
@@ -798,6 +800,7 @@
     const data = await r.json().catch(() => ({}));
     if (r.status === 401) { lock("The word has changed."); throw new Error("locked"); }
     if (r.status === 403) { sealSettings(); throw new Error(data.error || "The settings stay sealed."); }
+    if (r.status === 429) { sealSettings(); throw new Error(data.error || "Too many wrong attempts. Try again later."); }
     if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
     return data;
   }
