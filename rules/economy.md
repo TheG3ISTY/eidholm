@@ -128,7 +128,5 @@ Every item carries five things:
 
 ## Pending
 
-- **Canon additions** (need a `canon:` commit):
-  - the bank, the covenant and the bond, and the clarification that the Concord deals in patents while the bank converts them to coin;
-  - minds of glass are sentient and **never owned**; their "license" is a registered contract of service, not ownership.
+- ~~Canon additions~~ done: the bank, the covenant, the Concord's patents, minds of glass never owned, and how often small property changes hands are now in `world/worldbuilding.md`.
 - **Character creation and allocation:** designed separately, next.

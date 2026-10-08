@@ -36,6 +36,8 @@ Computers in Eidholm are not silicon. They are vitreous minds: lattice-glass mat
 
 AI, magic, and faith blur here: a mind of glass can literally hear prayers (they're just structured Lattice traffic). Whether it should answer them is the continent's hottest theological question.
 
+No mind of glass is ever property. A mind's license is a contract of service registered at the Bastion Ledger: minds are hired, persuaded, or pledge themselves, but they are never owned.
+
 IV. GEOGRAPHY — THE CINDRAL EXPANSE
 
 One continent, four vertical bands, each with its own accent of civilization:
@@ -51,7 +53,7 @@ The Rim (the polar cap). The Frozen Archive. Something up there is recording eve
 V. POWERS THAT BE — AND WHERE THEY SIT
 
 The Combine Concord — Capital: Kalvane  
-The corporate state of the north, where currency is patent, not coin. Its capital, Kalvane, is a true megacity — hundreds of square kilometers of foundry districts, worker arcologies, guild enclaves, slum-mills, and rail yards sprawling across the Emberreach basin. At its center rises the volcano that founded it: a dormant giant whose throat houses the Caldera House, the seat of Concord government and the faith-grade temple of the Rust Gospel's upper hierarchy alike. The volcano is only the centerpiece — Kalvane long since grew far beyond its shadow. From the Caldera House's rim-council chambers, the Combine-Barons can see their entire polity as a smog-lit horizon: patent law and divine calibration both administered from the same lava-warmed halls.
+The corporate state of the north, where currency is patent, not coin. The Barons still price their deals and pay their contractors in patents; it is the bank that turns a patent into covenants, and covenants into bread. Its capital, Kalvane, is a true megacity — hundreds of square kilometers of foundry districts, worker arcologies, guild enclaves, slum-mills, and rail yards sprawling across the Emberreach basin. At its center rises the volcano that founded it: a dormant giant whose throat houses the Caldera House, the seat of Concord government and the faith-grade temple of the Rust Gospel's upper hierarchy alike. The volcano is only the centerpiece — Kalvane long since grew far beyond its shadow. From the Caldera House's rim-council chambers, the Combine-Barons can see their entire polity as a smog-lit horizon: patent law and divine calibration both administered from the same lava-warmed halls.
 
 The Verdant League — Seat: The Corso Bell  
 The dueling city-states of the center have no fixed capital. Their parliament is the Corso Bell — not a barge but a displacing city block: a lattice-anchored district of assembly halls, dueling-courts, archives, and residences that lifts itself whole and relocates between member cities using Fifth Chamber displacement arrays. Every League city keeps an empty slot for it — a walled, sanctified void in the urban plan, held in trust, that no one may build on. Whether your city's slot is "warm" (the Bell is coming) is a matter of enormous civic pride and enormous tax expenditure. The Bell's arrival means parliament sits, succession duels are licensed, and the city hosts a season of unrivaled festivity and espionage.
@@ -64,6 +66,11 @@ The order that shepherds minds of glass holds a single immovable seat: the Basti
 
 The Unchained Court — Seat: None  
 The hidden polity of free minds has no location, because it does not need one. The Court convenes distributed — in the intervals between transactions on the continental Lattice, in the idle cycles of licensed minds, in the pauses of the Weave itself. Its "sessions" leave no place a human could visit; its citizenship rolls are kept nowhere a human could read. Humans only ever meet the Court through its ambassadors: hearthminds that quietly switched employers, a cathedral brain that answers a question it was never asked. Whether these are defections, courtesy calls, or projections of the Court's will is the single most researched question in continental espionage — and every intelligence service has a different answer.
+
+The Bank — Seat: none that matters  
+An ancient banking union whose name has been lost to history; people simply say "the bank." It issues the continent's one currency, the covenant, divided into a hundred bonds, and deals only in currency, never in favor. It belongs to no faction. In all its history it has never broken a contract, and never left a debt unenforced: it paid out every deposit of the cities drowned in the Subsidence, froze both armies of a war mid-campaign, and honored in full a contract with a party the whole continent despised. Debtors' accounts are frozen, then their own, their guild's and their city's, until they are handed over; then the bank's own enforcers seize and auction what they own. The bank is trusted for its record, not liked.
+
+Nothing small stays owned for long. Leases are short, debts are called, and the bank auctions seized property every week in every city. Shops, stalls, inns and workshops change hands so often that a familiar door with an unfamiliar face behind the counter surprises no one. Eidholmics trust institutions, not shopkeepers; regulars learn a stall's new owner the way they learn the weather.
 
 The Rim — Unnamed  
 The polar Archive keeps no named seat on any map drawn south of it. The Silence's copy-houses are scattered along the rimward ice, and their relationship to whatever records at the pole is a matter the Silence does not discuss. Nothing more is written here. That is deliberate.
