@@ -37,89 +37,60 @@
     line-height: 1.6;
   }
   button, input, textarea { font: inherit; color: inherit; }
+  [hidden] { display: none !important; }
 
-  /* ---------- gate ---------- */
-  #gate {
-    min-height: 100%;
-    display: grid;
-    place-items: center;
-    padding: 24px 16px;
-  }
-  .gate-card {
-    width: 100%;
-    max-width: 420px;
-    text-align: center;
-  }
+  /* ---------- gate & seat screens ---------- */
+  .screen { min-height: 100%; display: grid; place-items: center; padding: 24px 16px; }
+  .gate-card { width: 100%; max-width: 420px; text-align: center; }
   .sigil {
     width: 72px; height: 72px; margin: 0 auto 20px;
-    border: 1px solid var(--brass);
-    transform: rotate(45deg);
-    display: grid; place-items: center;
-    box-shadow: 0 0 40px rgba(217,119,58,0.15);
+    border: 1px solid var(--brass); transform: rotate(45deg);
+    display: grid; place-items: center; box-shadow: 0 0 40px rgba(217,119,58,0.15);
   }
-  .sigil span {
-    transform: rotate(-45deg);
-    font-family: var(--display); font-size: 30px; color: var(--ember);
-  }
-  .gate-card h1 {
-    font-family: var(--display);
-    font-weight: 600;
-    font-size: 52px;
-    letter-spacing: 0.18em;
-    margin: 0;
-    padding-left: 0.18em;
-  }
-  .gate-card .sub {
-    color: var(--ink-dim);
-    font-style: italic;
-    margin: 4px 0 32px;
-  }
+  .sigil span { transform: rotate(-45deg); font-family: var(--display); font-size: 30px; color: var(--ember); }
+  .gate-card h1 { font-family: var(--display); font-weight: 600; font-size: 52px; letter-spacing: 0.18em; margin: 0; padding-left: 0.18em; }
+  .gate-card h2 { font-family: var(--display); font-weight: 600; font-size: 30px; letter-spacing: 0.1em; margin: 0 0 4px; }
+  .gate-card .sub { color: var(--ink-dim); font-style: italic; margin: 4px 0 28px; }
   .gate-row { display: flex; gap: 8px; }
-  .gate-row input {
-    flex: 1;
-    background: var(--bg-2);
-    border: 1px solid var(--line);
-    border-radius: 2px;
-    padding: 12px 14px;
-    font-family: var(--mono);
-    font-size: 15px;
-    outline: none;
+  .field {
+    width: 100%; background: var(--bg-2); border: 1px solid var(--line); border-radius: 2px;
+    padding: 11px 14px; font-family: var(--mono); font-size: 15px; outline: none;
   }
-  .gate-row input:focus { border-color: var(--brass); }
+  .field:focus { border-color: var(--brass); }
+  .gate-row .field { flex: 1; }
   .btn {
-    background: transparent;
-    border: 1px solid var(--brass);
-    color: var(--brass);
-    padding: 10px 18px;
-    border-radius: 2px;
-    cursor: pointer;
-    font-family: var(--display);
-    font-weight: 600;
-    font-size: 17px;
-    letter-spacing: 0.08em;
+    background: transparent; border: 1px solid var(--brass); color: var(--brass);
+    padding: 10px 18px; border-radius: 2px; cursor: pointer;
+    font-family: var(--display); font-weight: 600; font-size: 17px; letter-spacing: 0.08em;
     transition: background 0.15s, color 0.15s;
   }
   .btn:hover:not(:disabled) { background: var(--brass); color: var(--bg); }
   .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn.quiet { border-color: var(--line); color: var(--ink-dim); }
+  .btn.quiet:hover:not(:disabled) { background: var(--line); color: var(--ink); }
   .gate-msg { min-height: 1.6em; margin-top: 14px; color: var(--danger); font-style: italic; }
+  .seat-list { display: grid; gap: 8px; margin-bottom: 24px; text-align: left; }
+  .seat-pick {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+    background: var(--bg-2); border: 1px solid var(--line); padding: 10px 14px; cursor: pointer; border-radius: 2px;
+  }
+  .seat-pick:hover { border-color: var(--brass); }
+  .seat-pick b { font-family: var(--display); font-size: 21px; font-weight: 600; }
+  .seat-pick small { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
+  .divider { font-family: var(--mono); font-size: 11px; letter-spacing: 0.2em; color: var(--ink-dim); margin: 6px 0 12px; }
+  .stack { display: grid; gap: 8px; }
 
   /* ---------- game ---------- */
   #game { display: none; height: 100%; flex-direction: column; }
   header.bar {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--line);
-    background: rgba(12,11,10,0.85);
-    backdrop-filter: blur(6px);
-    flex-wrap: wrap;
+    padding: 10px 16px; border-bottom: 1px solid var(--line);
+    background: rgba(12,11,10,0.85); backdrop-filter: blur(6px); flex-wrap: wrap;
   }
   .brand { font-family: var(--display); font-weight: 600; letter-spacing: 0.18em; font-size: 22px; }
   .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 2px; overflow: hidden; }
-  .seg button {
-    background: transparent; border: 0; padding: 4px 10px; cursor: pointer;
-    font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
-  }
+  .seg button { background: transparent; border: 0; padding: 4px 10px; cursor: pointer; font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
   .seg button.on { background: var(--ember-dim); color: var(--ink); }
   .ghost {
     background: transparent; border: 1px solid var(--line); border-radius: 2px;
@@ -128,71 +99,78 @@
   .ghost:hover { color: var(--ink); border-color: var(--ink-dim); }
   .meter { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
   .meter b { color: var(--glass); font-weight: 500; }
+  .conn { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); display: inline-block; }
+  .conn.live { background: var(--glass); }
 
-  #log {
-    flex: 1; overflow-y: auto;
-    padding: 28px 16px 12px;
+  /* roster strip */
+  .roster {
+    display: flex; gap: 8px; padding: 8px 16px; overflow-x: auto;
+    border-bottom: 1px solid var(--line); background: rgba(20,18,16,0.7);
   }
-  .turn { max-width: 720px; margin: 0 auto 26px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto;
+    border: 1px solid var(--line); border-radius: 2px; padding: 3px 4px 3px 10px;
+    font-family: var(--mono); font-size: 12px; white-space: nowrap;
+  }
+  .chip.me { border-color: var(--brass); }
+  .chip.absent { opacity: 0.5; }
+  .chip .name { color: var(--ink); }
+  .chip .status { color: var(--ink-dim); }
+  .chip .status.acted { color: var(--ember); }
+  .chip .status.passed { color: var(--glass); }
+  .chip button {
+    background: transparent; border: 1px solid var(--line); border-radius: 2px; cursor: pointer;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-dim); padding: 1px 6px;
+  }
+  .chip button:hover { color: var(--ink); border-color: var(--ink-dim); }
+
+  #log { flex: 1; overflow-y: auto; padding: 28px 16px 12px; }
+  .turn { max-width: 720px; margin: 0 auto 22px; }
   .turn.gm p { margin: 0 0 0.9em; }
   .turn.gm p:last-child { margin-bottom: 0; }
   .turn.gm::before {
-    content: "THE WEAVE";
-    display: block;
-    font-family: var(--mono); font-size: 11px; letter-spacing: 0.2em; color: var(--ember);
-    margin-bottom: 6px;
+    content: "THE WEAVE"; display: block;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.2em; color: var(--ember); margin-bottom: 6px;
   }
-  .turn.you {
-    border-left: 2px solid var(--brass);
-    padding: 2px 0 2px 14px;
-    color: var(--brass);
-    font-style: italic;
-    white-space: pre-wrap;
-  }
+  .turn.act { border-left: 2px solid var(--brass); padding: 2px 0 2px 14px; color: var(--brass); font-style: italic; white-space: pre-wrap; }
+  .turn.act.pending { border-left-style: dashed; }
+  .who { display: block; font-style: normal; font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; color: var(--ink-dim); margin-bottom: 2px; }
+  .who .tag { color: var(--ember); margin-left: 6px; }
+  .turn.pass { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); padding-left: 16px; }
+  .turn.ooc { font-family: var(--mono); font-size: 13px; color: var(--ink-dim); padding-left: 16px; white-space: pre-wrap; }
+  .turn.ooc b { color: var(--glass); font-weight: 500; }
   .turn.err { color: var(--danger); font-family: var(--mono); font-size: 13px; }
   .turn .meta { display: block; margin-top: 8px; font-family: var(--mono); font-size: 11px; color: var(--ink-dim); font-style: normal; }
   .empty { max-width: 720px; margin: 10vh auto 0; text-align: center; color: var(--ink-dim); font-style: italic; }
-  .thinking { max-width: 720px; margin: 0 auto 26px; color: var(--ink-dim); font-style: italic; }
+  .thinking { max-width: 720px; margin: 0 auto 22px; color: var(--ink-dim); font-style: italic; }
   .thinking::after { content: ""; animation: dots 1.4s steps(4) infinite; }
   @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
 
-  form.input {
-    border-top: 1px solid var(--line);
-    background: var(--bg-2);
-    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
-  }
-  .input-inner { max-width: 720px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; }
+  form.input { border-top: 1px solid var(--line); background: var(--bg-2); padding: 10px 16px calc(12px + env(safe-area-inset-bottom)); }
+  .waiting { max-width: 720px; margin: 0 auto 8px; font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
+  .waiting b { color: var(--ember); font-weight: 500; }
+  .waiting button { margin-left: 6px; }
+  .input-inner { max-width: 720px; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end; }
   textarea {
-    flex: 1; resize: none;
-    background: var(--bg); border: 1px solid var(--line); border-radius: 2px;
-    padding: 10px 12px; min-height: 48px; max-height: 40vh; outline: none;
-    line-height: 1.5;
+    flex: 1; resize: none; background: var(--bg); border: 1px solid var(--line); border-radius: 2px;
+    padding: 10px 12px; min-height: 48px; max-height: 40vh; outline: none; line-height: 1.5;
   }
   textarea:focus { border-color: var(--brass); }
   .hint { max-width: 720px; margin: 6px auto 0; font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
 
   /* ---------- codex drawer ---------- */
   #codex {
-    position: fixed; top: 0; right: 0; bottom: 0;
-    width: min(520px, 100vw);
-    background: var(--panel);
-    border-left: 1px solid var(--line);
-    box-shadow: -20px 0 60px rgba(0,0,0,0.5);
-    transform: translateX(100%);
-    transition: transform 0.22s ease;
-    display: flex; flex-direction: column;
-    z-index: 20;
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(520px, 100vw);
+    background: var(--panel); border-left: 1px solid var(--line); box-shadow: -20px 0 60px rgba(0,0,0,0.5);
+    transform: translateX(100%); transition: transform 0.22s ease;
+    display: flex; flex-direction: column; z-index: 20;
   }
   #codex.open { transform: none; }
-  .codex-head {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 12px 16px; border-bottom: 1px solid var(--line);
-  }
+  .codex-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--line); }
   .codex-head h2 { margin: 0; font-family: var(--display); font-weight: 600; letter-spacing: 0.14em; font-size: 20px; }
   .tabs { display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--line); overflow-x: auto; }
   .tabs button {
-    background: transparent; border: 0; border-bottom: 2px solid transparent;
-    padding: 10px 12px; cursor: pointer; white-space: nowrap;
+    background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 10px 12px; cursor: pointer; white-space: nowrap;
     font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; color: var(--ink-dim);
   }
   .tabs button.on { color: var(--ink); border-bottom-color: var(--ember); }
@@ -201,7 +179,6 @@
   .scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 15; display: none; }
   .scrim.open { display: block; }
 
-  /* rendered markdown (codex + inline) */
   .md h1, .md h2, .md h3 { font-family: var(--display); font-weight: 600; color: var(--brass); line-height: 1.25; margin: 1.2em 0 0.4em; }
   .md h1 { font-size: 26px; } .md h2 { font-size: 22px; } .md h3 { font-size: 19px; }
   .md > :first-child { margin-top: 0; }
@@ -211,72 +188,99 @@
   .md code { font-family: var(--mono); font-size: 0.85em; color: var(--glass); }
   .md hr { border: 0; border-top: 1px solid var(--line); margin: 1.2em 0; }
 
-  /* party cards */
   .clock { font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; color: var(--ember); margin-bottom: 14px; }
   .card { border: 1px solid var(--line); background: var(--bg-2); padding: 14px; margin-bottom: 12px; }
   .card h3 { margin: 0 0 8px; font-family: var(--display); font-size: 22px; font-weight: 600; color: var(--ink); }
   .kv { display: grid; grid-template-columns: minmax(90px, 32%) 1fr; gap: 4px 12px; font-size: 15px; }
   .kv dt { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: var(--ink-dim); text-transform: uppercase; padding-top: 3px; }
   .kv dd { margin: 0; }
-  .kv dd .kv { margin-top: 2px; }
   .muted { color: var(--ink-dim); font-style: italic; }
 
-  /* inline system notes from slash commands */
-  .turn.sys {
-    border: 1px dashed var(--line); padding: 12px 14px; font-size: 16px;
-    background: rgba(26,23,20,0.6);
-  }
+  /* table tab */
+  .seat-row { border: 1px solid var(--line); background: var(--bg-2); padding: 12px; margin-bottom: 10px; display: grid; gap: 8px; }
+  .seat-row .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .seat-row .top b { font-family: var(--display); font-size: 20px; font-weight: 600; }
+  .seat-row .mine { font-family: var(--mono); font-size: 11px; color: var(--brass); letter-spacing: 0.12em; }
+  .seat-row .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .seat-row .field { padding: 7px 10px; font-size: 13px; }
+  .seat-row .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  .turn.sys { border: 1px dashed var(--line); padding: 12px 14px; font-size: 16px; background: rgba(26,23,20,0.6); }
   .turn.sys::before {
-    content: attr(data-label);
-    display: block; font-family: var(--mono); font-size: 11px; letter-spacing: 0.2em; color: var(--glass); margin-bottom: 6px;
+    content: attr(data-label); display: block;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.2em; color: var(--glass); margin-bottom: 6px;
   }
 
   @media (max-width: 560px) {
     body { font-size: 17px; }
     .gate-card h1 { font-size: 40px; }
     .hint { display: none; }
+    .seat-row .fields { grid-template-columns: 1fr; }
   }
 </style>
 </head>
 <body>
 
-<section id="gate">
+<!-- 1. The gate -->
+<section id="gate" class="screen">
   <div class="gate-card">
     <div class="sigil"><span>E</span></div>
     <h1>EIDHOLM</h1>
     <p class="sub">The machines are listening.</p>
     <form id="gate-form" class="gate-row" autocomplete="off">
-      <input id="pw" type="password" placeholder="Speak the word" aria-label="Game password" autofocus>
+      <input id="pw" class="field" type="password" placeholder="Speak the word" aria-label="Game password" autofocus>
       <button class="btn" type="submit">Enter</button>
     </form>
     <div class="gate-msg" id="gate-msg"></div>
   </div>
 </section>
 
+<!-- 2. Take a seat -->
+<section id="seats" class="screen" hidden>
+  <div class="gate-card">
+    <h2>Take a seat</h2>
+    <p class="sub">Who sits at the table tonight?</p>
+    <div class="seat-list" id="seat-list"></div>
+    <div class="divider" id="seat-divider">OR A NEW SEAT</div>
+    <form id="seat-form" class="stack" autocomplete="off">
+      <input id="seat-player" class="field" placeholder="Your name" maxlength="40" required>
+      <input id="seat-character" class="field" placeholder="Character name (optional, can come later)" maxlength="40">
+      <button class="btn" type="submit">Sit down</button>
+    </form>
+    <div class="gate-msg" id="seat-msg"></div>
+  </div>
+</section>
+
+<!-- 3. The table -->
 <section id="game">
   <header class="bar">
     <div class="brand">EIDHOLM</div>
     <div class="controls">
+      <span class="conn" id="conn" title="Connection to the table"></span>
       <div class="seg" role="group" aria-label="Model">
-        <button type="button" data-tier="small" class="on" title="mistral-small: everyday play">Small</button>
+        <button type="button" data-tier="small" title="mistral-small: everyday play">Small</button>
         <button type="button" data-tier="large" title="mistral-large: climactic scenes only">Large</button>
       </div>
       <span class="meter" id="meter">0 tok · <b>$0.0000</b></span>
-      <button type="button" class="ghost" id="codex-open" title="Party, log, rules and world (no tokens spent)">Codex</button>
-      <button type="button" class="ghost" id="export" title="Download this session as Markdown">Export</button>
-      <button type="button" class="ghost" id="reset" title="Clear this session's chat">New</button>
-      <button type="button" class="ghost" id="lock" title="Forget the password">Lock</button>
+      <button type="button" class="ghost" id="codex-open" title="Table, party, log, rules and world (no tokens spent)">Codex</button>
+      <button type="button" class="ghost" id="export" title="Download the shared scene as Markdown">Export</button>
+      <button type="button" class="ghost" id="reset" title="Clear the shared scene for everyone">New</button>
+      <button type="button" class="ghost" id="lock" title="Leave and forget the password on this device">Lock</button>
     </div>
   </header>
+
+  <div class="roster" id="roster" aria-label="Who is at the table"></div>
 
   <main id="log" aria-live="polite"></main>
 
   <form class="input" id="chat-form">
+    <div class="waiting" id="waiting"></div>
     <div class="input-inner">
       <textarea id="msg" rows="1" placeholder="What do you do?"></textarea>
+      <button class="btn quiet" id="pass" type="button" title="Let the moment play out">Pass</button>
       <button class="btn" id="send" type="submit">Act</button>
     </div>
-    <div class="hint">Enter to send · Shift+Enter for a new line · OOC: to step out of the story · /help for commands</div>
+    <div class="hint">Enter to act · Shift+Enter new line · OOC: talks to the table, not the GM · /help for commands</div>
   </form>
 </section>
 
@@ -290,24 +294,22 @@
     </div>
   </div>
   <nav class="tabs" role="tablist">
-    <button type="button" data-tab="party" class="on">PARTY</button>
+    <button type="button" data-tab="table" class="on">TABLE</button>
+    <button type="button" data-tab="party">PARTY</button>
     <button type="button" data-tab="log">LOG</button>
     <button type="button" data-tab="rules">RULES</button>
     <button type="button" data-tab="canon">WORLD</button>
   </nav>
   <div class="codex-body" id="codex-body"></div>
-  <div class="codex-status" id="codex-status">Not loaded yet</div>
+  <div class="codex-status" id="codex-status"></div>
 </aside>
 
 <script>
-  // Same origin as the Worker. Change only if you host the page elsewhere.
+  // Same origin as the Worker.
   const API = "";
 
-  // Price per million tokens in USD (estimate only, edit if Mistral changes them).
-  const PRICES = {
-    small: { in: 0.15, out: 0.60 },
-    large: { in: 0.68, out: 2.09 },
-  };
+  // Price per million tokens in USD (estimate only; edit if Mistral changes them).
+  const PRICES = { small: { in: 0.15, out: 0.60 }, large: { in: 0.68, out: 2.09 } };
 
   const store = {
     get(area, k) { try { return window[area].getItem(k); } catch { return null; } },
@@ -315,17 +317,22 @@
     del(area, k) { try { window[area].removeItem(k); } catch {} },
   };
 
-  let password = store.get("sessionStorage", "eidholm.pw") || "";
-  let history = [];
-  let spend = { tokens: 0, usd: 0 };
-  let tier = "small";
-  let busy = false;
-
-  try { history = JSON.parse(store.get("localStorage", "eidholm.history") || "[]"); } catch { history = []; }
-  try { spend = JSON.parse(store.get("localStorage", "eidholm.spend") || "null") || spend; } catch {}
-
   const $ = (id) => document.getElementById(id);
-  const gate = $("gate"), game = $("game"), log = $("log"), msg = $("msg");
+  const msg = $("msg"), log = $("log");
+
+  let password = store.get("sessionStorage", "eidholm.pw") || "";
+  let mySeat = store.get("localStorage", "eidholm.seat") || "";
+  let table = null;      // latest snapshot from the server
+  let notes = [];        // local-only slash command output: { ts, label, html }
+  let errors = [];       // local-only error lines: { ts, text }
+  let ws = null, wsWanted = false, retry = 0;
+
+  // ================= screens =================
+  function show(which) {
+    $("gate").hidden = which !== "gate";
+    $("seats").hidden = which !== "seats";
+    $("game").style.display = which === "game" ? "flex" : "none";
+  }
 
   // ---------- gate ----------
   $("gate-form").addEventListener("submit", async (e) => {
@@ -337,7 +344,7 @@
     if (ok === true) {
       password = pw;
       store.set("sessionStorage", "eidholm.pw", pw);
-      openGame();
+      connect();
     } else {
       $("gate-msg").textContent = ok === false ? "The gate does not open." : "The gate is unreachable. Try again.";
       $("pw").select();
@@ -351,44 +358,124 @@
     } catch { return null; }
   }
 
-  function openGame() {
-    gate.style.display = "none";
-    game.style.display = "flex";
-    render();
-    msg.focus();
-  }
-
-  $("lock").addEventListener("click", () => {
+  function lock(message = "") {
+    wsWanted = false;
+    if (ws) try { ws.close(); } catch {}
     password = "";
     store.del("sessionStorage", "eidholm.pw");
-    game.style.display = "none";
-    gate.style.display = "grid";
+    closeCodex();
+    show("gate");
     $("pw").value = "";
+    $("gate-msg").textContent = message;
     $("pw").focus();
+  }
+  $("lock").addEventListener("click", () => lock());
+
+  // ---------- seats ----------
+  function renderSeatScreen() {
+    const seats = table ? table.seats : [];
+    $("seat-list").innerHTML = "";
+    $("seat-divider").hidden = !seats.length;
+    for (const s of seats) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "seat-pick";
+      b.innerHTML = "<b>" + escapeHtml(s.character || s.player) + "</b><small>" +
+        (s.character ? escapeHtml(s.player) + " · " : "") + (s.present ? "present" : "absent") + "</small>";
+      b.addEventListener("click", () => takeSeat(s.id));
+      $("seat-list").appendChild(b);
+    }
+  }
+
+  function takeSeat(id) {
+    mySeat = id;
+    store.set("localStorage", "eidholm.seat", id);
+    route();
+  }
+
+  $("seat-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const player = $("seat-player").value.trim();
+    if (!player) return;
+    send({ t: "join", player, character: $("seat-character").value.trim() });
+    $("seat-player").value = ""; $("seat-character").value = "";
   });
 
-  // ---------- controls ----------
+  // Decide which screen to show from the latest snapshot.
+  function route() {
+    if (!table) return;
+    const seated = table.seats.some((s) => s.id === mySeat);
+    if (!seated) { renderSeatScreen(); show("seats"); return; }
+    show("game");
+    render();
+  }
+
+  // ================= live connection =================
+  async function connect() {
+    wsWanted = true;
+    let ticket;
+    try {
+      const r = await fetch(API + "/api/ticket", { method: "POST", headers: { "X-Game-Password": password } });
+      if (r.status === 401) return lock("The word has changed.");
+      ticket = (await r.json()).ticket;
+    } catch {
+      return scheduleReconnect();
+    }
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    ws = new WebSocket(`${proto}://${location.host}${API}/api/ws?ticket=${encodeURIComponent(ticket)}`);
+    ws.onopen = () => { retry = 0; $("conn").classList.add("live"); };
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      if (m.t === "state") { table = m; route(); }
+      else if (m.t === "joined") takeSeat(m.seatId);
+      else if (m.t === "error") pushError(m.text);
+    };
+    ws.onclose = () => {
+      $("conn").classList.remove("live");
+      if (wsWanted) scheduleReconnect();
+    };
+  }
+
+  function scheduleReconnect() {
+    if (!wsWanted) return;
+    retry = Math.min(retry + 1, 6);
+    setTimeout(() => { if (wsWanted) connect(); }, 500 * 2 ** retry);
+  }
+
+  function send(obj) {
+    if (ws && ws.readyState === 1) { ws.send(JSON.stringify(obj)); return true; }
+    pushError("Not connected to the table. Reconnecting…");
+    return false;
+  }
+
+  function pushError(text) {
+    errors.push({ ts: Date.now(), text });
+    if ($("seats").hidden === false) $("seat-msg").textContent = text;
+    else render();
+  }
+
+  // ================= actions =================
   document.querySelectorAll(".seg button").forEach((b) => {
-    b.addEventListener("click", () => {
-      tier = b.dataset.tier;
-      document.querySelectorAll(".seg button").forEach((x) => x.classList.toggle("on", x === b));
-    });
+    b.addEventListener("click", () => send({ t: "tier", tier: b.dataset.tier }));
   });
 
   $("reset").addEventListener("click", () => {
-    if (history.length && !confirm("Clear this session's chat? Export it first if you want to keep it.")) return;
-    history = [];
-    spend = { tokens: 0, usd: 0 };
-    persist();
-    render();
+    if (!confirm("Start a new scene for EVERYONE at the table? The shared chat is wiped. Export first if you want to keep it.")) return;
+    notes = []; errors = [];
+    send({ t: "reset" });
   });
 
   $("export").addEventListener("click", () => {
+    if (!table) return;
     const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
-    const body = history.filter((m) => m.role === "user" || m.role === "assistant").map((m) => m.role === "user"
-      ? `**Player:** ${m.content}`
-      : `**GM:**\n\n${m.content}`).join("\n\n---\n\n");
-    const md = `# Eidholm session export (${stamp})\n\nTokens: ${spend.tokens} · est. $${spend.usd.toFixed(4)}\n\n---\n\n${body}\n`;
+    const body = table.messages.map((m) => {
+      const who = m.character ? `${m.character} (${m.author})` : m.author;
+      if (m.kind === "gm") return `**GM:**\n\n${m.text}`;
+      if (m.kind === "act") return `**${who}:** ${m.text}`;
+      if (m.kind === "pass") return `*${who} passes.*`;
+      return `> OOC ${m.author}: ${m.text}`;
+    }).join("\n\n---\n\n");
+    const t = totals();
+    const md = `# Eidholm session export (${stamp})\n\nRound ${table.round} · ${t.tokens} tokens · est. $${t.usd.toFixed(4)}\n\n---\n\n${body}\n`;
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([md], { type: "text/markdown" }));
     a.download = `eidholm-session-${stamp.replace(/[: ]/g, "-")}.md`;
@@ -396,75 +483,181 @@
     URL.revokeObjectURL(a.href);
   });
 
-  // ---------- chat ----------
   msg.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("chat-form").requestSubmit(); }
   });
-  msg.addEventListener("input", () => {
-    msg.style.height = "auto";
-    msg.style.height = msg.scrollHeight + "px";
-  });
+  msg.addEventListener("input", () => { msg.style.height = "auto"; msg.style.height = msg.scrollHeight + "px"; });
 
   $("chat-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const text = msg.value.trim();
-    if (!text || busy) return;
-
-    // Slash commands are handled locally and never reach the GM.
+    if (!text) return;
     if (text.startsWith("/")) {
-      msg.value = ""; msg.style.height = "auto";
+      clearInput();
       await runCommand(text);
-      msg.focus();
+      return msg.focus();
+    }
+    const ooc = text.match(/^ooc:\s*([\s\S]*)$/i);
+    if (ooc) {
+      if (ooc[1].trim() && send({ t: "ooc", seatId: mySeat, text: ooc[1].trim() })) clearInput();
       return;
     }
-
-    busy = true; $("send").disabled = true;
-    msg.value = ""; msg.style.height = "auto";
-
-    history.push({ role: "user", content: text });
-    persist(); render(true);
-
-    try {
-      const r = await fetch(API + "/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Game-Password": password },
-        body: JSON.stringify({ messages: history.filter((m) => m.role === "user" || m.role === "assistant"), tier }),
-      });
-      if (r.status === 401) { history.pop(); persist(); $("lock").click(); $("gate-msg").textContent = "The word has changed."; return; }
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
-
-      const u = data.usage || {};
-      const p = PRICES[tier];
-      const turnUsd = ((u.prompt_tokens || 0) * p.in + (u.completion_tokens || 0) * p.out) / 1e6;
-      spend.tokens += u.total_tokens || 0;
-      spend.usd += turnUsd;
-      history.push({ role: "assistant", content: data.reply, meta: `${data.model} · ${u.total_tokens || "?"} tok · $${turnUsd.toFixed(4)}` });
-      persist(); render();
-    } catch (err) {
-      history.pop();
-      persist(); render();
-      appendError("The Weave did not answer: " + err.message + ". Your message was not spent; try again.");
-      msg.value = text;
-    } finally {
-      busy = false; $("send").disabled = false; msg.focus();
-    }
+    if (send({ t: "act", seatId: mySeat, text })) clearInput();
   });
 
-  // ---------- codex: state from the repo (no tokens spent) ----------
+  $("pass").addEventListener("click", () => send({ t: "pass", seatId: mySeat }));
+
+  function clearInput() { msg.value = ""; msg.style.height = "auto"; }
+
+  // ================= render =================
+  function seatById(id) { return table && table.seats.find((s) => s.id === id); }
+  function seatLabel(s) { return s.character || s.player; }
+  function pending() { return table.messages.filter((m) => m.round === table.round && (m.kind === "act" || m.kind === "pass")); }
+
+  function totals() {
+    let tokens = 0, usd = 0;
+    for (const tier of ["small", "large"]) {
+      const s = (table && table.spend[tier]) || { in: 0, out: 0 };
+      tokens += s.in + s.out;
+      usd += (s.in * PRICES[tier].in + s.out * PRICES[tier].out) / 1e6;
+    }
+    return { tokens, usd };
+  }
+
+  function render() {
+    if (!table) return;
+    const me = seatById(mySeat);
+    const pend = pending();
+    const answered = new Map(pend.map((m) => [m.seatId, m.kind]));
+
+    // header
+    document.querySelectorAll(".seg button").forEach((b) => b.classList.toggle("on", b.dataset.tier === table.tier));
+    const t = totals();
+    $("meter").innerHTML = `${t.tokens.toLocaleString()} tok · <b>$${t.usd.toFixed(4)}</b>`;
+
+    // roster
+    const roster = $("roster");
+    roster.innerHTML = "";
+    for (const s of table.seats) {
+      const chip = document.createElement("div");
+      chip.className = "chip" + (s.id === mySeat ? " me" : "") + (s.present ? "" : " absent");
+      const st = !s.present ? ["absent", ""] : answered.get(s.id) === "act" ? ["acted", "acted"]
+        : answered.get(s.id) === "pass" ? ["passed", "passed"] : ["waiting", ""];
+      chip.innerHTML = `<span class="name">${escapeHtml(seatLabel(s))}</span><span class="status ${st[1]}">${st[0]}</span>`;
+      const tog = document.createElement("button");
+      tog.type = "button";
+      tog.textContent = s.present ? "Mark absent" : "Mark present";
+      tog.title = s.present ? "Mark this character absent" : "Mark this character present";
+      tog.addEventListener("click", () => send({ t: "seat", id: s.id, patch: { present: !s.present } }));
+      chip.appendChild(tog);
+      roster.appendChild(chip);
+    }
+
+    // log: shared messages merged with this device's local notes and errors
+    const items = [
+      ...table.messages.map((m) => ({ ts: m.ts, m })),
+      ...notes.map((n) => ({ ts: n.ts, note: n })),
+      ...errors.map((e) => ({ ts: e.ts, err: e })),
+    ].sort((a, b) => a.ts - b.ts);
+
+    const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 120;
+    log.innerHTML = "";
+    if (!items.length) {
+      log.innerHTML = '<div class="empty">The continent waits. Tell the Weave who you are, or ask it to begin.</div>';
+    }
+    for (const it of items) {
+      const div = document.createElement("div");
+      if (it.note) {
+        div.className = "turn sys md"; div.dataset.label = it.note.label; div.innerHTML = it.note.html;
+      } else if (it.err) {
+        div.className = "turn err"; div.textContent = it.err.text;
+      } else {
+        const m = it.m;
+        const who = m.character ? `${m.character} · ${m.author}` : m.author;
+        const isPend = m.round === table.round && (m.kind === "act" || m.kind === "pass");
+        if (m.kind === "gm") {
+          div.className = "turn gm";
+          div.innerHTML = formatProse(m.text);
+          const u = m.usage || {};
+          const meta = document.createElement("span");
+          meta.className = "meta";
+          meta.textContent = `${m.model || ""} · ${u.total_tokens || "?"} tok`;
+          div.appendChild(meta);
+        } else if (m.kind === "act") {
+          div.className = "turn act" + (isPend ? " pending" : "");
+          div.innerHTML = `<span class="who">${escapeHtml(who.toUpperCase())}${isPend ? '<span class="tag">PENDING</span>' : ""}</span>`;
+          div.appendChild(document.createTextNode(m.text));
+        } else if (m.kind === "pass") {
+          div.className = "turn pass";
+          div.textContent = `${who} passes${isPend ? " (pending)" : ""}.`;
+        } else if (m.kind === "ooc") {
+          div.className = "turn ooc";
+          div.innerHTML = `<b>${escapeHtml(m.author)}:</b> `;
+          div.appendChild(document.createTextNode(m.text));
+        }
+      }
+      log.appendChild(div);
+    }
+    if (table.resolving) {
+      const th = document.createElement("div");
+      th.className = "thinking"; th.textContent = "The Weave is listening";
+      log.appendChild(th);
+    }
+    if (nearBottom || table.resolving) log.scrollTop = log.scrollHeight;
+
+    // status line above the input
+    const w = $("waiting");
+    w.innerHTML = "";
+    if (me && !me.present) {
+      w.innerHTML = `<b>${escapeHtml(seatLabel(me))}</b> is marked absent. `;
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "ghost"; b.textContent = "I'm here";
+      b.addEventListener("click", () => send({ t: "seat", id: me.id, patch: { present: true } }));
+      w.appendChild(b);
+    } else if (table.resolving) {
+      w.textContent = "The GM is answering…";
+    } else {
+      const waitingOn = table.seats.filter((s) => s.present && !answered.has(s.id)).map(seatLabel);
+      if (pend.length) {
+        w.innerHTML = waitingOn.length
+          ? `Waiting on <b>${waitingOn.map(escapeHtml).join(", ")}</b>. `
+          : "Everyone has answered. ";
+        if (answered.has(mySeat)) {
+          const r = document.createElement("button");
+          r.type = "button"; r.className = "ghost"; r.textContent = "Take mine back";
+          r.addEventListener("click", () => send({ t: "retract", seatId: mySeat }));
+          w.appendChild(r);
+        }
+        const go = document.createElement("button");
+        go.type = "button"; go.className = "ghost"; go.textContent = "Resolve now";
+        go.title = "Let the GM answer without waiting for the others";
+        go.addEventListener("click", () => send({ t: "resolve" }));
+        w.appendChild(go);
+      } else {
+        w.textContent = `Round ${table.round} · the GM answers once every present character has acted or passed.`;
+      }
+    }
+    const blocked = !me || !me.present || table.resolving;
+    $("send").disabled = blocked; $("pass").disabled = blocked;
+
+    if ($("codex").classList.contains("open") && codexTab === "table") renderTableTab();
+  }
+
+  function formatProse(text) {
+    return String(text).split(/\n{2,}/).map((p) => "<p>" + inline(p).replace(/\n/g, "<br>") + "</p>").join("");
+  }
+
+  // ================= codex =================
   let codexState = null;
-  let codexTab = "party";
+  let codexTab = "table";
 
   async function loadState(force = false) {
     if (codexState && !force) return codexState;
     $("codex-status").textContent = "Reading the repo…";
     const r = await fetch(API + "/api/state", { method: "POST", headers: { "X-Game-Password": password } });
-    if (r.status === 401) { $("lock").click(); $("gate-msg").textContent = "The word has changed."; throw new Error("locked"); }
+    if (r.status === 401) { lock("The word has changed."); throw new Error("locked"); }
     const data = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      $("codex-status").textContent = data.error || ("HTTP " + r.status);
-      throw new Error(data.error || ("HTTP " + r.status));
-    }
+    if (!r.ok) { $("codex-status").textContent = data.error || ("HTTP " + r.status); throw new Error(data.error || ("HTTP " + r.status)); }
     codexState = data;
     $("codex-status").textContent = "Loaded from repo at " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     return codexState;
@@ -478,10 +671,9 @@
   function closeCodex() {
     $("codex").classList.remove("open"); $("scrim").classList.remove("open");
     $("codex").setAttribute("aria-hidden", "true");
-    msg.focus();
   }
   $("codex-open").addEventListener("click", openCodex);
-  $("codex-close").addEventListener("click", closeCodex);
+  $("codex-close").addEventListener("click", () => { closeCodex(); msg.focus(); });
   $("scrim").addEventListener("click", closeCodex);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("codex").classList.contains("open")) closeCodex(); });
   $("codex-refresh").addEventListener("click", () => renderCodex(true));
@@ -493,12 +685,14 @@
 
   async function renderCodex(force = false) {
     const body = $("codex-body");
+    if (codexTab === "table") { renderTableTab(); return; }
     if (!codexState || force) body.innerHTML = '<p class="muted">Reading the repo…</p>';
     let st;
     try { st = await loadState(force); } catch (err) {
       if (err.message !== "locked") body.innerHTML = '<p class="muted">Could not read the repo: ' + escapeHtml(err.message) + "</p>";
       return;
     }
+    if (codexTab === "table") return;
     body.className = "codex-body md";
     if (codexTab === "party") body.innerHTML = renderParty(st.party);
     else if (codexTab === "log") body.innerHTML = renderMarkdown(st.log) || '<p class="muted">No log yet.</p>';
@@ -507,14 +701,58 @@
     body.scrollTop = 0;
   }
 
-  // ---------- slash commands ----------
+  // The Table tab manages seats. It is live: changes sync to everyone instantly.
+  function renderTableTab() {
+    const body = $("codex-body");
+    body.className = "codex-body";
+    $("codex-status").textContent = "Live · changes sync to everyone at the table";
+    // Don't rebuild while someone is typing in a field here.
+    if (body.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
+    body.innerHTML = "";
+    if (!table) return;
+    const intro = document.createElement("p");
+    intro.className = "muted";
+    intro.textContent = "Mark who is here before the session starts. Absent characters are elsewhere in the story, and the GM won't wait for them.";
+    body.appendChild(intro);
+    for (const s of table.seats) {
+      const row = document.createElement("div");
+      row.className = "seat-row";
+      row.innerHTML = `<div class="top"><b>${escapeHtml(seatLabel(s))}</b>${s.id === mySeat ? '<span class="mine">YOU</span>' : ""}</div>
+        <div class="fields">
+          <input class="field" data-k="player" maxlength="40" placeholder="Player name" value="${escapeHtml(s.player)}">
+          <input class="field" data-k="character" maxlength="40" placeholder="Character name" value="${escapeHtml(s.character || "")}">
+        </div>
+        <div class="actions"></div>`;
+      row.querySelectorAll("input").forEach((inp) => {
+        const save = () => {
+          if ((s[inp.dataset.k] || "") === inp.value.trim()) return;
+          send({ t: "seat", id: s.id, patch: { [inp.dataset.k]: inp.value } });
+        };
+        inp.addEventListener("change", save);
+        inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); inp.blur(); } });
+      });
+      const act = row.querySelector(".actions");
+      const mk = (text, fn, title) => { const b = document.createElement("button"); b.type = "button"; b.className = "ghost"; b.textContent = text; b.title = title || ""; b.addEventListener("click", fn); act.appendChild(b); };
+      mk(s.present ? "Present · mark absent" : "Absent · mark present", () => send({ t: "seat", id: s.id, patch: { present: !s.present } }), "Toggle presence");
+      if (s.id !== mySeat) mk("Sit here", () => { takeSeat(s.id); renderTableTab(); }, "Play this seat from this device");
+      mk("Remove", () => { if (confirm(`Remove ${seatLabel(s)} from the table?`)) send({ t: "removeSeat", id: s.id }); }, "Remove this seat");
+      body.appendChild(row);
+    }
+    const add = document.createElement("button");
+    add.type = "button"; add.className = "ghost"; add.textContent = "Switch seat / add someone";
+    add.addEventListener("click", () => { closeCodex(); mySeat = ""; store.del("localStorage", "eidholm.seat"); route(); });
+    body.appendChild(add);
+  }
+
+  // ================= slash commands (local, no tokens) =================
   const HELP = [
-    ["/party", "everyone in the party, with the world clock"],
+    ["/party", "everyone in the party file, with the world clock"],
     ["/sheet name", "one character's sheet (name can be partial)"],
     ["/log", "the most recent part of the campaign log"],
     ["/rules", "the current rules draft"],
     ["/world word", "search the canon, e.g. /world Kalvane"],
-    ["/codex", "open the Codex drawer"],
+    ["/table", "who is present and who has answered this round"],
+    ["/codex", "open the Codex"],
     ["/help", "this list"],
   ];
 
@@ -523,72 +761,62 @@
     const arg = rest.join(" ").trim();
     const c = (cmd || "").toLowerCase();
 
-    if (c === "codex") { openCodex(); return; }
-    if (c === "help" || !c) { note("COMMANDS", helpHtml()); return; }
+    if (c === "codex") return openCodex();
+    if (c === "help" || !c) return note("COMMANDS", helpHtml());
+    if (c === "table") {
+      const ans = new Map(pending().map((m) => [m.seatId, m.kind]));
+      return note("TABLE · ROUND " + table.round, "<ul>" + table.seats.map((s) => "<li><strong>" + escapeHtml(seatLabel(s)) + "</strong> " +
+        (s.present ? (ans.get(s.id) === "act" ? "acted" : ans.get(s.id) === "pass" ? "passed" : "waiting") : "absent") + "</li>").join("") + "</ul>");
+    }
 
     let st;
     try { st = await loadState(); } catch (err) {
-      if (err.message !== "locked") appendError("Could not read the repo: " + err.message);
+      if (err.message !== "locked") pushError("Could not read the repo: " + err.message);
       return;
     }
 
-    if (c === "party") {
-      note("PARTY", renderParty(st.party));
-    } else if (c === "sheet") {
+    if (c === "party") note("PARTY", renderParty(st.party));
+    else if (c === "sheet") {
       const { members } = parseParty(st.party);
-      if (!members.length) return note("SHEET", '<p class="muted">The roster is empty. Characters are made in session 1.</p>');
-      const found = arg
-        ? members.filter((m) => String(m.name || "").toLowerCase().includes(arg.toLowerCase()))
+      if (!members.length) return note("SHEET", '<p class="muted">The party file is empty. Characters are made in session 1.</p>');
+      const found = arg ? members.filter((m) => String(m.name || "").toLowerCase().includes(arg.toLowerCase()))
         : members.length === 1 ? members : [];
       if (found.length === 1) note("SHEET", renderCard(found[0]));
-      else note("SHEET", '<p>' + (arg && !found.length ? "No one called “" + escapeHtml(arg) + "”. " : "Whose sheet? ") +
+      else note("SHEET", "<p>" + (arg && !found.length ? "No one called “" + escapeHtml(arg) + "”. " : "Whose sheet? ") +
         "Party: " + members.map((m) => "<code>" + escapeHtml(m.name || "unnamed") + "</code>").join(", ") + "</p>");
     } else if (c === "log") {
       const tail = st.log.length > 2500 ? "…\n\n" + st.log.slice(st.log.lastIndexOf("\n## ", st.log.length - 2500) + 1 || -2500) : st.log;
       note("LOG", renderMarkdown(tail) || '<p class="muted">No log yet.</p>');
-    } else if (c === "rules") {
-      note("RULES", renderMarkdown(st.rules) || '<p class="muted">No rules yet.</p>');
-    } else if (c === "world" || c === "canon") {
-      if (!arg) return note("WORLD", '<p>The canon is long. Search it with <code>/world word</code>, or open the <code>/codex</code> for the whole thing.</p>');
+    } else if (c === "rules") note("RULES", renderMarkdown(st.rules) || '<p class="muted">No rules yet.</p>');
+    else if (c === "world" || c === "canon") {
+      if (!arg) return note("WORLD", "<p>The canon is long. Search it with <code>/world word</code>, or open the <code>/codex</code> for the whole thing.</p>");
       const blocks = cleanMd(st.canon).split(/\n{2,}/).filter((b) => b.toLowerCase().includes(arg.toLowerCase()));
       note("WORLD · " + arg.toUpperCase(), blocks.length
         ? renderMarkdown(blocks.slice(0, 4).join("\n\n")) + (blocks.length > 4 ? '<p class="muted">' + (blocks.length - 4) + " more passages in the Codex.</p>" : "")
-        : '<p class="muted">The canon says nothing about “' + escapeHtml(arg) + '”.</p>');
-    } else {
-      note("COMMANDS", "<p>Unknown command <code>/" + escapeHtml(cmd) + "</code>.</p>" + helpHtml());
-    }
+        : '<p class="muted">The canon says nothing about “' + escapeHtml(arg) + "”.</p>");
+    } else note("COMMANDS", "<p>Unknown command <code>/" + escapeHtml(cmd) + "</code>.</p>" + helpHtml());
   }
 
   function helpHtml() {
     return "<ul>" + HELP.map(([k, v]) => "<li><code>" + k + "</code> " + v + "</li>").join("") + "</ul>" +
-      '<p class="muted">Commands read the repo directly and never cost tokens. The GM does not see them.</p>';
+      '<p class="muted">Commands are only shown on your screen, never cost tokens, and the GM never sees them.</p>';
   }
 
-  function note(label, html) {
-    history.push({ role: "note", label, html });
-    persist(); render();
-  }
+  function note(label, html) { notes.push({ ts: Date.now(), label, html }); render(); }
 
-  // ---------- renderers ----------
+  // ================= renderers =================
   function escapeHtml(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
-
   function inline(s) {
     return escapeHtml(s)
       .replace(/`([^`]+)`/g, "<code>$1</code>")
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       .replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, "$1<em>$2</em>");
   }
-
-  // Strips HTML comments and Google-Docs-style backslash escapes (\# \-).
   function cleanMd(text) {
-    return String(text || "")
-      .replace(/<!--[\s\S]*?-->/g, "")
-      .replace(/\\([\\`*_{}\[\]()#+\-.!>])/g, "$1")
-      .trim();
+    return String(text || "").replace(/<!--[\s\S]*?-->/g, "").replace(/\\([\\`*_{}\[\]()#+\-.!>])/g, "$1").trim();
   }
-
   function renderMarkdown(text) {
     const src = cleanMd(text);
     if (!src) return "";
@@ -608,7 +836,6 @@
     flushPara(); flushList();
     return out;
   }
-
   function parseParty(raw) {
     let data;
     try { data = JSON.parse(raw || "{}"); } catch { return { error: true, raw }; }
@@ -616,7 +843,6 @@
     if (!Array.isArray(members)) members = Object.entries(members).map(([name, v]) => ({ name, ...(v || {}) }));
     return { data, members };
   }
-
   function renderValue(v) {
     if (v === null || v === undefined || v === "") return '<span class="muted">none</span>';
     if (Array.isArray(v)) {
@@ -627,18 +853,14 @@
     if (typeof v === "object") return renderKv(v);
     return escapeHtml(v);
   }
-
   function renderKv(obj) {
-    return '<dl class="kv">' + Object.entries(obj).map(([k, v]) =>
-      "<dt>" + escapeHtml(k.replace(/_/g, " ")) + "</dt><dd>" + renderValue(v) + "</dd>").join("") + "</dl>";
+    return '<dl class="kv">' + Object.entries(obj).map(([k, v]) => "<dt>" + escapeHtml(k.replace(/_/g, " ")) + "</dt><dd>" + renderValue(v) + "</dd>").join("") + "</dl>";
   }
-
   function renderCard(member) {
     const { name, ...rest } = member;
     return '<div class="card"><h3>' + escapeHtml(name || "Unnamed") + "</h3>" +
       (Object.keys(rest).length ? renderKv(rest) : '<p class="muted">An empty sheet.</p>') + "</div>";
   }
-
   function renderParty(raw) {
     const p = parseParty(raw);
     if (p.error) return '<p class="muted">party.json is not valid JSON:</p><pre>' + escapeHtml(raw) + "</pre>";
@@ -646,71 +868,14 @@
     let html = "";
     if (data.world_clock) html += '<div class="clock">' + escapeHtml(data.world_clock).toUpperCase() +
       (data.location ? " · " + escapeHtml(data.location).toUpperCase() : "") + "</div>";
-    html += members.length ? members.map(renderCard).join("")
-      : '<p class="muted">The roster is empty. Characters are made in session 1.</p>';
+    html += members.length ? members.map(renderCard).join("") : '<p class="muted">The party file is empty. Characters are made in session 1.</p>';
     return html;
   }
 
-  // ---------- render ----------
-  function persist() {
-    store.set("localStorage", "eidholm.history", JSON.stringify(history));
-    store.set("localStorage", "eidholm.spend", JSON.stringify(spend));
-  }
-
-  function render(thinking = false) {
-    log.innerHTML = "";
-    if (!history.length) {
-      log.innerHTML = '<div class="empty">The continent waits. Tell the Weave who you are, or ask it to begin.</div>';
-    }
-    for (const m of history) {
-      const div = document.createElement("div");
-      if (m.role === "note") {
-        div.className = "turn sys md";
-        div.dataset.label = m.label || "CODEX";
-        div.innerHTML = m.html;
-      } else if (m.role === "user") {
-        div.className = "turn you";
-        div.textContent = m.content;
-      } else {
-        div.className = "turn gm";
-        div.innerHTML = formatProse(m.content);
-        if (m.meta) {
-          const s = document.createElement("span");
-          s.className = "meta"; s.textContent = m.meta;
-          div.appendChild(s);
-        }
-      }
-      log.appendChild(div);
-    }
-    if (thinking) {
-      const t = document.createElement("div");
-      t.className = "thinking"; t.textContent = "The Weave is listening";
-      log.appendChild(t);
-    }
-    $("meter").innerHTML = `${spend.tokens.toLocaleString()} tok · <b>$${spend.usd.toFixed(4)}</b>`;
-    log.scrollTop = log.scrollHeight;
-  }
-
-  function appendError(text) {
-    const d = document.createElement("div");
-    d.className = "turn err"; d.textContent = text;
-    log.appendChild(d); log.scrollTop = log.scrollHeight;
-  }
-
-  function formatProse(text) {
-    const esc = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    return esc
-      .split(/\n{2,}/)
-      .map((para) => "<p>" + para
-        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-        .replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, "$1<em>$2</em>")
-        .replace(/\n/g, "<br>") + "</p>")
-      .join("");
-  }
-
-  // ---------- boot ----------
+  // ================= boot =================
+  show("gate");
   if (password) {
-    checkPassword(password).then((ok) => { if (ok) openGame(); else store.del("sessionStorage", "eidholm.pw"); });
+    checkPassword(password).then((ok) => { if (ok) connect(); else store.del("sessionStorage", "eidholm.pw"); });
   }
 </script>
 </body>

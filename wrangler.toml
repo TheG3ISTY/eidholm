@@ -21,3 +21,12 @@ GITHUB_BRANCH = "main"
 #   wrangler secret put GAME_PASSWORD
 #   wrangler secret put MISTRAL_API_KEY
 #   wrangler secret put GITHUB_TOKEN
+
+# The shared table: one live session that every player's browser connects to.
+[[durable_objects.bindings]]
+name = "TABLE"
+class_name = "Table"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Table"]

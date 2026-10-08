@@ -60,11 +60,17 @@ GITHUB_TOKEN=...
 
 Then run `wrangler dev` from the repo root and open the local URL it prints.
 
+## The shared table (Durable Object)
+
+The live session (seats, presence, actions, GM replies, spend) is stored in a Durable Object called `Table`, declared in `wrangler.toml`. It deploys automatically with the Worker; nothing to set up in the dashboard. **New** in the client wipes the shared scene for everyone (seats stay), so export first.
+
+Browsers connect over a WebSocket. Because browsers can't send custom headers on a WebSocket, the client first trades the password for a signed ticket at `POST /api/ticket` (valid 60 s), then opens `/api/ws?ticket=...`. A forged or expired ticket is rejected before reaching the table.
+
 ## How the credit protection works
 
-- `/api/check` and `/api/chat` compare the `X-Game-Password` header against the secret **before anything else**. A wrong password returns 401 and never touches GitHub or Mistral. Zero spend.
+- `/api/check`, `/api/state` and `/api/ticket` compare the `X-Game-Password` header against the secret **before anything else**. A wrong password returns 401 and never touches GitHub or Mistral. Zero spend.
 - The Mistral key exists only as a Cloudflare secret. It is never in this repo and never reaches the browser.
-- The client keeps the password in `sessionStorage` (gone when the tab closes) and the chat history in `localStorage` on that device.
+- The client keeps the password in `sessionStorage` (gone when the tab closes) and its seat in `localStorage`. The scene itself lives on Cloudflare, not in the browser.
 
 ## Costs to watch
 
