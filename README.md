@@ -12,7 +12,7 @@ rules/resolution.md       rules system, Draft 0, designed while playing
 characters/party.json     living party state, updated after sessions
 campaign/log.md           session log + world clock
 api/worker.js             Cloudflare Worker: gate, state loader, Mistral proxy
-api/wrangler.toml         Worker config (no secrets in here)
+wrangler.toml             Worker config (no secrets in here), at repo root
 web/index.html            browser client, served by the Worker
 meta/deployment.md        deploy, secrets, costs, session workflow
 ```

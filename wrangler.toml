@@ -1,10 +1,10 @@
 name = "eidholm"
-main = "worker.js"
+main = "api/worker.js"
 compatibility_date = "2025-09-01"
 
-# The browser client is served from ../web by the same Worker: one deploy, one URL.
+# The browser client is served from web/ by the same Worker: one deploy, one URL.
 [assets]
-directory = "../web"
+directory = "web"
 binding = "ASSETS"
 
 [vars]

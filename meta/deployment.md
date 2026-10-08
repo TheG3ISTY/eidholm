@@ -28,7 +28,7 @@ GitHub → Settings → Developer settings → Personal access tokens → **Fine
 npm i -g wrangler
 wrangler login                      # opens the browser, authorise your Cloudflare account
 
-cd api
+# run from the repo root
 wrangler secret put GAME_PASSWORD   # paste the password
 wrangler secret put MISTRAL_API_KEY # paste the Mistral key
 wrangler secret put GITHUB_TOKEN    # paste the fine-grained token
@@ -44,13 +44,13 @@ Open it, enter the password, play.
 |---|---|
 | New password | `wrangler secret put GAME_PASSWORD` (takes effect immediately, everyone is logged out on their next turn) |
 | New Mistral key / GitHub token | `wrangler secret put MISTRAL_API_KEY` / `GITHUB_TOKEN` |
-| Default model | edit `MODEL` in `api/wrangler.toml`, then `wrangler deploy` |
-| Client or worker code | edit, then `wrangler deploy` from `api/` |
+| Default model | edit `MODEL` in `wrangler.toml` (repo root), then `wrangler deploy` |
+| Client or worker code | edit, then push to `main` (Cloudflare redeploys automatically) |
 | World state (party, log, rules, canon) | commit to `main`. **No redeploy needed**: the Worker reads the repo live (cached ~60 s). |
 
 ## Local testing
 
-Create `api/.dev.vars` (git-ignored, never commit it):
+Create `.dev.vars` in the repo root (git-ignored, never commit it):
 
 ```
 GAME_PASSWORD=something
@@ -58,7 +58,7 @@ MISTRAL_API_KEY=...
 GITHUB_TOKEN=...
 ```
 
-Then `cd api && wrangler dev` and open the local URL it prints.
+Then run `wrangler dev` from the repo root and open the local URL it prints.
 
 ## How the credit protection works
 
