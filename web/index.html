@@ -127,7 +127,43 @@
   .chip button.save:hover:not(:disabled) { background: var(--brass); color: var(--bg); }
   .chip button:disabled { opacity: 0.5; cursor: default; }
 
+  .stage { flex: 1; display: flex; min-height: 0; }
   #log { flex: 1; overflow-y: auto; padding: 28px 16px 12px; }
+  #rail {
+    width: 168px; flex: 0 0 auto; border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; justify-content: space-between; gap: 12px;
+    padding: 14px 10px; overflow-y: auto; background: rgba(20,18,16,0.55);
+  }
+  #rail-rolls { display: flex; flex-direction: column; gap: 8px; }
+  .rail-h { font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; color: var(--ember); }
+  .rbtn {
+    display: grid; gap: 2px; text-align: left; cursor: pointer;
+    background: var(--bg-2); border: 1px solid var(--brass); color: var(--ink); border-radius: 2px; padding: 8px 9px;
+    animation: pop 0.25s ease-out;
+  }
+  .rbtn:hover:not(:disabled) { background: var(--brass); color: var(--bg); }
+  .rbtn:hover:not(:disabled) small { color: var(--bg); }
+  .rbtn:disabled { opacity: 0.45; cursor: default; }
+  .rbtn b { font-family: var(--display); font-size: 17px; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; hyphens: auto; }
+  .rbtn small { overflow-wrap: anywhere; }
+  .rbtn small { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); letter-spacing: 0.04em; }
+  .rbtn .n { font-family: var(--mono); font-size: 10px; color: var(--ember); }
+  .rall { font-family: var(--mono); font-size: 11px; }
+  @keyframes pop { from { transform: translateX(-8px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .idle { display: grid; gap: 6px; border-top: 1px dashed var(--line); padding-top: 12px; }
+  #idle-roll { cursor: pointer; background: transparent; border: 1px solid var(--line); color: var(--ink-dim); border-radius: 2px; padding: 8px; font-family: var(--mono); font-size: 13px; }
+  #idle-roll:hover { color: var(--ink); border-color: var(--ink-dim); }
+  #idle-pick { background: var(--bg-2); border: 1px solid var(--line); color: var(--ink-dim); font-family: var(--mono); font-size: 12px; padding: 4px; border-radius: 2px; }
+  .idle-out { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); min-height: 1.3em; text-align: center; }
+  .idle-out b { color: var(--glass); font-size: 20px; font-weight: 500; }
+  @media (max-width: 560px) {
+    #rail { width: 76px; padding: 10px 6px; }
+    .rbtn { padding: 6px; }
+    .rbtn b { font-size: 13px; }
+    .rbtn small { font-size: 9px; }
+    .rail-h { font-size: 9px; letter-spacing: 0.1em; }
+    #idle-roll { padding: 6px 2px; font-size: 12px; }
+  }
   .turn { max-width: 720px; margin: 0 auto 22px; }
   .turn.gm p { margin: 0 0 0.9em; }
   .turn.gm p:last-child { margin-bottom: 0; }
@@ -149,6 +185,10 @@
   .turn.roll.nat20 .rt { color: var(--brass); }
   .turn.roll.nat1 .rt { color: var(--danger); }
   .turn.roll.hidden { font-style: italic; }
+  .turn.roll .oc { font-size: 11px; letter-spacing: 0.14em; padding: 1px 6px; border: 1px solid currentColor; border-radius: 2px; }
+  .turn.roll .oc.success, .turn.roll .oc.hit { color: var(--glass); }
+  .turn.roll .oc.critical-hit { color: var(--brass); }
+  .turn.roll .oc.failure, .turn.roll .oc.miss { color: var(--danger); }
   .turn.event { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-dim); text-align: center; opacity: 0.8; }
   .turn.event::before, .turn.event::after { content: " ── "; color: var(--line); }
   .turn.ooc { font-family: var(--mono); font-size: 13px; color: var(--ink-dim); padding-left: 16px; white-space: pre-wrap; }
@@ -316,7 +356,19 @@
 
   <div class="roster" id="roster" aria-label="Who is at the table"></div>
 
-  <main id="log" aria-live="polite"></main>
+  <div class="stage">
+    <aside id="rail" aria-label="Your rolls">
+      <div id="rail-rolls"></div>
+      <div class="idle">
+        <button type="button" id="idle-roll" title="Just rolling, for fun. Only you see it; it never counts.">🎲 <span id="idle-die">d20</span></button>
+        <select id="idle-pick" aria-label="Which die">
+          <option>d4</option><option>d6</option><option>d8</option><option>d10</option><option>d12</option><option selected>d20</option><option>d100</option>
+        </select>
+        <div id="idle-out" class="idle-out" aria-live="polite"></div>
+      </div>
+    </aside>
+    <main id="log" aria-live="polite"></main>
+  </div>
 
   <form class="input" id="chat-form">
     <div class="waiting" id="waiting"></div>
@@ -325,7 +377,7 @@
       <button class="btn quiet" id="pass" type="button" title="Let the moment play out">Pass</button>
       <button class="btn" id="send" type="submit">Act</button>
     </div>
-    <div class="hint">Enter to act · Shift+Enter new line · /roll d20+5 · OOC: talks to the table, not the GM · /help</div>
+    <div class="hint">Enter to act · Shift+Enter new line · /roll rolls what the GM asked for · OOC: talks to the table · /help</div>
   </form>
 </section>
 
@@ -649,6 +701,8 @@
       roster.appendChild(chip);
     }
 
+    renderRail(me);
+
     // log: shared messages merged with this device's local notes and errors
     const items = [
       ...table.messages.map((m) => ({ ts: m.ts, m })),
@@ -694,11 +748,20 @@
             const by = m.kind === "gmroll" ? "GM" : who;
             const what = m.label || m.purpose;
             const secret = m.kind === "gmroll" && !table.revealGmRolls ? '<span class="tag">ONLY YOU SEE THIS</span>' : "";
+            const ctx = [];
+            if (m.dc != null) ctx.push("DC " + m.dc);
+            if (m.ac != null) ctx.push("vs AC " + m.ac);
+            if (m.mode === "adv") ctx.push("advantage");
+            if (m.mode === "dis") ctx.push("disadvantage");
+            if (!m.mode && m.adv?.length && m.dis?.length) ctx.push("adv + dis cancel");
+            if (m.crit) ctx.push("critical: dice doubled");
+            const oc = m.outcome ? `<span class="oc ${m.outcome.replace(/\s+/g, "-")}">${escapeHtml(m.outcome.toUpperCase())}</span>` : "";
             div.innerHTML = `<span class="die">🎲</span><span class="rw">${escapeHtml(by)}</span> rolls ` +
               (what ? `<span class="rp">${escapeHtml(what)}</span> ` : "") +
+              (ctx.length ? `<span class="rb">(${escapeHtml(ctx.join(" · "))})</span> ` : "") +
               `<span class="rx">${escapeHtml(m.expr)}</span> → <b class="rt">${m.total}</b>` +
               `<span class="rb">${escapeHtml(describeRoll(m))}</span>` +
-              (m.nat === 20 ? '<span class="tag">NATURAL 20</span>' : m.nat === 1 ? '<span class="tag">NATURAL 1</span>' : "") + secret;
+              (m.nat === 20 ? '<span class="tag">NATURAL 20</span>' : m.nat === 1 ? '<span class="tag">NATURAL 1</span>' : "") + oc + secret;
           }
         } else if (m.kind === "event") {
           div.className = "turn event";
@@ -730,8 +793,11 @@
     } else if (table.resolving) {
       w.textContent = "The GM is answering…";
     } else {
-      const waitingOn = table.seats.filter((s) => s.present && !answered.has(s.id)).map(seatLabel);
-      if (pend.length) {
+      const owes = (id) => (table.requests || []).some((r) => r.seatId === id);
+      const waitingOn = table.seats.filter((s) => s.present && (!answered.has(s.id) || owes(s.id))).map(seatLabel);
+      if ((table.requests || []).some((r) => r.seatId === mySeat) && !pend.length) {
+        w.textContent = "The GM wants rolls from you. Use the buttons on the left, or /roll for all of them.";
+      } else if (pend.length) {
         w.innerHTML = waitingOn.length
           ? `Waiting on <b>${waitingOn.map(escapeHtml).join(", ")}</b>. `
           : "Everyone has answered. ";
@@ -751,7 +817,8 @@
       }
     }
     const blocked = !me || !me.present || table.resolving;
-    $("send").disabled = blocked; $("pass").disabled = blocked;
+    $("send").disabled = blocked;
+    $("pass").disabled = blocked || (table.requests || []).some((r) => r.seatId === mySeat);
 
     if ($("codex").classList.contains("open") && codexTab === "table") renderTableTab();
     if ($("codex").classList.contains("open") && codexTab === "settings" && admin) {
@@ -759,6 +826,56 @@
       if ($("reveal-toggle")) $("reveal-toggle").checked = !!table.revealGmRolls;
     }
   }
+
+  // The rolls this seat owes the GM, one button each, in order.
+  function renderRail(me) {
+    const box = $("rail-rolls");
+    const mine = (table.requests || []).filter((r) => r.seatId === mySeat).sort((a, b) => a.order - b.order);
+    const sig = JSON.stringify([mine.map((r) => r.rid), !!(me && me.present), table.resolving]);
+    if (box.dataset.sig === sig) return;   // don't rebuild (and re-animate) when nothing changed
+    box.dataset.sig = sig;
+    box.innerHTML = "";
+    if (!mine.length) return;
+    const blocked = !me || !me.present || table.resolving;
+    const h = document.createElement("div");
+    h.className = "rail-h"; h.textContent = "YOUR ROLLS";
+    box.appendChild(h);
+    mine.forEach((r, i) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "rbtn"; b.disabled = blocked;
+      const dice = r.type === "check" || r.type === "save" || r.type === "attack" ? "d20" : (r.dice || "d20");
+      const net = r.adv?.length && !r.dis?.length ? "advantage" : r.dis?.length && !r.adv?.length ? "disadvantage" : (r.adv?.length && r.dis?.length ? "adv + dis cancel" : "");
+      const bits = [dice + fmtMod(r.mod)];
+      if (r.dc != null) bits.push("DC " + r.dc);
+      if (r.ac != null) bits.push("AC " + r.ac);
+      if (net) bits.push(net);
+      if (r.damage) bits.push("then " + r.damage.dice + fmtMod(r.damage.mod) + " on a hit");
+      b.innerHTML = `<span class="n">${i + 1}</span><b>${escapeHtml(r.label)}</b><small>${escapeHtml(bits.join(" · "))}</small>`;
+      const why = [...(r.adv || []).map((x) => "+ " + x), ...(r.dis || []).map((x) => "− " + x)];
+      if (why.length) b.title = why.join("\n");
+      b.addEventListener("click", () => send({ t: "rollRequest", rid: r.rid }));
+      box.appendChild(b);
+    });
+    if (mine.length > 1) {
+      const all = document.createElement("button");
+      all.type = "button"; all.className = "ghost rall"; all.textContent = "Roll all (/roll)"; all.disabled = blocked;
+      all.addEventListener("click", () => send({ t: "rollAll", seatId: mySeat }));
+      box.appendChild(all);
+    }
+  }
+
+  function fmtMod(n) { n = Number(n) || 0; return n > 0 ? "+" + n : n < 0 ? String(n) : ""; }
+
+  // The idle die: local only, for fidgeting while others finish. Never counts.
+  $("idle-pick").addEventListener("change", (e) => { $("idle-die").textContent = e.target.value; });
+  $("idle-roll").addEventListener("click", () => {
+    const sides = Number($("idle-pick").value.slice(1));
+    const limit = Math.floor(0x100000000 / sides) * sides;
+    const buf = new Uint32Array(1);
+    do { crypto.getRandomValues(buf); } while (buf[0] >= limit);
+    const v = (buf[0] % sides) + 1;
+    $("idle-out").innerHTML = `<b>${v}</b>`;
+  });
 
   function formatProse(text) {
     return String(text).split(/\n{2,}/).map((p) => "<p>" + inline(p).replace(/\n/g, "<br>") + "</p>").join("");
@@ -1247,7 +1364,7 @@
 
   // ================= slash commands (local, no tokens) =================
   const HELP = [
-    ["/roll d20+5 what", "roll dice for everyone to see (adv / dis work too). A roll counts as your answer"],
+    ["/roll", "roll everything the GM asked you for, in order (same as the buttons on the left)"],
     ["/party", "everyone in the party file, with the world clock"],
     ["/sheet name", "one character's sheet (name can be partial)"],
     ["/log", "the most recent part of the campaign log"],
@@ -1266,9 +1383,9 @@
 
     if (c === "codex") return openCodex();
     if (c === "roll" || c === "r") {
-      const { expr, label } = splitRoll(arg);
-      if (!expr) return note("ROLL", "<p>Roll what? For example <code>/roll d20+5 stealth</code>, <code>/roll 2d6+3</code> or <code>/roll adv d20+2</code>.</p>");
-      send({ t: "roll", seatId: mySeat, expr, label });
+      const owed = (table.requests || []).filter((r) => r.seatId === mySeat);
+      if (!owed.length) return note("ROLL", '<p class="muted">Nothing to roll right now. When the GM needs a roll, buttons appear on the left, and <code>/roll</code> rolls them all in order. The idle die at the bottom left is always there for fidgeting.</p>');
+      send({ t: "rollAll", seatId: mySeat });
       return;
     }
     if (c === "help" || !c) return note("COMMANDS", helpHtml());

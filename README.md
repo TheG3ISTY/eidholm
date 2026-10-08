@@ -37,7 +37,7 @@ Everyone with the password plays the **same live scene** from their own device.
 - `OOC: ...` is table talk: everyone sees it, the GM does not, and it doesn't count as your action.
 - **Settings** (separate username + password) lets the GM remove seats, and turns the Party tab into an editor: edit, create, rename and delete character sheets, set the world clock. Every change is a commit. Players see all sheets read-only and can't remove anyone.
 - Absent characters are elsewhere in the story; the GM never narrates them.
-- **Dice:** `/roll d20+5 perception` (adv / dis work too). The server rolls, everyone sees it, and a roll counts as your answer. The GM rolls honest dice through a tool; its rolls stay behind the screen unless the GM shows them (Settings).
+- **Dice:** the GM requests rolls; they appear as buttons on the left side of that player's screen, and `/roll` rolls them all in order. The server rolls honestly and judges them by 5e rules (advantage/disadvantage, DC, AC, criticals, damage on a hit). The GM rolls its own dice through a tool; those stay behind the screen unless the GM shows them (Settings). An idle die at the bottom left is just for fidgeting.
 
 - Arrivals, departures and presence changes are recorded in the scene as they happen.
 - **Save** (on your own seat chip, anyone) commits the transcript so far to this session's archive file; play continues.

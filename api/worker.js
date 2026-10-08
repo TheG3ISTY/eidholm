@@ -651,6 +651,8 @@ export class Table extends DurableObject {
       nextId: s.nextId || 1,
       session: s.session || null,   // { no, date, path, savedAt, savedBy } once first saved
       revealGmRolls: !!s.revealGmRolls,
+      requests: s.requests || [],   // rolls the GM asked for: { rid, round, seatId, order, type, label, ..., status }
+      nextRid: s.nextRid || 1,
     };
   }
 
@@ -658,6 +660,8 @@ export class Table extends DurableObject {
     if (state.messages.length > MAX_STORED_MESSAGES) {
       state.messages = state.messages.slice(-MAX_STORED_MESSAGES);
     }
+    // Only this round's and last round's requests matter; drop the rest.
+    state.requests = state.requests.filter((r) => r.round >= state.round - 1);
     await this.ctx.storage.put("table", state);
   }
 
@@ -672,6 +676,9 @@ export class Table extends DurableObject {
       messages: state.messages.slice(-SNAPSHOT_MESSAGES).map((m) => viewMessage(m, canSee)),
       revealGmRolls: !!state.revealGmRolls,
       admin: !!att.admin,
+      requests: state.requests
+        .filter((r) => r.round === state.round && r.status === "pending")
+        .map((r) => (canSee ? r : { ...r, dc: r.dc == null ? null : "?", ac: r.ac == null ? null : "?" })),
       round: state.round,
       resolving: isResolving(state),
       tier: state.tier,
@@ -736,6 +743,7 @@ export class Table extends DurableObject {
         if (!s.present) throw new Error(`${label(s)} is marked absent. Mark them present to act.`);
         const text = msg.t === "act" ? clean(msg.text, MAX_TEXT, true) : "";
         if (msg.t === "act" && !text) return;
+        if (msg.t === "pass" && owedBy(state, s.id).length) throw new Error("You still owe the GM a roll. Roll it first, then pass if you like.");
         // One pending entry per seat per round: posting again replaces it.
         state.messages = state.messages.filter((m) => !(m.round === state.round && isPending(m) && m.seatId === s.id));
         state.messages.push({
@@ -746,17 +754,22 @@ export class Table extends DurableObject {
         return this.commit(state);
       }
 
-      case "roll": {
+      case "roll":
+        throw new Error("Rolls come from the GM now: use the buttons on the left, or /roll to roll them all.");
+
+      case "rollRequest":
+      case "rollAll": {
         if (isResolving(state)) throw new Error("The GM is answering. Roll when it's done.");
-        const s = seat(msg.seatId);
-        if (!s) throw new Error("Take a seat first.");
+        const mine = msg.t === "rollAll"
+          ? state.requests.filter((r) => r.round === state.round && r.status === "pending" && r.seatId === msg.seatId)
+          : state.requests.filter((r) => r.rid === msg.rid && r.round === state.round && r.status === "pending");
+        if (!mine.length) throw new Error("Nothing to roll right now. The GM will ask when it needs a roll.");
+        const s = seat(mine[0].seatId);
+        if (!s) throw new Error("That seat no longer exists.");
+        if (msg.t === "rollAll" && s.id !== msg.seatId) throw new Error("Those aren't your rolls.");
         if (!s.present) throw new Error(`${label(s)} is marked absent. Mark them present to roll.`);
-        const r = rollDice(msg.expr);   // throws a readable error on bad input
-        state.messages.push({
-          id: state.nextId++, kind: "roll", round: state.round, seatId: s.id,
-          author: s.player, character: s.character, label: clean(msg.label, 60),
-          expr: r.expr, total: r.total, parts: r.parts, nat: r.nat, mode: r.mode, ts: Date.now(),
-        });
+        mine.sort((a, b) => a.order - b.order);
+        for (const req of mine) performRequest(state, req, s);
         if (await this.maybeAutoResolve(state)) return;
         return this.commit(state);
       }
@@ -831,7 +844,8 @@ export class Table extends DurableObject {
     if (!present.length) return false;
     const answers = answersFor(state);
     const answered = new Set(answers.map((m) => m.seatId));
-    if (!answers.length || !present.every((s) => answered.has(s.id))) return false;
+    const done = (s) => answered.has(s.id) && !owedBy(state, s.id).length;
+    if (!answers.length || !present.every(done)) return false;
     await this.resolve(state);
     return true;
   }
@@ -852,7 +866,7 @@ export class Table extends DurableObject {
         ...buildConversation(state),
       ];
       const model = tier === "large" ? this.env.MODEL_LARGE : this.env.MODEL;
-      result = await gmTurn(this.env, model, messages);
+      result = await gmTurn(this.env, model, messages, { seats: state.seats });
       result.model = model;
     } catch (err) {
       const fresh = await this.load();
@@ -874,6 +888,18 @@ export class Table extends DurableObject {
       id: fresh.nextId++, kind: "gm", round, text: result.reply, ts: Date.now(),
       model: result.model, usage: result.usage,
     });
+    // Anything still owed from this round lapses; the GM's new requests open the next one.
+    for (const r of fresh.requests) if (r.round === round && r.status === "pending") r.status = "lapsed";
+    let order = 0;
+    for (const q of result.requests || []) {
+      const seat = fresh.seats.find((x) => x.id === q.seatId);
+      if (!seat) continue;
+      fresh.requests.push({ ...q, rid: "r" + (fresh.nextRid++), round: round + 1, order: order++, status: "pending" });
+    }
+    if (result.requests?.length) {
+      const asks = result.requests.map((q) => `${label(fresh.seats.find((x) => x.id === q.seatId) || {})}: ${q.label}`).join(" · ");
+      fresh.messages.push({ id: fresh.nextId++, kind: "event", sub: "asks", round: round + 1, text: `The GM asks for rolls. ${asks}`, ts: Date.now() + 1 });
+    }
     const u = result.usage || {};
     fresh.spend[tier].in += u.prompt_tokens || 0;
     fresh.spend[tier].out += u.completion_tokens || 0;
@@ -914,13 +940,72 @@ function answersFor(state) {
 }
 
 function viewMessage(m, canSee) {
-  if (m.kind !== "gmroll" || canSee) return m;
-  return { id: m.id, kind: "gmroll", round: m.round, ts: m.ts, hidden: true };
+  if (canSee) return m;
+  if (m.kind === "gmroll") return { id: m.id, kind: "gmroll", round: m.round, ts: m.ts, hidden: true };
+  // Players see whether a roll succeeded, but not the exact DC or Armor Class.
+  if (m.kind === "roll" && (m.dc != null || m.ac != null)) {
+    return { ...m, dc: m.dc == null ? null : "?", ac: m.ac == null ? null : "?" };
+  }
+  return m;
 }
 
 function rollLine(m) {
   const what = m.label || m.purpose;
-  return `${what ? what + ": " : ""}${m.expr} = ${m.total}${m.nat === 20 ? " (natural 20)" : m.nat === 1 ? " (natural 1)" : ""}`;
+  const ctx = [];
+  if (m.dc != null) ctx.push(`DC ${m.dc}`);
+  if (m.ac != null) ctx.push(`vs AC ${m.ac}`);
+  if (m.adv?.length) ctx.push(`advantage: ${m.adv.join(", ")}`);
+  if (m.dis?.length) ctx.push(`disadvantage: ${m.dis.join(", ")}`);
+  if (m.crit) ctx.push("critical, dice doubled");
+  const out = m.outcome ? ` → ${m.outcome.toUpperCase()}` : "";
+  return `${what ? what : ""}${ctx.length ? ` (${ctx.join("; ")})` : ""}: ${m.expr} = ${m.total}` +
+    `${m.nat === 20 ? " (natural 20)" : m.nat === 1 ? " (natural 1)" : ""}${out}`;
+}
+
+// Rolls a seat still owes the GM this round.
+function owedBy(state, seatId) {
+  return state.requests.filter((r) => r.round === state.round && r.status === "pending" && r.seatId === seatId);
+}
+
+function fmtMod(n) {
+  n = Number(n) || 0;
+  return n > 0 ? `+${n}` : n < 0 ? `${n}` : "";
+}
+
+// One requested roll, rolled and judged by the 5e rules:
+// advantage and disadvantage cancel each other completely; DCs are met or
+// missed; attacks hit on AC or a natural 20, miss on a natural 1; damage only
+// follows a hit, with its dice doubled on a critical.
+function performRequest(state, req, seat) {
+  const base = { round: state.round, seatId: seat.id, author: seat.player, character: seat.character, rid: req.rid };
+  const push = (r, extra) => state.messages.push({
+    id: state.nextId++, kind: "roll", ...base, ...extra,
+    expr: r.expr, total: r.total, parts: r.parts, nat: r.nat, mode: r.mode, ts: Date.now(),
+  });
+
+  if (req.type === "check" || req.type === "save" || req.type === "attack") {
+    const adv = req.adv || [], dis = req.dis || [];
+    const mode = adv.length && !dis.length ? "adv " : dis.length && !adv.length ? "dis " : "";
+    const r = rollDice(`${mode}d20${fmtMod(req.mod)}`);
+    let outcome = null;
+    if (req.type === "attack" && req.ac != null) {
+      outcome = r.nat === 20 ? "critical hit" : r.nat === 1 ? "miss" : r.total >= req.ac ? "hit" : "miss";
+    } else if (req.dc != null) {
+      outcome = r.total >= req.dc ? "success" : "failure";
+    }
+    push(r, { rtype: req.type, label: req.label, dc: req.dc, ac: req.ac, adv, dis, outcome });
+
+    if (req.type === "attack" && req.damage && outcome && outcome !== "miss") {
+      const crit = outcome === "critical hit";
+      const dice = crit ? String(req.damage.dice).replace(/(\d*)d(\d+)/g, (_, n, d) => `${(Number(n) || 1) * 2}d${d}`) : req.damage.dice;
+      const dr = rollDice(`${dice}${fmtMod(req.damage.mod)}`);
+      push(dr, { rtype: "damage", label: `${req.label}: damage`, crit });
+    }
+  } else {
+    const r = rollDice(`${req.dice || "d20"}${fmtMod(req.mod)}`);
+    push(r, { rtype: req.type, label: req.label });
+  }
+  req.status = "rolled";
 }
 
 function pendingFor(state) {
@@ -946,7 +1031,7 @@ function buildConversation(state) {
 
   const out = [];
   for (const r of rounds) {
-    const acts = state.messages.filter((m) => m.round === r && (isAnswer(m) || m.kind === "event"));
+    const acts = state.messages.filter((m) => m.round === r && (isAnswer(m) || (m.kind === "event" && m.sub !== "asks")));
     const gm = state.messages.find((m) => m.round === r && m.kind === "gm");
     const gmDice = state.messages.filter((m) => m.round === r && m.kind === "gmroll");
     if (!acts.some(isAnswer) && !gm) continue;
@@ -957,6 +1042,11 @@ function buildConversation(state) {
       if (m.kind === "roll") return `- ${who} rolls ${rollLine(m)}`;
       return m.kind === "pass" ? `- ${who} passes this beat.` : `- ${who}: ${m.text}`;
     });
+    const unrolled = state.requests.filter((q) => q.round === r && (q.status === "pending" || q.status === "lapsed"));
+    for (const q of unrolled) {
+      const sx = state.seats.find((x) => x.id === q.seatId);
+      lines.push(`- ${sx ? label(sx) : "someone"} did not roll ${q.label} (still owed).`);
+    }
     let content = `ROUND ${r}: actions gathered from the table:\n${lines.join("\n") || "- (no actions)"}`;
     if (r === state.round) {
       content += `\n\nAt the table now: ${present.join(", ") || "nobody"}.` +
@@ -992,7 +1082,8 @@ function buildSystemPrompt(state) {
 - Stay inside the canon below. Do not contradict it. You may invent local detail (names, streets, minor NPCs) that fits it.
 - THE RIM AND THE FROZEN ARCHIVE ARE DELIBERATELY UNDEFINED. Never explain what the Archive is, who or what records at the pole, or why it deletes. Rumour, dread and contradiction only. No revelations, ever.
 - DICE. Chance uses D&D 5e rules: d20 tests against a DC or Armor Class, advantage and disadvantage, natural 20 and 1 on attacks, damage dice, death saves.
-  - Player characters roll their own dice. When one needs a roll, say exactly what to roll and why (e.g. "Ysolde, roll a DC 14 Dexterity save: /roll d20+2"), then stop and wait. Their results arrive as "rolls ..." lines. Never roll for a player character and never invent their result.
+  - Player characters roll their own dice, through buttons. When any need a roll, call the request_rolls tool once with every roll needed, in order: the type (check, save, attack, damage, other), a short label ("Dexterity save", "Shortsword attack"), the modifier, the DC for checks and saves, the target's Armor Class and damage dice for attacks, and the reasons for any advantage or disadvantage. The server applies the 5e rules itself (advantage and disadvantage cancel, hits, misses, criticals, damage only on a hit). Then tell the players briefly what they are rolling for and stop; do not narrate outcomes yet. Results arrive next round as "rolls ..." lines with the outcome. Never roll for a player character and never invent their result.
+  - Until character sheets list modifiers, choose a sensible modifier from the character's description (usually between -1 and +5).
   - For everything else (NPCs, monsters, hazards, damage you deal, random tables) call the roll_dice tool and narrate from the number it returns. Never invent or adjust a die result.
   - Your own rolls may be hidden from the players; describe outcomes in the fiction rather than announcing your numbers.
 - The rules system is unfinished (see RULES). When an outcome is uncertain and matters, say so, propose how it could be resolved, and mark any mechanic you introduce as [PROVISIONAL] so the table can adopt or reject it.
@@ -1049,13 +1140,73 @@ const DICE_TOOLS = [{
     },
   },
 }];
+DICE_TOOLS.push({
+  type: "function",
+  function: {
+    name: "request_rolls",
+    description: "Ask player characters to roll. Each roll becomes a button for that player; the server rolls honestly and judges the outcome by 5e rules.",
+    parameters: {
+      type: "object",
+      properties: {
+        rolls: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              character: { type: "string", description: "Character (or player) name exactly as seated" },
+              type: { type: "string", enum: ["check", "save", "attack", "damage", "other"] },
+              label: { type: "string", description: "Short, e.g. 'Dexterity save', 'Perception', 'Shortsword attack'" },
+              modifier: { type: "integer", description: "Total modifier added to the roll" },
+              dc: { type: "integer", description: "Difficulty class, for checks and saves" },
+              target_ac: { type: "integer", description: "Armor Class of the target, for attacks" },
+              damage_dice: { type: "string", description: "For attacks: damage dice rolled on a hit, e.g. '1d6'" },
+              damage_modifier: { type: "integer", description: "For attacks: modifier added to damage" },
+              dice: { type: "string", description: "For damage or other rolls: the dice, e.g. '2d6' or 'd100'" },
+              advantage: { type: "array", items: { type: "string" }, description: "Reasons for advantage, if any" },
+              disadvantage: { type: "array", items: { type: "string" }, description: "Reasons for disadvantage, if any" },
+            },
+            required: ["character", "type", "label"],
+          },
+        },
+      },
+      required: ["rolls"],
+    },
+  },
+});
 const MAX_GM_TOOL_ROUNDS = 4;
+
+// Turn the GM's request_rolls arguments into stored requests, or explain what's wrong.
+function parseRequests(args, seats) {
+  const out = [], problems = [];
+  const names = seats.map((s) => label(s));
+  for (const r of Array.isArray(args?.rolls) ? args.rolls : []) {
+    const want = String(r.character || "").trim().toLowerCase();
+    const seat = seats.find((s) => [s.character, s.player].some((n) => n && n.toLowerCase() === want));
+    if (!seat) { problems.push(`no one called "${r.character}" is seated (seated: ${names.join(", ") || "nobody"})`); continue; }
+    const type = ["check", "save", "attack", "damage", "other"].includes(r.type) ? r.type : "other";
+    const req = {
+      seatId: seat.id, type, label: clean(String(r.label || type), 60), mod: Number.isFinite(+r.modifier) ? Math.trunc(+r.modifier) : 0,
+      dc: Number.isFinite(+r.dc) && r.dc !== undefined && r.dc !== null ? Math.trunc(+r.dc) : null,
+      ac: Number.isFinite(+r.target_ac) && r.target_ac !== undefined && r.target_ac !== null ? Math.trunc(+r.target_ac) : null,
+      adv: (Array.isArray(r.advantage) ? r.advantage : []).map((x) => clean(String(x), 60)).filter(Boolean),
+      dis: (Array.isArray(r.disadvantage) ? r.disadvantage : []).map((x) => clean(String(x), 60)).filter(Boolean),
+      damage: null, dice: null,
+    };
+    try {
+      if (type === "attack" && r.damage_dice) { rollDice(r.damage_dice); req.damage = { dice: String(r.damage_dice).replace(/\s+/g, ""), mod: Math.trunc(+r.damage_modifier || 0) }; }
+      if ((type === "damage" || type === "other")) { req.dice = String(r.dice || "d20").replace(/\s+/g, ""); rollDice(req.dice); }
+    } catch (err) { problems.push(`${r.label}: ${err.message}`); continue; }
+    out.push(req);
+  }
+  return { requests: out, problems };
+}
 
 // One GM turn. The GM may call roll_dice any number of times; each call is
 // answered by the server's real dice, and the GM narrates from those numbers.
-async function gmTurn(env, model, messages) {
+async function gmTurn(env, model, messages, ctx = {}) {
   const convo = [...messages];
   const rolls = [];
+  const requests = [];
   const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
   for (let i = 0; i <= MAX_GM_TOOL_ROUNDS; i++) {
     const data = await mistralRequest(env, {
@@ -1067,13 +1218,24 @@ async function gmTurn(env, model, messages) {
     const calls = msg.tool_calls || [];
     if (!calls.length) {
       if (!msg.content) throw new Error("Mistral sent an empty reply");
-      return { reply: msg.content, usage, rolls };
+      return { reply: msg.content, usage, rolls, requests };
     }
     convo.push({ role: "assistant", content: msg.content || "", tool_calls: calls });
     for (const call of calls) {
       let args = {};
       try { args = typeof call.function?.arguments === "string" ? JSON.parse(call.function.arguments) : (call.function?.arguments || {}); } catch {}
       let content;
+      if (call.function?.name === "request_rolls") {
+        const { requests: got, problems } = parseRequests(args, ctx.seats || []);
+        requests.push(...got);
+        content = JSON.stringify({
+          requested: got.map((q) => q.label),
+          problems,
+          note: "The players now see these as buttons. Tell them briefly what they are rolling for, then stop. Outcomes arrive next round.",
+        });
+        convo.push({ role: "tool", tool_call_id: call.id, name: "request_rolls", content });
+        continue;
+      }
       try {
         const r = rollDice(args.expression);
         rolls.push({ ...r, purpose: clean(args.purpose, 120) });
