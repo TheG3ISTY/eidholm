@@ -27,6 +27,26 @@ Everything that decides chance follows the D&D 5e rules: d20 tests (ability chec
 - **The GM's rolls are hidden from players by default**: they see "the GM rolls behind the screen". An unsealed GM always sees every number. **Settings → Show GM rolls to the party** reveals them to everyone while it is on, along with the DCs and Armor Classes behind player rolls. Hidden numbers are never sent to a player's device.
 - Every roll, player and GM, is archived with the session transcript.
 
+### Remembering people
+
+The GM improvises minor NPCs freely. It **flags someone as important**, and keeps them in `campaign/cast.json`, the moment any of these is true:
+
+1. **Ledger:** a debt, favor, promise, contract or Exchange deal ties them to a character.
+2. **Blood:** they hurt a character, were hurt by one, or survived a fight with the party.
+3. **Secrets:** they know something about a character, or hold a piece of the plot.
+4. **Office:** they hold real power in a faction, including any bank enforcer assigned to a character's debt.
+5. **Minds of glass** that pledged themselves to, or were hired by, a character.
+6. **The players care:** a player asks about them again, goes looking for them, or flags them with **`/remember name`**.
+7. **They come back:** a named NPC met in a second, separate scene.
+
+Never flagged: one-off shopkeepers, crowds, unnamed guards, people the party walked past. (Small property changes hands constantly in Eidholm, so a new face behind a familiar counter needs no explanation.)
+
+**What's kept:** name, role, faction, where to find them, a line of look and voice, attitude toward the party, ledger, and, for the GM only, what they want, their secret, and notes.
+
+**Status:** *active* (read in full every turn), *dormant* (unseen for 3 sessions; one line, wakes up when they reappear), *dead* (one line, kept forever).
+
+**Who sees what:** players see the People tab in the Codex with the public half; wants, secrets and notes are GM-only and never sent to a player's device. Remembered people are written to the repo at Save and End session.
+
 ### Economy and equipment
 
 See [economy.md](economy.md).
