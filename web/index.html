@@ -293,6 +293,62 @@
   .erow textarea.field { resize: vertical; min-height: 34px; font-family: var(--mono); }
   .ebar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .emsg { flex: 1; font-family: var(--mono); font-size: 11px; color: var(--danger); min-width: 80px; }
+  .turn.roll .oc.miscant { color: var(--danger); border-style: double; }
+  .turn.roll .oc.back-on-their-feet { color: var(--brass); }
+  .turn.roll .luck { font-family: var(--mono); font-size: 11px; background: transparent; border: 1px solid var(--brass); color: var(--brass); border-radius: 2px; padding: 1px 7px; cursor: pointer; }
+  .turn.roll .luck:hover { background: var(--brass); color: var(--bg); }
+  .turn.roll .rf { font-size: 11px; color: var(--ink-dim); opacity: 0.8; }
+  .chip button.make { border-color: var(--ember); color: var(--ember); }
+  .chip button.make:hover { background: var(--ember); color: var(--bg); }
+
+  /* character sheets */
+  .sheet h3 small { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: var(--ink-dim); font-weight: 400; margin-left: 6px; }
+  .sheet .vit { font-family: var(--mono); font-size: 12px; color: var(--ink); display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 10px; }
+  .sheet .vit .bad { color: var(--danger); }
+  .sheet .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+  .sheet .stat { border: 1px solid var(--line); padding: 6px; text-align: center; position: relative; }
+  .sheet .stat.cap { border-color: var(--brass); }
+  .sheet .stat small { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--ink-dim); text-transform: uppercase; }
+  .sheet .stat b { font-family: var(--display); font-size: 24px; font-weight: 600; }
+  .sheet .stat i { font-family: var(--mono); font-size: 11px; font-style: normal; color: var(--ink-dim); margin-left: 4px; }
+  .sheet .stat button { position: absolute; top: 3px; right: 3px; font-family: var(--mono); font-size: 11px; background: transparent; border: 1px solid var(--ember); color: var(--ember); border-radius: 2px; padding: 0 5px; cursor: pointer; }
+  .sheet .stat button:disabled { opacity: 0.3; cursor: default; }
+  .sheet .notice { border-left: 2px solid var(--ember); padding: 4px 10px; font-size: 15px; margin: 0 0 10px; }
+  .sheet .notice button { margin: 4px 4px 0 0; }
+  .sheet .sk { width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 10px; }
+  .sheet .sk td { border-bottom: 1px solid var(--line); padding: 3px 4px; }
+  .sheet .sk tr.zero td { color: var(--ink-dim); opacity: 0.7; }
+  .sheet .sk td.r { font-family: var(--mono); font-size: 11px; text-align: right; white-space: nowrap; }
+  .sheet .bar { display: inline-block; width: 60px; height: 4px; background: var(--line); vertical-align: middle; margin-left: 6px; }
+  .sheet .bar span { display: block; height: 100%; background: var(--ember); }
+  .sheet .items { margin: 0 0 10px; padding: 0; list-style: none; font-size: 15px; }
+  .sheet .items li { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line); padding: 3px 0; }
+  .sheet .items small { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); }
+  .sheet h4 { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; color: var(--ink-dim); font-weight: 500; margin: 12px 0 4px; }
+  .sheet .back { white-space: pre-wrap; font-size: 15px; }
+
+  /* creation */
+  .create-ov { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: flex-start; overflow-y: auto; padding: 4vh 12px; }
+  .create { width: 100%; max-width: 680px; background: var(--panel); border: 1px solid var(--brass); padding: 20px; display: grid; gap: 10px; }
+  .create h2 { margin: 0; font-family: var(--display); font-weight: 600; letter-spacing: 0.14em; color: var(--brass); }
+  .create .lbl { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; color: var(--ink-dim); text-transform: uppercase; margin-top: 6px; }
+  .create .lbl small { text-transform: none; letter-spacing: 0; font-style: italic; }
+  .create textarea.field { resize: vertical; font-family: var(--body); font-size: 16px; }
+  .cr-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .cr-stat { display: grid; grid-template-columns: 1fr auto auto auto auto; align-items: center; gap: 6px; border: 1px solid var(--line); padding: 5px 8px; }
+  .cr-stat span { font-family: var(--mono); font-size: 12px; }
+  .cr-stat b { font-family: var(--display); font-size: 22px; min-width: 1.6em; text-align: center; }
+  .cr-stat i { font-family: var(--mono); font-size: 11px; font-style: normal; color: var(--ink-dim); min-width: 2.4em; }
+  .cr-stat button { background: transparent; border: 1px solid var(--line); color: var(--ink); width: 26px; height: 26px; cursor: pointer; border-radius: 2px; }
+  .cr-stat button:disabled { opacity: 0.3; cursor: default; }
+  .cr-bal { font-family: var(--mono); font-size: 13px; }
+  .cr-bal.even { color: var(--glass); } .cr-bal.over { color: var(--danger); } .cr-bal.left { color: var(--ember); }
+  .cr-derived { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
+  .cr-kit { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 10px; font-size: 14px; }
+  .cr-kit h5 { margin: 4px 0 2px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; color: var(--ink-dim); font-weight: 500; }
+  .cr-kit label { display: flex; gap: 6px; align-items: baseline; cursor: pointer; }
+  .cr-kit input { accent-color: var(--ember); }
+  @media (max-width: 600px) { .cr-stats, .cr-kit { grid-template-columns: 1fr; } .sheet .stats { grid-template-columns: repeat(2, 1fr); } }
   .turn.sys { border: 1px dashed var(--line); padding: 12px 14px; font-size: 16px; background: rgba(26,23,20,0.6); }
   .turn.sys::before {
     content: attr(data-label); display: block;
@@ -350,6 +406,7 @@
         <button type="button" data-tier="large" title="mistral-large: climactic scenes only">Large</button>
       </div>
       <span class="meter" id="meter">0 tok · <b>$0.0000</b></span>
+      <span class="meter" id="clock-stamp" title="The in-game clock"></span>
       <span class="meter" id="saved-stamp"></span>
       <button type="button" class="ghost" id="codex-open" title="Table, party, log, rules and world (no tokens spent)">Codex</button>
       <button type="button" class="ghost" id="settings-open" title="Game Master settings (username and password)">Settings</button>
@@ -426,6 +483,7 @@
   let password = store.get("sessionStorage", "eidholm.pw") || "";
   let mySeat = store.get("localStorage", "eidholm.seat") || "";
   let table = null;      // latest snapshot from the server
+  let rules = null;      // fixed lists from the server: stats, skills, ranks, starting kit, capstones
   let notes = [];        // local-only slash command output: { ts, label, html }
   let errors = [];       // local-only error lines: { ts, text }
   let ws = null, wsWanted = false, retry = 0;
@@ -540,6 +598,7 @@
         if (table && table.messages.length && !m.messages.length) { notes = []; errors = []; }
         table = m; route();
       }
+      else if (m.t === "rules") rules = m;
       else if (m.t === "joined") takeSeat(m.seatId);
       else if (m.t === "error") pushError(m.text);
       else if (m.t === "party-changed") partyChanged();
@@ -563,6 +622,7 @@
   }
 
   function pushError(text) {
+    if ($("create") && $("cr-msg")) { $("cr-msg").textContent = text; $("cr-go").disabled = false; return; }
     errors.push({ ts: Date.now(), text });
     if ($("seats").hidden === false) $("seat-msg").textContent = text;
     else render();
@@ -675,6 +735,8 @@
     document.querySelectorAll(".seg button").forEach((b) => b.classList.toggle("on", b.dataset.tier === table.tier));
     const t = totals();
     $("meter").innerHTML = `${t.tokens.toLocaleString()} tok · <b>$${t.usd.toFixed(4)}</b>`;
+    $("clock-stamp").textContent = table.clock ? "⧗ " + table.clock + (table.partyUnsaved ? " · sheets unsaved" : "") : "";
+    if ($("create") && mySheet() && mySheet().name === $("create").dataset.want) closeCreate();
     $("saved-stamp").textContent = table.saved
       ? `Saved ${new Date(table.saved.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${table.saved.by ? " by " + table.saved.by : ""}`
       : "";
@@ -697,6 +759,13 @@
         sv.title = "Save the session so far to the repo. Play continues.";
         sv.addEventListener("click", saveNow);
         chip.appendChild(sv);
+        if (table.party && !mySheet()) {
+          const mk = document.createElement("button");
+          mk.type = "button"; mk.className = "make"; mk.textContent = "Create character";
+          mk.title = "Make your character: stats, backstory and starting kit";
+          mk.addEventListener("click", openCreate);
+          chip.appendChild(mk);
+        }
       }
       const tog = document.createElement("button");
       tog.type = "button";
@@ -761,13 +830,25 @@
             if (m.mode === "dis") ctx.push("disadvantage");
             if (!m.mode && m.adv?.length && m.dis?.length) ctx.push("adv + dis cancel");
             if (m.crit) ctx.push("critical: dice doubled");
+            if (m.spellTier) ctx.push("tier " + m.spellTier + " cant");
             const oc = m.outcome ? `<span class="oc ${m.outcome.replace(/\s+/g, "-")}">${escapeHtml(m.outcome.toUpperCase())}</span>` : "";
             div.innerHTML = `<span class="die">🎲</span><span class="rw">${escapeHtml(by)}</span> rolls ` +
               (what ? `<span class="rp">${escapeHtml(what)}</span> ` : "") +
               (ctx.length ? `<span class="rb">(${escapeHtml(ctx.join(" · "))})</span> ` : "") +
               `<span class="rx">${escapeHtml(m.expr)}</span> → <b class="rt">${m.total}</b>` +
               `<span class="rb">${escapeHtml(describeRoll(m))}</span>` +
-              (m.nat === 20 ? '<span class="tag">NATURAL 20</span>' : m.nat === 1 ? '<span class="tag">NATURAL 1</span>' : "") + oc + secret;
+              (m.nat === 20 ? '<span class="tag">NATURAL 20</span>' : m.nat === 1 ? '<span class="tag">NATURAL 1</span>' : "") + oc + secret +
+              (m.modFrom ? `<span class="rf">${escapeHtml(m.modFrom)}</span>` : "");
+            const mine = mySheet();
+            if (m.kind === "roll" && m.seatId === mySeat && m.round === table.round && !table.resolving && mine &&
+                ["check", "save", "attack", "death"].includes(m.rtype) && mine.d.luckyBreaks - (mine.luckUsed || 0) > 0) {
+              const lb = document.createElement("button");
+              lb.type = "button"; lb.className = "luck";
+              lb.textContent = `Lucky break (${mine.d.luckyBreaks - (mine.luckUsed || 0)} left)`;
+              lb.title = "Reroll this. The new result stands.";
+              lb.addEventListener("click", () => send({ t: "luck", seatId: mySeat, msgId: m.id }));
+              div.appendChild(lb);
+            }
           }
         } else if (m.kind === "flag") {
           div.className = "turn event flag";
@@ -801,6 +882,20 @@
       w.appendChild(b);
     } else if (table.resolving) {
       w.textContent = "The GM is answering…";
+    } else if (table.graceUntil && table.graceUntil > Date.now()) {
+      const left = Math.max(1, Math.ceil((table.graceUntil - Date.now()) / 1000));
+      w.innerHTML = `Rolled. The GM answers in <b>${left}s</b>, unless a lucky break is spent. `;
+      const k = document.createElement("button");
+      k.type = "button"; k.className = "ghost"; k.textContent = "Keep it, go on";
+      k.addEventListener("click", () => send({ t: "resolve" }));
+      w.appendChild(k);
+      clearTimeout(render.tick); render.tick = setTimeout(render, 1000);
+    } else if (table.party && !mySheet() && !pend.length) {
+      w.innerHTML = "You don't have a character sheet yet. ";
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "ghost"; b.textContent = "Create character";
+      b.addEventListener("click", openCreate);
+      w.appendChild(b);
     } else {
       const owes = (id) => (table.requests || []).some((r) => r.seatId === id);
       const waitingOn = table.seats.filter((s) => s.present && (!answered.has(s.id) || owes(s.id))).map(seatLabel);
@@ -830,6 +925,7 @@
     $("pass").disabled = blocked || (table.requests || []).some((r) => r.seatId === mySeat);
 
     if ($("codex").classList.contains("open") && codexTab === "table") renderTableTab();
+    if ($("codex").classList.contains("open") && codexTab === "party" && !(admin && admin.canWriteRepo)) renderPartyTab();
     if ($("codex").classList.contains("open") && codexTab === "settings" && admin) {
       renderSettingsSeats();
       if ($("reveal-toggle")) $("reveal-toggle").checked = !!table.revealGmRolls;
@@ -840,7 +936,7 @@
   function renderRail(me) {
     const box = $("rail-rolls");
     const mine = (table.requests || []).filter((r) => r.seatId === mySeat).sort((a, b) => a.order - b.order);
-    const sig = JSON.stringify([mine.map((r) => r.rid), !!(me && me.present), table.resolving]);
+    const sig = JSON.stringify([mine.map((r) => [r.rid, r.mod, r.autoDis]), !!(me && me.present), table.resolving]);
     if (box.dataset.sig === sig) return;   // don't rebuild (and re-animate) when nothing changed
     box.dataset.sig = sig;
     box.innerHTML = "";
@@ -852,15 +948,18 @@
     mine.forEach((r, i) => {
       const b = document.createElement("button");
       b.type = "button"; b.className = "rbtn"; b.disabled = blocked;
-      const dice = r.type === "check" || r.type === "save" || r.type === "attack" ? "d20" : (r.dice || "d20");
-      const net = r.adv?.length && !r.dis?.length ? "advantage" : r.dis?.length && !r.adv?.length ? "disadvantage" : (r.adv?.length && r.dis?.length ? "adv + dis cancel" : "");
+      const dice = ["check", "save", "attack", "death"].includes(r.type) ? "d20" : (r.dice || "d20");
+      const dis = [...(r.dis || []), ...(r.autoDis || [])];
+      const net = r.adv?.length && !dis.length ? "advantage" : dis.length && !r.adv?.length ? "disadvantage" : (r.adv?.length && dis.length ? "adv + dis cancel" : "");
       const bits = [dice + fmtMod(r.mod)];
       if (r.dc != null) bits.push("DC " + r.dc);
       if (r.ac != null) bits.push("AC " + r.ac);
       if (net) bits.push(net);
       if (r.damage) bits.push("then " + r.damage.dice + fmtMod(r.damage.mod) + " on a hit");
       b.innerHTML = `<span class="n">${i + 1}</span><b>${escapeHtml(r.label)}</b><small>${escapeHtml(bits.join(" · "))}</small>`;
-      const why = [...(r.adv || []).map((x) => "+ " + x), ...(r.dis || []).map((x) => "− " + x)];
+      if (r.type === "death") bits.push("10+ holds on");
+      if (r.spellTier) bits.push("tier " + r.spellTier + " cant");
+      const why = [...(r.modFrom ? [r.modFrom] : []), ...(r.adv || []).map((x) => "+ " + x), ...dis.map((x) => "− " + x)];
       if (why.length) b.title = why.join("\n");
       b.addEventListener("click", () => send({ t: "rollRequest", rid: r.rid }));
       box.appendChild(b);
@@ -948,7 +1047,7 @@
     body.className = "codex-body md";
     if (codexTab === "party") {
       if (admin && admin.canWriteRepo) { renderPartyEditor(st); return; }
-      body.innerHTML = renderParty(st.party);
+      renderPartyTab();
     }
     else if (codexTab === "log") body.innerHTML = renderMarkdown(st.log) || '<p class="muted">No log yet.</p>';
     else if (codexTab === "rules") body.innerHTML = (renderMarkdown(st.rules) + (st.economy ? "<hr>" + renderMarkdown(st.economy) : "")) || '<p class="muted">No rules yet.</p>';
@@ -1174,7 +1273,7 @@
       return;
     }
     $("codex-status").textContent = "Unsealed · every action is checked by the server";
-    const { members, error } = parseParty(st.party);
+    const { members, error } = parseParty(partyRaw(st));
     if (error) { box.innerHTML = '<p class="muted">party.json is not valid JSON, fix it in the repo first.</p>'; return; }
     box.innerHTML = "";
     if (!members.length) { box.innerHTML = '<p class="muted">The party file is empty.</p>'; return; }
@@ -1261,9 +1360,9 @@
     const body = $("codex-body");
     body.className = "codex-body";
     editorDirty = false;
-    const p = parseParty(st.party);
+    const p = parseParty(partyRaw(st));
     if (p.error) { body.innerHTML = '<p class="muted">party.json in the repo is not valid JSON. Fix it there first.</p>'; return; }
-    $("codex-status").textContent = "Editing · each save is a commit to the party file";
+    $("codex-status").textContent = "Editing · each save is a commit to the party file, including everything that changed at the table since the last save";
     body.innerHTML = "";
 
     const intro = document.createElement("p");
@@ -1277,7 +1376,12 @@
     meta.innerHTML = `<h3>The world</h3>
       <div class="erow"><label>world clock</label><input class="field" data-m="world_clock" value="${escapeHtml(p.data.world_clock || "")}"></div>
       <div class="erow"><label>location</label><input class="field" data-m="location" value="${escapeHtml(p.data.location || "")}"></div>
-      <div class="ebar"><span class="emsg"></span><button type="button" class="ghost" data-act="save">Save</button></div>`;
+      <div class="ebar"><span class="emsg"></span><button type="button" class="ghost" data-act="save">Save</button></div>
+      <div class="erow"><label>game clock</label><span class="ebar"><input class="field" data-c="day" type="number" min="1" style="width:6em" value="${table && table.clock ? (table.clock.match(/Day (\d+)/) || [])[1] || 1 : 1}"><input class="field" data-c="time" style="width:6em" value="${table && table.clock ? table.clock.split(", ")[1] || "06:00" : "06:00"}"><button type="button" class="ghost" data-act="clock">Set clock</button></span></div>
+      <p class="muted small">The GM moves the clock every turn. Setting it forward counts as time passing (Resonance refills, dawn resets); setting it back takes nothing back.</p>`;
+    meta.querySelector('[data-act="clock"]').addEventListener("click", () => {
+      send({ t: "setClock", day: meta.querySelector('[data-c="day"]').value, time: meta.querySelector('[data-c="time"]').value });
+    });
     meta.addEventListener("input", () => { editorDirty = true; });
     meta.querySelector('[data-act="save"]').addEventListener("click", async (e) => {
       const msgEl = meta.querySelector(".emsg");
@@ -1463,13 +1567,13 @@
       return;
     }
 
-    if (c === "party") note("PARTY", renderParty(st.party));
+    if (c === "party") note("PARTY", renderParty(partyRaw(st)));
     else if (c === "sheet") {
-      const { members } = parseParty(st.party);
+      const { members } = parseParty(partyRaw(st));
       if (!members.length) return note("SHEET", '<p class="muted">The party file is empty. Characters are made in session 1.</p>');
       const found = arg ? members.filter((m) => String(m.name || "").toLowerCase().includes(arg.toLowerCase()))
         : members.length === 1 ? members : [];
-      if (found.length === 1) note("SHEET", renderCard(found[0]));
+      if (found.length === 1) note("SHEET", renderMember(found[0]));
       else note("SHEET", "<p>" + (arg && !found.length ? "No one called “" + escapeHtml(arg) + "”. " : "Whose sheet? ") +
         "Party: " + members.map((m) => "<code>" + escapeHtml(m.name || "unnamed") + "</code>").join(", ") + "</p>");
     } else if (c === "log") {
@@ -1590,10 +1694,180 @@
     if (p.error) return '<p class="muted">party.json is not valid JSON:</p><pre>' + escapeHtml(raw) + "</pre>";
     const { data, members } = p;
     let html = "";
+    if (table && table.clock) html += '<div class="clock">' + escapeHtml(table.clock).toUpperCase() + "</div>";
     if (data.world_clock) html += '<div class="clock">' + escapeHtml(data.world_clock).toUpperCase() +
       (data.location ? " · " + escapeHtml(data.location).toUpperCase() : "") + "</div>";
-    html += members.length ? members.map(renderCard).join("") : '<p class="muted">The party file is empty. Characters are made in session 1.</p>';
+    html += members.length ? members.map(renderMember).join("") : '<p class="muted">No characters yet. Each player makes one with Create character.</p>';
     return html;
+  }
+
+  // ================= character sheets =================
+  // The table holds the live sheets; the repo file catches up on Save and End.
+  function sheetByName(name) {
+    const k = String(name || "").trim().toLowerCase();
+    return (table && table.party || []).find((c) => c.stats && String(c.name || "").trim().toLowerCase() === k) || null;
+  }
+  function mySheet() {
+    const me = seatById(mySeat);
+    const c = me && me.character ? sheetByName(me.character) : null;
+    return c && !c.dead ? c : null;
+  }
+  // The party file as JSON text, with the live sheets written in.
+  function partyRaw(st) {
+    if (!table || !table.party) return st.party;
+    let data = {};
+    try { data = JSON.parse(st.party || "{}"); } catch {}
+    data.party = table.party.map(({ d, ...c }) => c);
+    return JSON.stringify(data);
+  }
+  function renderPartyTab() {
+    const body = $("codex-body");
+    body.className = "codex-body md";
+    if (table && table.party) {
+      body.innerHTML = renderParty(partyRaw(codexState || { party: "{}" }));
+      wireSheetControls(body);
+      $("codex-status").textContent = "Live from the table" + (table.partyUnsaved ? " · changes since the last save" : "");
+    } else if (codexState) {
+      body.innerHTML = renderParty(codexState.party);
+    }
+  }
+  function renderMember(m) {
+    const live = m && m.stats ? sheetByName(m.name) : null;
+    return live && live.d ? renderSheet(live) : renderCard(m);
+  }
+
+  const signed = (n) => (n >= 0 ? "+" : "") + n;
+  const playsAs = (v) => (v === 10 ? 11 : v);
+  function statVal(c, k) { return c.capstone === k ? 13 : c.stats[k]; }
+  function cost(v) { return v - 5 + (v >= 10 ? 1 : 0); }
+
+  function renderSheet(c) {
+    const d = c.d, mine = mySheet() === c || (mySheet() && mySheet().name === c.name);
+    const R = rules || {};
+    const S = R.stats || {}, SK = R.skills || {}, RK = R.ranks || [], MK = R.marks || [];
+    const me = seatById(mySeat);
+    const player = c.player ? " · " + escapeHtml(c.player) : "";
+    let h = `<div class="card sheet" data-sheet="${escapeHtml(c.name)}"><h3>${escapeHtml(c.name)}<small>LEVEL ${d.level}${player}${mine ? " · YOURS" : ""}</small></h3>`;
+    const state = c.dead ? '<span class="bad">DEAD</span>'
+      : c.dying ? (c.dying.stable ? '<span class="bad">UNCONSCIOUS · STABLE</span>' : `<span class="bad">DYING · saves ${c.dying.s}✓ ${c.dying.f}✗</span>`)
+      : `HP ${c.hp}/${d.maxHp}`;
+    h += `<div class="vit"><span>${state}</span><span>AC ${d.ac}</span><span>Resonance ${+(+c.pool).toFixed(2)}/${d.maxPool} · tier ${d.maxTier}</span>` +
+      `<span>${+(+c.purse).toFixed(2)} cv</span><span>Lucky breaks ${Math.max(0, d.luckyBreaks - (c.luckUsed || 0))}/${d.luckyBreaks}</span>` +
+      `<span>Initiative ${signed(d.initiative)}</span><span>Carry ${d.carryKg} kg</span>${d.critOn === 19 ? "<span>Crits 19–20</span>" : ""}</div>`;
+    h += '<div class="stats">';
+    for (const k of Object.keys(S)) {
+      const v = statVal(c, k), canRaise = mine && d.unspent > 0 && c.capstone !== k && v < 10 && cost(v + 1) - cost(v) <= d.unspent && !c.dead;
+      h += `<div class="stat${c.capstone === k ? " cap" : ""}"><small>${escapeHtml(S[k])}</small><b>${v}</b><i>${signed(playsAs(v) - 5)}</i>` +
+        (mine && d.unspent > 0 && c.capstone !== k ? `<button type="button" data-raise="${k}" ${canRaise ? "" : "disabled"} title="${v === 9 ? "The step to 10 costs 2" : "Spend a point"}">+</button>` : "") + "</div>";
+    }
+    h += "</div>";
+    if (mine && d.unspent > 0) h += `<div class="notice">${d.unspent} stat point${d.unspent === 1 ? "" : "s"} to spend. Use the + on a stat.</div>`;
+    if (mine && d.level >= 50 && !c.capstone) {
+      h += '<div class="notice">Level 50: choose your capstone. One stat becomes 13, with its ability:<br>' +
+        Object.keys(S).map((k) => `<button type="button" class="ghost" data-cap="${k}" title="${escapeHtml((R.capstones || {})[k]?.[1] || "")}">${escapeHtml(S[k])}: ${escapeHtml((R.capstones || {})[k]?.[0] || "")}</button>`).join("") + "</div>";
+    }
+    if (c.capstone && R.capstones) h += `<div class="notice">Capstone · ${escapeHtml(R.capstones[c.capstone][0])}: ${escapeHtml(R.capstones[c.capstone][1])}</div>`;
+    h += `<h4>SKILLS · ${d.ranks} RANKS EARNED</h4><table class="sk">`;
+    for (const k of Object.keys(SK)) {
+      const sk = (c.skills || {})[k] || { rank: 0, marks: 0 };
+      const need = MK[sk.rank + 1];
+      const pct = need ? Math.round(100 * (sk.marks || 0) / need) : 100;
+      h += `<tr class="${sk.rank ? "" : "zero"}"><td>${escapeHtml(SK[k])}</td><td>${escapeHtml(RK[sk.rank] || "")}${sk.rank > 1 ? " " + signed(sk.rank - 1) : ""}</td>` +
+        `<td class="r">${need ? `${sk.marks || 0}/${need}<span class="bar"><span style="width:${pct}%"></span></span>` : "mastered"}</td></tr>`;
+    }
+    h += "</table>";
+    h += "<h4>CARRYING</h4>";
+    h += (c.items || []).length ? '<ul class="items">' + c.items.map((it, i) => {
+      const tags = [it.equipped ? "worn" : "", it.tier ? "tier " + it.tier : "", it.quality, it.condition, it.legality && it.legality !== "Legal" ? it.legality : "",
+        it.ac ? "AC +" + it.ac : "", it.damage ? it.damage : "", it.shieldPool ? "shield " + it.shieldPool : ""].filter(Boolean).join(" · ");
+      const wear = mine && ["armor", "shield", "device"].includes(it.kind) ? `<button type="button" class="ghost" data-equip="${i}">${it.equipped ? "Take off" : "Wear"}</button>` : "";
+      return `<li><span>${escapeHtml(it.name)} <small>${escapeHtml(tags)}</small></span>${wear}</li>`;
+    }).join("") + "</ul>" : '<p class="muted">Nothing.</p>';
+    if ((c.scars || []).length || c.scarsOwed) {
+      h += "<h4>SCARS</h4>" + (c.scars || []).map((x) => `<p>${escapeHtml(x)}</p>`).join("") +
+        (c.scarsOwed ? `<p class="muted">${c.scarsOwed} still to be written by the GM.</p>` : "");
+    }
+    if (c.backstory) h += `<h4>BACKSTORY</h4><div class="back">${escapeHtml(c.backstory)}</div>`;
+    return h + "</div>";
+  }
+
+  function wireSheetControls(root) {
+    root.querySelectorAll("[data-raise]").forEach((b) => b.addEventListener("click", () => send({ t: "raise", seatId: mySeat, stat: b.dataset.raise })));
+    root.querySelectorAll("[data-cap]").forEach((b) => b.addEventListener("click", () => {
+      const label = (rules && rules.stats[b.dataset.cap]) || b.dataset.cap;
+      if (confirm(`Take ${label} 13 as your capstone? This is for good.`)) send({ t: "capstone", seatId: mySeat, stat: b.dataset.cap });
+    }));
+    root.querySelectorAll("[data-equip]").forEach((b) => b.addEventListener("click", () => send({ t: "equip", seatId: mySeat, index: Number(b.dataset.equip) })));
+  }
+
+  // ---------- the creation screen ----------
+  function closeCreate() { const o = $("create"); if (o) o.remove(); }
+  function openCreate() {
+    if (!rules) return pushError("Still loading the rules from the table. Try again in a moment.");
+    closeCreate();
+    const keys = Object.keys(rules.stats);
+    const st = Object.fromEntries(keys.map((k) => [k, 5]));
+    const picks = new Set();
+    const ov = document.createElement("div");
+    ov.className = "create-ov"; ov.id = "create";
+    ov.innerHTML = `<div class="create" role="dialog" aria-label="Create a character">
+      <h2>A NEW CHARACTER</h2>
+      <p class="muted small">Every stat starts at 5. Raising one costs a point; lowering one frees a point, down to 1. The step from 9 to 10 costs 2. Nothing is free: every point you raise has to come from somewhere. Skills all start untrained and are learned by using them.</p>
+      <div class="lbl">Name</div><input class="field" id="cr-name" maxlength="40" autocomplete="off">
+      <div class="lbl">Stats</div><div class="cr-bal" id="cr-bal"></div>
+      <div class="cr-stats" id="cr-stats"></div>
+      <div class="cr-derived" id="cr-derived"></div>
+      <div class="lbl">Backstory <small>yours to write; the world will hold you to it, but it can't rewrite the canon</small></div>
+      <textarea class="field" id="cr-back" rows="5" maxlength="4000" placeholder="Where you come from, who you served, what you believe, what you owe."></textarea>
+      <div class="lbl">Starting kit · ${rules.purse} cv, clothes, a pack, and ${rules.picks} of these</div>
+      <div class="cr-kit" id="cr-kit"></div>
+      <div class="ebar"><span class="emsg" id="cr-msg"></span><button type="button" class="ghost" id="cr-cancel">Cancel</button><button type="button" class="btn" id="cr-go">Create</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+
+    const draw = () => {
+      const bal = -keys.reduce((n, k) => n + cost(st[k]), 0);
+      const b = $("cr-bal");
+      b.className = "cr-bal " + (bal === 0 ? "even" : bal < 0 ? "over" : "left");
+      b.textContent = bal === 0 ? "Balanced. Every point is placed." : bal > 0 ? `${bal} point${bal === 1 ? "" : "s"} freed and not yet placed.` : `Over by ${-bal}: lower something.`;
+      $("cr-stats").innerHTML = keys.map((k) => `<div class="cr-stat"><span>${escapeHtml(rules.stats[k])}</span>
+        <button type="button" data-dn="${k}" ${st[k] <= 1 ? "disabled" : ""} aria-label="Lower ${escapeHtml(rules.stats[k])}">−</button>
+        <b>${st[k]}</b>
+        <button type="button" data-up="${k}" ${st[k] >= 10 ? "disabled" : ""} aria-label="Raise ${escapeHtml(rules.stats[k])}" title="${st[k] === 9 ? "The step to 10 costs 2" : ""}">+</button>
+        <i>${signed(playsAs(st[k]) - 5)}</i></div>`).join("");
+      $("cr-stats").querySelectorAll("[data-up]").forEach((x) => x.addEventListener("click", () => { st[x.dataset.up]++; draw(); }));
+      $("cr-stats").querySelectorAll("[data-dn]").forEach((x) => x.addEventListener("click", () => { st[x.dataset.dn]--; draw(); }));
+      const E = playsAs(st.endurance), A = playsAs(st.agility) - 5, Rz = playsAs(st.resonance), L = playsAs(st.luck) - 5;
+      const armor = [...picks].map((id) => rules.kit.find((x) => x.id === id)).filter((x) => x && x.kind === "armor").reduce((m, x) => Math.max(m, x.ac || 0), 0);
+      $("cr-derived").textContent = `HP ${8 + 2 * E} · AC ${10 + A + armor} · Resonance pool ${Rz * 4}, casts up to tier ${Math.min(5, Math.floor(Rz / 2))} · lucky breaks ${Math.max(0, L)} a day${st.luck >= 9 ? " · crits on 19–20" : ""} · carry ${st.strength * 10} kg`;
+      $("cr-go").disabled = bal !== 0 || picks.size !== rules.picks;
+    };
+    const groups = [["WEAPONS", "weapon"], ["ARMOR", "armor"], ["ARMOR", "shield"], ["TOOLS", "tool"]];
+    const cols = { WEAPONS: [], ARMOR: [], TOOLS: [] };
+    for (const it of rules.kit) {
+      const g = groups.find(([, kind]) => kind === it.kind);
+      cols[g ? g[0] : "TOOLS"].push(it);
+    }
+    $("cr-kit").innerHTML = Object.entries(cols).map(([h, list]) => `<div><h5>${h}</h5>` + list.map((it) =>
+      `<label><input type="checkbox" value="${it.id}"> ${escapeHtml(it.name)} <small class="muted">${escapeHtml((rules.skills[it.skill || it.armor] || "") + (it.damage ? " · " + it.damage : it.ac ? " · AC +" + it.ac : it.shieldPool ? " · pool " + it.shieldPool : ""))}</small></label>`
+    ).join("") + "</div>").join("");
+    $("cr-kit").querySelectorAll("input").forEach((x) => x.addEventListener("change", () => {
+      if (x.checked) { if (picks.size >= rules.picks) { x.checked = false; $("cr-msg").textContent = `Only ${rules.picks}. Uncheck one first.`; return; } picks.add(x.value); }
+      else picks.delete(x.value);
+      $("cr-msg").textContent = "";
+      draw();
+    }));
+    $("cr-cancel").addEventListener("click", closeCreate);
+    $("cr-go").addEventListener("click", () => {
+      const name = $("cr-name").value.trim();
+      if (!name) { $("cr-msg").textContent = "Your character needs a name."; return; }
+      $("cr-msg").textContent = "Writing you into the world…";
+      $("cr-go").disabled = true;
+      ov.dataset.want = name;
+      send({ t: "create", seatId: mySeat, sheet: { name, backstory: $("cr-back").value, stats: st, items: [...picks] } });
+    });
+    draw();
+    $("cr-name").focus();
   }
 
   // ================= boot =================

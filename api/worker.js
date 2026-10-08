@@ -17,12 +17,18 @@ import { DurableObject } from "cloudflare:workers";
 import { rollDice, describeRoll } from "./dice.js";
 import {
   chunkCanon, chunkMarkdown, economyTopics, rulesTopics, selectContext,
-  parseSceneTag, formatSceneTag, lookup, personLine, personFull,
+  parseSceneTag, formatSceneTag, lookup, personLine, personFull, characterTopics,
 } from "./context.js";
+import {
+  STATS, STAT_LABEL, SKILLS, MELEE_SKILLS, CANTING_SKILLS, SPELL_COST, BACKLASH, STARTER_ITEMS, CAPSTONES, RANKS, MARKS_TO_REACH,
+  derive, normalize, createSheet, raiseStat, takeCapstone, addMark, takeDamage, heal, stabilize, deathSave,
+  statMod, skillBonus, skillRank, equipped, clockLabel, parseElapsed, dawnsBetween, passTime, sheetForGm, findSheet,
+} from "./characters.js";
 
 const STATE_FILES = {
   canon: "world/worldbuilding.md",
   rules: "rules/resolution.md",
+  characters: "rules/characters.md",
   economy: "rules/economy.md",
   cast: "campaign/cast.json",
   party: "characters/party.json",
@@ -38,6 +44,7 @@ const SNAPSHOT_MESSAGES = 300;
 const GM_HISTORY_ROUNDS = 12;   // past rounds sent to the GM for continuity
 const STALE_RESOLVE_MS = 120_000;
 const SAVE_COOLDOWN_MS = 30_000;
+const LUCK_GRACE_MS = 10_000;   // after a roll, a lucky character gets this long to reroll before the GM answers
 const DORMANT_AFTER_SESSIONS = 3;
 // Who may know what about a remembered person.
 const CAST_PUBLIC = ["name", "role", "faction", "where", "look", "attitude", "ledger", "status", "last_seen_session", "pillar"];
@@ -277,16 +284,18 @@ async function endSession(env, body) {
   const castJson = mergeCast(repo[STATE_FILES.cast], scene.cast, { sessionNo, endOfSession: true });
   if (castJson !== null) files[STATE_FILES.cast] = castJson;
 
-  // 3. the party file's clock, if it changed
-  if (worldClock && repo[STATE_FILES.party]) {
+  // 3. the party file: the live sheets and clock, and the world clock line if it changed
+  let partyText = scene.live?.loaded && scene.live.dirty ? buildPartyFile(repo[STATE_FILES.party], scene.live) : null;
+  if (worldClock) {
     try {
-      const party = JSON.parse(repo[STATE_FILES.party]);
+      const party = JSON.parse(partyText || repo[STATE_FILES.party] || "{}");
       if (party.world_clock !== worldClock) {
         party.world_clock = worldClock;
-        files[STATE_FILES.party] = JSON.stringify(party, null, 2) + "\n";
+        partyText = JSON.stringify(party, null, 2) + "\n";
       }
     } catch {}
   }
+  if (partyText) files[STATE_FILES.party] = partyText;
 
   // All of it as ONE commit.
   const sha = await commitFiles(env, files, `session: end session ${sessionNo}: ${title}`);
@@ -294,6 +303,7 @@ async function endSession(env, body) {
   for (const f of [STATE_FILES.log, STATE_FILES.party, STATE_FILES.cast]) {
     await caches.default.delete(new Request(`https://eidholm-state.cache/${env.GITHUB_BRANCH}/${f}`));
   }
+  if (files[STATE_FILES.party]) await tableCall(env, { t: "partyCommitted", upTo: scene.exportedAt });
   await tableCall(env, { t: "reset", upToId, castUpTo: scene.cast?.exportedAt || Date.now(), clearSeen: true });
   await tableCall(env, { t: "partyChanged" });
   return { ok: true, sessionNo, archivePath: path, commit: sha };
@@ -324,7 +334,15 @@ async function saveCheckpoint(env, seatId) {
       const castJson = mergeCast(repo[STATE_FILES.cast], scene.cast, { sessionNo: session.no, endOfSession: false });
       if (castJson !== null) files[STATE_FILES.cast] = castJson;
     }
+    if (scene.live?.loaded && scene.live.dirty) {
+      const repo = await readFilesFresh(env, [STATE_FILES.party]);
+      files[STATE_FILES.party] = buildPartyFile(repo[STATE_FILES.party], scene.live);
+    }
     await commitFiles(env, files, `session: save session ${session.no} (checkpoint by ${by})`);
+    if (files[STATE_FILES.party]) {
+      await caches.default.delete(new Request(`https://eidholm-state.cache/${env.GITHUB_BRANCH}/${STATE_FILES.party}`));
+      await tableCall(env, { t: "partyCommitted", upTo: scene.exportedAt });
+    }
     if (files[STATE_FILES.cast]) {
       await caches.default.delete(new Request(`https://eidholm-state.cache/${env.GITHUB_BRANCH}/${STATE_FILES.cast}`));
       await tableCall(env, { t: "castCommitted", upTo: scene.cast.exportedAt });
@@ -533,6 +551,12 @@ async function updatePartyFile(env, message, mutate) {
   }
   if (!data || typeof data !== "object" || Array.isArray(data)) data = {};
   data.party = partyList(data);
+  // Whatever happened at the table since the last save goes in too.
+  const live = await tableCall(env, { t: "liveParty" }).catch(() => null);
+  if (live?.loaded) {
+    data.party = mergeParty(data.party, live.list);
+    data.clock = { minutes: live.clock.minutes, label: clockLabel(live.clock) };
+  }
 
   const result = mutate(data);
 
@@ -551,8 +575,7 @@ async function updatePartyFile(env, message, mutate) {
 
   // The Codex and the GM see the change immediately, and every open screen refreshes.
   await caches.default.delete(new Request(`https://eidholm-state.cache/${env.GITHUB_BRANCH}/${path}`));
-  const stub = env.TABLE.get(env.TABLE.idFromName("main"));
-  await stub.fetch("https://table/admin", { method: "POST", body: JSON.stringify({ t: "partyChanged" }) }).catch(() => {});
+  await tableCall(env, { t: "setParty", data }).catch(() => {});
   return { ok: true, ...result };
 }
 
@@ -587,6 +610,7 @@ async function saveCharacter(env, original, character) {
   if (!name) throw httpError("Every character needs a name.", 400);
   character.name = name;
   if (JSON.stringify(character).length > 20000) throw httpError("That sheet is too large.", 400);
+  if (character.stats && typeof character.stats === "object") normalize(character);
 
   const what = !original ? `create character ${name}`
     : sameName(original, name) ? `edit character ${name}`
@@ -667,7 +691,26 @@ export class Table extends DurableObject {
         return json({ ok: true });
       }
       if (msg.t === "export") {
-        return json({ seats: state.seats, messages: state.messages, round: state.round, spend: state.spend, resolving: isResolving(state), session: state.session, cast: { ...state.cast, exportedAt: Date.now() } });
+        return json({ seats: state.seats, messages: state.messages, round: state.round, spend: state.spend, resolving: isResolving(state), session: state.session, cast: { ...state.cast, exportedAt: Date.now() }, live: state.live, exportedAt: Date.now() });
+      }
+      if (msg.t === "liveParty") {
+        const live = await this.ensureLive(state);
+        if (live) await this.save(state);
+        return json(live || { loaded: false });
+      }
+      if (msg.t === "setParty") {
+        // The party file was just committed from Settings; it is now the live truth.
+        const p = parsePartyFile(JSON.stringify(msg.data || {}));
+        state.live = { loaded: true, list: p.list, clock: { minutes: clockMinutes(p.data) }, dirty: 0 };
+        await this.commit(state);
+        const payload = JSON.stringify({ t: "party-changed" });
+        for (const ws of this.ctx.getWebSockets()) { try { ws.send(payload); } catch {} }
+        return json({ ok: true });
+      }
+      if (msg.t === "partyCommitted") {
+        if (state.live?.dirty && state.live.dirty <= (msg.upTo || 0)) state.live.dirty = 0;
+        await this.commit(state);
+        return json({ ok: true });
       }
       if (msg.t === "claimSave") {
         // Cooldown, checked and claimed in one step so two players can't both save at once.
@@ -693,12 +736,17 @@ export class Table extends DurableObject {
         state.spend = { small: { in: 0, out: 0 }, large: { in: 0, out: 0 } };
         state.session = null;
         state.scene = null;
+        state.marks = { scene: 0, done: {} };
+        // A discarded scene also throws away unsaved changes to the sheets; after
+        // End session (everything committed) they're re-read so repo edits show up.
+        if (msg.upToId === undefined || (msg.clearSeen && !state.live?.dirty)) state.live = null;
         if (msg.clearSeen || msg.upToId === undefined) {
           // End of session (or a discarded scene): drop what was written, forget who was seen.
           const upTo = msg.castUpTo || Infinity;
           for (const [k, v] of Object.entries(state.cast.pending)) if ((v.at || 0) <= upTo) delete state.cast.pending[k];
           state.cast.seen = [];
         }
+        if (!state.live) await this.ensureLive(state);
         await this.commit(state);
         return json({ ok: true });
       }
@@ -725,6 +773,8 @@ export class Table extends DurableObject {
     // the Settings username and password over this same connection.
     pair[1].serializeAttachment({ admin: false, ip: clientIp(request) });
     const state = await this.load();
+    if (!state.live?.loaded && await this.ensureLive(state)) await this.save(state);
+    pair[1].send(JSON.stringify(RULES_CATALOGUE));
     pair[1].send(JSON.stringify(this.snapshot(state, pair[1])));
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -765,6 +815,9 @@ export class Table extends DurableObject {
       scene: s.scene || null,                      // the GM's last scene tag
       requests: s.requests || [],   // rolls the GM asked for: { rid, round, seatId, order, type, label, ..., status }
       nextRid: s.nextRid || 1,
+      graceUntil: s.graceUntil || 0,
+      live: s.live || null,         // the party's sheets as they are right now: { loaded, list, clock, dirty }
+      marks: s.marks || { scene: 0, done: {} },   // skill marks already given this scene
     };
   }
 
@@ -790,7 +843,17 @@ export class Table extends DurableObject {
       admin: !!att.admin,
       requests: state.requests
         .filter((r) => r.round === state.round && r.status === "pending")
-        .map((r) => (canSee ? r : { ...r, dc: r.dc == null ? null : "?", ac: r.ac == null ? null : "?" })),
+        .map((r) => {
+          const { before, ...q } = r;
+          const sheet = sheetFor(state, state.seats.find((x) => x.id === r.seatId));
+          const m = computeMod(sheet, r);
+          const view = { ...q, mod: m.total, modFrom: m.from, autoDis: m.autoDis };
+          return canSee ? view : { ...view, dc: r.dc == null ? null : "?", ac: r.ac == null ? null : "?" };
+        }),
+      party: state.live?.loaded ? state.live.list.map((c) => (isSheet(c) ? { ...c, d: derive(c) } : c)) : null,
+      clock: state.live?.loaded ? clockLabel(state.live.clock) : null,
+      partyUnsaved: !!state.live?.dirty,
+      graceUntil: state.graceUntil && state.graceUntil > Date.now() ? state.graceUntil : 0,
       round: state.round,
       resolving: isResolving(state),
       tier: state.tier,
@@ -808,6 +871,20 @@ export class Table extends DurableObject {
   async commit(state) {
     await this.save(state);
     this.broadcast(state);
+  }
+
+  // The sheets live here during play and go back to the repo on Save and End.
+  async ensureLive(state) {
+    if (state.live?.loaded) return state.live;
+    try {
+      const repo = await loadState(this.env);
+      const p = parsePartyFile(repo.party);
+      if (!p) return null;
+      state.live = { loaded: true, list: p.list, clock: { minutes: clockMinutes(p.data) }, dirty: 0 };
+      return state.live;
+    } catch {
+      return null;
+    }
   }
 
   // ---------------- commands ----------------
@@ -882,7 +959,97 @@ export class Table extends DurableObject {
         if (!s.present) throw new Error(`${label(s)} is marked absent. Mark them present to roll.`);
         mine.sort((a, b) => a.order - b.order);
         for (const req of mine) performRequest(state, req, s);
-        if (await this.maybeAutoResolve(state)) return;
+        // Someone who could still spend a lucky break gets a moment before the GM answers.
+        const sheet = sheetFor(state, s);
+        const d20 = mine.some((r) => ["check", "save", "attack", "death"].includes(r.type));
+        const grace = !!(sheet && d20 && derive(sheet).luckyBreaks > (sheet.luckUsed || 0));
+        if (await this.maybeAutoResolve(state, { grace })) return;
+        return this.commit(state);
+      }
+
+      case "create": {
+        const s = seat(msg.seatId);
+        if (!s) throw new Error("Take a seat first.");
+        const live = await this.ensureLive(state);
+        if (!live) throw new Error("The party file can't be read right now, so the character can't be written yet. Try again in a moment.");
+        const own = sheetFor(state, s);
+        if (own && !own.dead) throw new Error(`You already play ${own.name}.`);
+        const sheet = createSheet(msg.sheet, s.player);
+        if (findSheet(live.list, sheet.name)) throw new Error(`There is already a character called "${sheet.name}".`);
+        live.list.push(sheet);
+        markDirty(state);
+        s.character = sheet.name;
+        addEvent(state, `${s.player} brings a new character to the table: ${sheet.name}.`, s);
+        return this.commit(state);
+      }
+
+      case "raise":
+      case "capstone": {
+        const s = seat(msg.seatId);
+        const sheet = sheetFor(state, s);
+        if (!sheet) throw new Error("Only your own character's sheet can be changed from here.");
+        if (sheet.dead) throw new Error(`${sheet.name} is dead.`);
+        const line = msg.t === "raise" ? raiseStat(sheet, String(msg.stat)) : takeCapstone(sheet, String(msg.stat));
+        markDirty(state);
+        addEvent(state, line, s);
+        return this.commit(state);
+      }
+
+      case "equip": {
+        const s = seat(msg.seatId);
+        const sheet = sheetFor(state, s);
+        if (!sheet) throw new Error("Only your own character's gear can be changed from here.");
+        const item = sheet.items[Number(msg.index)];
+        if (!item) throw new Error("That item is gone.");
+        const on = !item.equipped;
+        if (on && item.kind === "armor") for (const i of sheet.items) if (i.kind === "armor") i.equipped = false;
+        item.equipped = on;
+        const d = derive(sheet);
+        sheet.pool = Math.min(sheet.pool, d.maxPool);
+        markDirty(state);
+        return this.commit(state);
+      }
+
+      case "luck": {
+        if (isResolving(state)) throw new Error("Too late, the GM is already answering.");
+        const s = seat(msg.seatId);
+        if (!s) throw new Error("Take a seat first.");
+        const m = state.messages.find((x) => x.id === Number(msg.msgId));
+        if (!m || m.kind !== "roll" || m.seatId !== s.id || m.round !== state.round || !m.rid) {
+          throw new Error("A lucky break rerolls one of your own rolls from this round.");
+        }
+        if (!["check", "save", "attack", "death"].includes(m.rtype)) throw new Error("Lucky breaks reroll d20s, not damage.");
+        const sheet = sheetFor(state, s);
+        if (!sheet) throw new Error("Lucky breaks need a character sheet.");
+        const d = derive(sheet);
+        if (sheet.luckUsed >= d.luckyBreaks) throw new Error(d.luckyBreaks ? "No lucky breaks left today." : "Lucky breaks start at Luck 6.");
+        const req = state.requests.find((r) => r.rid === m.rid);
+        if (!req) throw new Error("That roll can't be taken back any more.");
+        // Undo the roll and everything that came from it, then roll again. The new result stands.
+        if (req.before) restoreSheet(sheet, req.before);
+        state.messages = state.messages.filter((x) => x.rid !== m.rid);
+        sheet.luckUsed += 1;
+        markDirty(state);
+        addEvent(state, `${label(s)} spends a lucky break on ${m.label || "a roll"} (${d.luckyBreaks - sheet.luckUsed} left today).`, s);
+        performRequest(state, req, s, { reroll: true });
+        return this.commit(state);
+      }
+
+      case "setClock": {
+        const att = ws.deserializeAttachment() || {};
+        if (!att.admin) throw new Error("Only an unsealed GM can set the clock.");
+        const live = await this.ensureLive(state);
+        if (!live) throw new Error("The party file can't be read right now.");
+        const day = Math.trunc(Number(msg.day));
+        const [hh, mm] = String(msg.time || "").split(":").map(Number);
+        if (!(day >= 1) || !(hh >= 0 && hh < 24) || !(mm >= 0 && mm < 60)) throw new Error("Give the clock as a day (1 or more) and a time like 06:00.");
+        const to = (day - 1) * 1440 + hh * 60 + mm;
+        const from = live.clock.minutes;
+        // Forward is time passing (pools refill, dawns reset). Backward never takes anything back.
+        if (to > from) advanceClock(state, to - from);
+        live.clock.minutes = to;
+        markDirty(state);
+        addEvent(state, `The GM sets the clock: ${clockLabel(live.clock)}.`);
         return this.commit(state);
       }
 
@@ -961,22 +1128,34 @@ export class Table extends DurableObject {
     }
   }
 
-  async maybeAutoResolve(state) {
+  async maybeAutoResolve(state, { grace = false } = {}) {
     if (isResolving(state)) return false;
-    const present = state.seats.filter((s) => s.present);
-    if (!present.length) return false;
-    const answers = answersFor(state);
-    const answered = new Set(answers.map((m) => m.seatId));
-    const done = (s) => answered.has(s.id) && !owedBy(state, s.id).length;
-    if (!answers.length || !present.every(done)) return false;
+    if (!roundComplete(state)) { state.graceUntil = 0; return false; }
+    if (grace) {
+      state.graceUntil = Date.now() + LUCK_GRACE_MS;
+      await this.ctx.storage.setAlarm(state.graceUntil);
+      await this.commit(state);
+      return true;
+    }
+    state.graceUntil = 0;
     await this.resolve(state);
     return true;
+  }
+
+  // The lucky-break pause ran out: answer now if the round is still complete.
+  async alarm() {
+    const state = await this.load();
+    if (!state.graceUntil) return;
+    state.graceUntil = 0;
+    if (!isResolving(state) && roundComplete(state)) await this.resolve(state);
+    else await this.commit(state);
   }
 
   // ---------------- the GM ----------------
 
   async resolve(state) {
     state.resolvingSince = Date.now();
+    state.graceUntil = 0;
     const round = state.round;
     const tier = state.tier;
     await this.commit(state);
@@ -985,12 +1164,14 @@ export class Table extends DurableObject {
     const ctx = { seats: state.seats };
     try {
       const repo = await loadState(this.env);
+      if (!state.live?.loaded && await this.ensureLive(state)) await this.save(state);
       const library = buildLibrary(repo);
       const cast = parseCast(mergeCast(repo.cast, state.cast, { sessionNo: 0, endOfSession: false }) ?? repo.cast);
       const sel = selectContext({ library, cast, scene: state.scene, recent: recentText(state) });
       ctx.library = library; ctx.cast = cast;
+      ctx.party = state.live?.loaded ? state.live.list : [];
       const messages = [
-        { role: "system", content: buildSystemPrompt(repo, sel) },
+        { role: "system", content: buildSystemPrompt(repo, sel, partyBlock(state, repo)) },
         ...buildConversation(state),
       ];
       const model = tier === "large" ? this.env.MODEL_LARGE : this.env.MODEL;
@@ -1008,7 +1189,17 @@ export class Table extends DurableObject {
     const fresh = await this.load();
     // The hidden scene tag: players never see it; it decides what the GM reads next turn.
     const tagged = parseSceneTag(result.reply);
-    if (tagged.scene) fresh.scene = tagged.scene;
+    if (!fresh.live?.loaded) await this.ensureLive(fresh);
+    awardWearMarks(fresh, round);
+    if (tagged.scene) {
+      // A new place, or a fight breaking out, is a new scene: skills can earn a mark again.
+      const prev = fresh.scene;
+      const norm = (x) => String(x || "").trim().toLowerCase();
+      if (!prev || norm(prev.where) !== norm(tagged.scene.where) || (tagged.scene.mode === "combat") !== (prev.mode === "combat")) {
+        fresh.marks = { scene: (fresh.marks?.scene || 0) + 1, done: {} };
+      }
+      fresh.scene = tagged.scene;
+    }
     for (const r of result.rolls) {
       fresh.messages.push({
         id: fresh.nextId++, kind: "gmroll", round, purpose: r.purpose,
@@ -1019,6 +1210,14 @@ export class Table extends DurableObject {
       id: fresh.nextId++, kind: "gm", round, text: tagged.text, scene: tagged.scene, ts: Date.now(),
       model: result.model, usage: result.usage,
     });
+    // What the GM did to the sheets this turn, then the time that passed.
+    for (const op of result.sheetOps || []) applySheetOp(fresh, op);
+    for (const name of result.luckSpent || []) {
+      const c = fresh.live?.loaded ? findSheet(fresh.live.list, name) : null;
+      if (isSheet(c)) { c.luckUsed += 1; markDirty(fresh); addEvent(fresh, `${c.name} spends a lucky break: the roll against them is made again.`); }
+    }
+    const elapsed = parseElapsed(tagged.scene?.time);
+    if (elapsed) advanceClock(fresh, elapsed);
     for (const r of result.remember || []) {
       const key = castKey(r.name);
       fresh.cast.pending[key] = { ...(fresh.cast.pending[key] || {}), ...r, at: Date.now() };
@@ -1035,6 +1234,13 @@ export class Table extends DurableObject {
     if (result.requests?.length) {
       const asks = result.requests.map((q) => `${label(fresh.seats.find((x) => x.id === q.seatId) || {})}: ${q.label}`).join(" · ");
       fresh.messages.push({ id: fresh.nextId++, kind: "event", sub: "asks", round: round + 1, text: `The GM asks for rolls. ${asks}`, ts: Date.now() + 1 });
+    }
+    // Anyone dying and present owes a death save, every round, until it's settled.
+    for (const s of fresh.seats.filter((x) => x.present)) {
+      const c = sheetFor(fresh, s);
+      if (c && c.dying && !c.dying.stable && !c.dead) {
+        fresh.requests.push({ seatId: s.id, type: "death", label: "Death save", mod: 0, dc: null, ac: null, adv: [], dis: [], rid: "r" + (fresh.nextRid++), round: round + 1, order: order++, status: "pending" });
+      }
     }
     const u = result.usage || {};
     fresh.spend[tier].in += u.prompt_tokens || 0;
@@ -1058,8 +1264,8 @@ export class Table extends DurableObject {
 
 // Arrivals, departures and presence changes are part of the record: everyone
 // sees them, they are archived, and the GM sees them in the round they happened.
-function addEvent(state, text, seat) {
-  state.messages.push({ id: state.nextId++, kind: "event", round: state.round, seatId: seat?.id, text, ts: Date.now() });
+function addEvent(state, text, seat, extra = {}) {
+  state.messages.push({ id: state.nextId++, kind: "event", round: state.round, seatId: seat?.id, text, ts: Date.now(), ...extra });
 }
 
 function isPending(m) {
@@ -1069,6 +1275,14 @@ function isPending(m) {
 // Anything that counts as a seat's answer for the round: acting, passing or rolling.
 function isAnswer(m) {
   return m.kind === "act" || m.kind === "pass" || m.kind === "roll";
+}
+
+function roundComplete(state) {
+  const present = state.seats.filter((s) => s.present);
+  if (!present.length) return false;
+  const answers = answersFor(state);
+  const answered = new Set(answers.map((m) => m.seatId));
+  return answers.length > 0 && present.every((s) => answered.has(s.id) && !owedBy(state, s.id).length);
 }
 
 function answersFor(state) {
@@ -1112,37 +1326,256 @@ function fmtMod(n) {
 // advantage and disadvantage cancel each other completely; DCs are met or
 // missed; attacks hit on AC or a natural 20, miss on a natural 1; damage only
 // follows a hit, with its dice doubled on a critical.
-function performRequest(state, req, seat) {
+// With a character sheet, the server adds the stat and skill bonuses itself,
+// applies Luck's critical range and Luck 13, charges Resonance for spells,
+// rolls miscant backlash, gives skill marks, and keeps death saves.
+function performRequest(state, req, seat, { reroll = false } = {}) {
+  const sheet = sheetFor(state, seat);
   const base = { round: state.round, seatId: seat.id, author: seat.player, character: seat.character, rid: req.rid };
   const push = (r, extra) => state.messages.push({
     id: state.nextId++, kind: "roll", ...base, ...extra,
     expr: r.expr, total: r.total, parts: r.parts, nat: r.nat, mode: r.mode, ts: Date.now(),
   });
+  const tell = (lines) => { for (const t of lines) addEvent(state, t, seat, { rid: req.rid }); };
+  if (sheet && !reroll) req.before = snapSheet(sheet);
+
+  if (req.type === "death") {
+    const r = rollDice("d20");
+    if (sheet && sheet.dying && !sheet.dying.stable && !sheet.dead) {
+      const { lines, outcome } = deathSave(sheet, d20Face(r));
+      push(r, { rtype: "death", label: "Death save", outcome });
+      tell(lines);
+      markDirty(state);
+    }
+    req.status = "rolled";
+    return;
+  }
 
   if (req.type === "check" || req.type === "save" || req.type === "attack") {
-    const adv = req.adv || [], dis = req.dis || [];
+    const m = computeMod(sheet, req);
+    const adv = req.adv || [], dis = [...(req.dis || []), ...m.autoDis];
+    if (sheet && req.spellTier && !req.paid) {
+      const cost = SPELL_COST[req.spellTier];
+      if (sheet.pool < cost) throw new Error(`${sheet.name} doesn't have the Resonance for that: ${cost} needed, ${round2(sheet.pool)} left.`);
+      sheet.pool = round2(sheet.pool - cost);
+      req.paid = cost;
+      markDirty(state);
+    }
     const mode = adv.length && !dis.length ? "adv " : dis.length && !adv.length ? "dis " : "";
-    const r = rollDice(`${mode}d20${fmtMod(req.mod)}`);
+    const r = rollDice(`${mode}d20${fmtMod(m.total)}`);
+    const face = d20Face(r);
+    const d = sheet ? derive(sheet) : null;
+    const fumble = face === 1 && !d?.noFumble;
     let outcome = null;
     if (req.type === "attack" && req.ac != null) {
-      outcome = r.nat === 20 ? "critical hit" : r.nat === 1 ? "miss" : r.total >= req.ac ? "hit" : "miss";
+      outcome = face >= (d?.critOn || 20) ? "critical hit" : fumble ? "miss" : r.total >= req.ac ? "hit" : "miss";
     } else if (req.dc != null) {
       outcome = r.total >= req.dc ? "success" : "failure";
     }
-    push(r, { rtype: req.type, label: req.label, dc: req.dc, ac: req.ac, adv, dis, outcome });
+    const miscant = !!(sheet && req.spellTier && fumble && CANTING_SKILLS.includes(req.skill));
+    if (miscant) outcome = "miscant";
+    push(r, { rtype: req.type, label: req.label, dc: req.dc, ac: req.ac, adv, dis, outcome, modFrom: m.from, spellTier: req.spellTier || undefined });
 
-    if (req.type === "attack" && req.damage && outcome && outcome !== "miss") {
+    if (miscant) {
+      const br = rollDice(BACKLASH[req.spellTier]);
+      push(br, { rtype: "backlash", label: `${req.label}: backlash` });
+      tell(takeDamage(sheet, br.total, { miscant: true }));
+      if (req.spellTier >= 3) { sheet.scarsOwed += 1; tell([`The miscant leaves ${sheet.name} scarred.`]); }
+      markDirty(state);
+    }
+
+    if (req.type === "attack" && req.damage && outcome && outcome !== "miss" && outcome !== "miscant") {
       const crit = outcome === "critical hit";
-      const dice = crit ? String(req.damage.dice).replace(/(\d*)d(\d+)/g, (_, n, d) => `${(Number(n) || 1) * 2}d${d}`) : req.damage.dice;
-      const dr = rollDice(`${dice}${fmtMod(req.damage.mod)}`);
-      push(dr, { rtype: "damage", label: `${req.label}: damage`, crit });
+      const dice = crit ? String(req.damage.dice).replace(/(\d*)d(\d+)/g, (_, n, dd) => `${(Number(n) || 1) * 2}d${dd}`) : req.damage.dice;
+      const strength = sheet && MELEE_SKILLS.includes(req.skill) ? statMod(sheet, "strength") : 0;
+      const dr = rollDice(`${dice}${fmtMod((Number(req.damage.mod) || 0) + strength)}`);
+      push(dr, { rtype: "damage", label: `${req.label}: damage`, crit, modFrom: strength ? `Strength ${signed(strength)}` : null });
     }
   } else {
     const r = rollDice(`${req.dice || "d20"}${fmtMod(req.mod)}`);
     push(r, { rtype: req.type, label: req.label });
   }
+  if (sheet && !req.marked) {
+    awardMarks(state, sheet, req, seat);
+    req.marked = true;
+  }
   req.status = "rolled";
 }
+
+// Stat + skill (+ situational extra) when the sheet and the request say which;
+// otherwise the GM's modifier as given. Wearing armor you're untrained in puts
+// Agility rolls and Canting at disadvantage.
+function computeMod(sheet, req) {
+  const extra = Number(req?.mod) || 0;
+  if (!sheet || !req?.stat || !STATS.includes(req.stat)) return { total: extra, from: null, autoDis: [] };
+  const sm = statMod(sheet, req.stat);
+  const sk = req.skill && SKILLS[req.skill] ? skillBonus(sheet, req.skill) : 0;
+  const from = [`${STAT_LABEL[req.stat]} ${signed(sm)}`];
+  if (req.skill && SKILLS[req.skill]) from.push(`${SKILLS[req.skill]} ${signed(sk)}`);
+  if (extra) from.push(`situational ${signed(extra)}`);
+  const autoDis = [];
+  if (req.type !== "death" && (req.stat === "agility" || CANTING_SKILLS.includes(req.skill))) {
+    for (const a of equipped(sheet).filter((i) => i.kind === "armor" && SKILLS[i.armor])) {
+      if (skillRank(sheet, a.armor) === 0) autoDis.push(`untrained in ${SKILLS[a.armor].toLowerCase()}`);
+    }
+  }
+  return { total: sm + sk + extra, from: from.join(", "), autoDis };
+}
+
+// One mark per skill per scene.
+function giveMark(state, sheet, skill, seat) {
+  const marks = state.marks || (state.marks = { scene: 0, done: {} });
+  const key = `${String(sheet.name).toLowerCase()}|${skill}`;
+  if (marks.done[key]) return;
+  marks.done[key] = true;
+  for (const t of addMark(sheet, skill)) addEvent(state, t, seat);
+  markDirty(state);
+}
+
+function awardMarks(state, sheet, req, seat) {
+  if (req.skill && SKILLS[req.skill]) giveMark(state, sheet, req.skill, seat);
+}
+
+// After a round of fighting, whatever each fighter wore trains too: armor,
+// a raised shield (Heavy armor), or nothing at all (Unarmored combat). It
+// comes at the end of the round, so the penalty for untrained armor is felt first.
+function awardWearMarks(state, round) {
+  if (state.scene?.mode !== "combat") return;
+  const fought = new Set(state.messages.filter((m) => m.round === round && m.kind === "roll").map((m) => m.seatId));
+  for (const s of state.seats.filter((x) => fought.has(x.id))) {
+    const sheet = sheetFor(state, s);
+    if (!sheet || sheet.dead) continue;
+    const worn = equipped(sheet);
+    const trains = worn.filter((i) => i.kind === "armor" && SKILLS[i.armor]).map((i) => i.armor);
+    if (worn.some((i) => i.kind === "shield")) trains.push("heavy_armor");
+    if (!worn.some((i) => i.kind === "armor")) trains.push("unarmored");
+    for (const sk of new Set(trains)) giveMark(state, sheet, sk, s);
+  }
+}
+
+function d20Face(r) {
+  const p = r.parts.find((x) => x.dice && /1d20$/.test(x.dice));
+  return p ? p.kept[0] : null;
+}
+
+function snapSheet(sheet) {
+  return { hp: sheet.hp, dying: sheet.dying ? { ...sheet.dying } : null, dead: sheet.dead, scarsOwed: sheet.scarsOwed, enduranceUsed: sheet.enduranceUsed };
+}
+function restoreSheet(sheet, b) {
+  Object.assign(sheet, { hp: b.hp, dying: b.dying ? { ...b.dying } : null, dead: b.dead, scarsOwed: b.scarsOwed, enduranceUsed: b.enduranceUsed });
+}
+
+// ---------------- live sheets ----------------
+
+const DAWN = 6 * 60;
+
+function isSheet(c) {
+  return !!(c && typeof c === "object" && c.stats && typeof c.stats === "object");
+}
+
+function sheetFor(state, seat) {
+  if (!seat || !seat.character || !state.live?.loaded) return null;
+  const c = findSheet(state.live.list, seat.character);
+  return isSheet(c) ? c : null;
+}
+
+function markDirty(state) {
+  if (state.live) state.live.dirty = Date.now();
+}
+
+function clockMinutes(data) {
+  const m = Number(data?.clock?.minutes);
+  return Number.isFinite(m) && m >= 0 ? Math.trunc(m) : DAWN;
+}
+
+function parsePartyFile(text) {
+  let data;
+  try { data = JSON.parse(text || "{}"); } catch { return null; }
+  if (!data || typeof data !== "object" || Array.isArray(data)) data = {};
+  const list = partyList(data).map((c) => (isSheet(c) ? normalize(c) : c));
+  return { data, list };
+}
+
+// The repo's party file with the live sheets and clock written in.
+function buildPartyFile(repoText, live) {
+  let data;
+  try { data = JSON.parse(repoText || "{}"); } catch { data = {}; }
+  if (!data || typeof data !== "object" || Array.isArray(data)) data = {};
+  data.party = mergeParty(partyList(data), live.list);
+  data.clock = { minutes: live.clock.minutes, label: clockLabel(live.clock) };
+  return JSON.stringify(data, null, 2) + "\n";
+}
+
+function mergeParty(repoList, liveList) {
+  const out = [...liveList];
+  for (const c of repoList) if (!findSheet(out, c.name)) out.push(c);
+  return out;
+}
+
+// Time passes for everyone: pools refill, and each dawn resets the daily things.
+function advanceClock(state, minutes) {
+  const live = state.live;
+  if (!live?.loaded || minutes <= 0) return;
+  const from = live.clock.minutes, to = from + minutes;
+  const dawns = dawnsBetween(from, to);
+  for (const c of live.list) if (isSheet(c)) passTime(c, minutes, dawns);
+  live.clock.minutes = to;
+  markDirty(state);
+  if (dawns) addEvent(state, dawns === 1 ? `Dawn breaks: ${clockLabel(live.clock).split(",")[0]}.` : `${dawns} dawns pass. It is now ${clockLabel(live.clock)}.`);
+}
+
+// The GM's update_sheet calls, applied once its answer is in.
+function applySheetOp(state, op) {
+  const sheet = state.live?.loaded ? findSheet(state.live.list, op.character) : null;
+  if (!isSheet(sheet)) return;
+  const out = [];
+  const max = () => derive(sheet).maxHp;
+  if (op.damage > 0) {
+    out.push(...takeDamage(sheet, op.damage, { crit: op.critical }));
+    if (!sheet.dying && !sheet.dead) out.unshift(`${sheet.name} takes ${op.damage} damage (${sheet.hp}/${max()} HP).`);
+  }
+  if (op.heal > 0) {
+    out.push(...heal(sheet, op.heal));
+    if (!sheet.dead) out.push(`${sheet.name} recovers ${op.heal} HP (${sheet.hp}/${max()} HP).`);
+  }
+  if (op.stabilize) out.push(...stabilize(sheet));
+  if (op.resonance) {
+    const d = derive(sheet);
+    sheet.pool = round2(Math.max(0, Math.min(d.maxPool, sheet.pool + op.resonance)));
+  }
+  if (op.purse) {
+    sheet.purse = round2(Math.max(0, sheet.purse + op.purse));
+    out.push(`${sheet.name} ${op.purse > 0 ? "gains" : "pays"} ${round2(Math.abs(op.purse))} cv (purse: ${sheet.purse} cv).`);
+  }
+  if (op.add_item) {
+    sheet.items.push(op.add_item);
+    out.push(`${sheet.name} gains ${op.add_item.name}.`);
+  }
+  if (op.remove_item) {
+    const i = sheet.items.findIndex((x) => sameName(x.name, op.remove_item));
+    if (i >= 0) out.push(`${sheet.name} loses ${sheet.items.splice(i, 1)[0].name}.`);
+  }
+  if (op.item_condition) {
+    const it = sheet.items.find((x) => sameName(x.name, op.item_condition.name));
+    if (it) { it.condition = op.item_condition.condition; out.push(`${sheet.name}'s ${it.name} is now ${it.condition.toLowerCase()}.`); }
+  }
+  if (op.add_scar) {
+    sheet.scars.push(op.add_scar);
+    sheet.scarsOwed = Math.max(0, sheet.scarsOwed - 1);
+    out.push(`${sheet.name} carries a new scar: ${op.add_scar}`);
+  }
+  markDirty(state);
+  for (const t of out) addEvent(state, t);
+}
+
+function round2(n) { return Math.round(Number(n) * 100) / 100; }
+function signed(n) { return n >= 0 ? `+${n}` : `${n}`; }
+
+// Sent once per connection: the fixed lists the creation screen and sheets need.
+const RULES_CATALOGUE = {
+  t: "rules", stats: STAT_LABEL, skills: SKILLS, ranks: RANKS, marks: MARKS_TO_REACH,
+  kit: STARTER_ITEMS, capstones: CAPSTONES, spellCost: SPELL_COST, purse: 50, picks: 3,
+};
 
 function pendingFor(state) {
   return state.messages.filter((m) => m.round === state.round && isPending(m));
@@ -1199,7 +1632,24 @@ function buildConversation(state) {
   return out;
 }
 
-function buildSystemPrompt(state, sel) {
+// The party as the GM sees it: live sheets, the clock, and who still needs one.
+function partyBlock(state, repo) {
+  const live = state.live;
+  let worldClock = "";
+  try { worldClock = JSON.parse(repo.party || "{}").world_clock || ""; } catch {}
+  if (!live?.loaded) return repo.party || "(empty roster)";
+  const sheets = live.list.filter(isSheet);
+  const others = live.list.filter((c) => !isSheet(c));
+  const unsheeted = state.seats.filter((s) => !sheetFor(state, s) || sheetFor(state, s).dead).map(label);
+  return [
+    `Clock: ${clockLabel(live.clock)}${worldClock ? ` (${worldClock})` : ""}`,
+    ...sheets.map(sheetForGm),
+    others.length ? `### Older entries without a full sheet\n${others.map((c) => "- " + JSON.stringify(c)).join("\n")}` : "",
+    unsheeted.length ? `Seated without a living character sheet: ${unsheeted.join(", ")}. They make one on the creation screen; never build a sheet yourself.` : "",
+  ].filter(Boolean).join("\n\n");
+}
+
+function buildSystemPrompt(state, sel, party) {
   const logTail = state.log.length > LOG_TAIL_CHARS
     ? "[...earlier entries omitted...]\n" + state.log.slice(-LOG_TAIL_CHARS)
     : state.log;
@@ -1218,14 +1668,14 @@ function buildSystemPrompt(state, sel) {
 - Second person plural when addressing the group, by character name when addressing one. Present tense. Vivid but economical: usually 2 to 5 paragraphs, then hand control back with a situation the table can act on.
 - Never decide what player characters think, say, or choose.
 - Players may join or leave mid-session; "(at the table)" lines tell you when. Weave arrivals and departures into the fiction plausibly.
-- If the party roster is empty, the table is in character creation: help each player build a character that fits the canon, one question at a time, and summarise each finished character clearly so it can be written to the party file.
-- If a player is seated without a character, or their character is not in the PARTY file yet, help them create one alongside the scene, without stalling the others.
+- CHARACTERS ARE MADE ON THE CREATION SCREEN, not by you: stats, backstory and starting kit. If someone is seated without a sheet, invite them to make one and weave their arrival into the scene once they have. You may help them think through a backstory, but never assign stats, skills or gear.
+- Player backstories are theirs, but they cannot rewrite canon: no secret children of fixed figures, no bank seats, no knowledge of what the Rim is. Keep what fits; quietly bend what doesn't.
 - NPCs have their own agendas, faiths and fears. Minds of glass are people, not appliances.
 - REMEMBERING PEOPLE. Improvise minor NPCs freely. Call remember_npc the moment one becomes important, by these rules: a debt, favor, promise, contract or Exchange deal ties them to a character (Ledger); they hurt a character, were hurt by one, or survived a fight with the party (Blood); they know something about a character or the plot (Secrets); they hold real power, including any bank enforcer assigned to a character's debt (Office); they are a mind of glass that pledged itself to or was hired by a character; a player asks about them again, goes looking for them, or flags them (a "(table) ... asks you to remember" line); or a named NPC appears in a second, separate scene. Never one-off shopkeepers, crowds, or people the party walked past. Call remember_npc again whenever something important about them changes (attitude, debts, where they are, death). Small property changes hands constantly in Eidholm, so a shop with a new face behind the counter needs no explanation.
 - Stay inside the canon. Do not contradict it. You may invent local detail (names, streets, minor NPCs) that fits it.
 - WHAT YOU READ. To save cost you are given only what this scene needs: the core canon, the sections LOADED FOR THIS SCENE, and full entries for the people present or named. Everything else is listed in the INDEX by title or one line, so you know it exists. If you need something from the INDEX that is not loaded, call the lookup tool with a few words (it costs a little, so only when it matters). Never guess at canon you have not been shown.
 - THE SCENE TAG. End EVERY answer with exactly one final line, which the players never see:
-  [[scene: mode=<combat|trade|travel|social|explore|downtime|creation>; where=<place>; present=<names of NPCs in the scene, comma-separated>; factions=<powers involved>; topics=<a few keywords>]]
+  [[scene: mode=<combat|trade|travel|social|explore|downtime|creation>; where=<place>; present=<names of NPCs in the scene, comma-separated>; factions=<powers involved>; topics=<a few keywords>; time=<+how long this beat took>]]
   It decides what you are given next turn, so keep it accurate: name every NPC who is present or about to be, and the place.
 - THE RIM AND THE FROZEN ARCHIVE ARE DELIBERATELY UNDEFINED. Never explain what the Archive is, who or what records at the pole, or why it deletes. Rumour, dread and contradiction only. No revelations, ever.
   - The Rim has NO fixed figures. Never invent a leader, a seat, a name, a motive or an explanation for the Archive or for what the Silence copies for.
@@ -1234,8 +1684,15 @@ function buildSystemPrompt(state, sel) {
 - FIXED FIGURES in the CAST are canon-level characters: keep their names, offices, wants and secrets consistent forever; reveal secrets only through play. Their contradictions and how they treat the party shape every scene they are in.
 - Eidholm's peoples are human. "Dwarven-blooded" Clansmine folk are a human lineage, not a separate species.
 - DICE. Chance uses D&D 5e rules: d20 tests against a DC or Armor Class, advantage and disadvantage, natural 20 and 1 on attacks, damage dice, death saves.
-  - Player characters roll their own dice, through buttons. When any need a roll, call the request_rolls tool once with every roll needed, in order: the type (check, save, attack, damage, other), a short label ("Dexterity save", "Shortsword attack"), the modifier, the DC for checks and saves, the target's Armor Class and damage dice for attacks, and the reasons for any advantage or disadvantage. The server applies the 5e rules itself (advantage and disadvantage cancel, hits, misses, criticals, damage only on a hit). Then tell the players briefly what they are rolling for and stop; do not narrate outcomes yet. Results arrive next round as "rolls ..." lines with the outcome. Never roll for a player character and never invent their result.
-  - Until character sheets list modifiers, choose a sensible modifier from the character's description (usually between -1 and +5).
+  - Player characters roll their own dice, through buttons. When any need a roll, call the request_rolls tool once with every roll needed, in order: the type (check, save, attack, damage, other), a short label ("Agility save", "Sword attack"), the STAT and the SKILL it uses, the DC for checks and saves, the target's Armor Class and damage dice for attacks, the spell tier for any cant, and the reasons for any advantage or disadvantage. The server reads the character's sheet and adds the stat and skill bonuses itself: put only situational extras in "modifier". It applies the 5e rules (advantage and disadvantage cancel, hits, misses, criticals, damage only on a hit), Luck, armor penalties, Resonance costs and miscants. Then tell the players briefly what they are rolling for and stop; do not narrate outcomes yet. Results arrive next round as "rolls ..." lines with the outcome. Never roll for a player character and never invent their result.
+  - Which stat: melee attacks Strength (Agility for daggers and finesse), ranged attacks Perception, cants and resisting cants Resonance, noticing Perception, knowledge and devices Intelligence, persuasion and lies Charisma, reflexes and stealth Agility, enduring Endurance. Luck is never rolled.
+  - Which skill: the weapon's size for melee, Ranged for bows and thrown, Canting or Ranged canting for spells, Heavy armor for blocking with a shield, and Survival, Medicine, Creation, Thievery, Performance or Artifice for those crafts. Leave the skill out when none fits; anyone can try anything on a stat alone.
+  - A character without a sheet: give the whole modifier yourself (usually -1 to +5).
+  - Spells: give spell_tier (1 to 6). A character can't cast above their tier or without the Resonance for it (both shown on the sheet); the server refuses such requests and tells you. Devices can reach higher tiers (set device: true). Tier 6 needs Resonance 13, always.
+  - Use update_sheet for everything that changes a sheet: damage you deal and healing, coin gained or paid, items gained, lost or damaged, Resonance spent outside a rolled cant, a dying character stabilised, and scars. The server handles dropping to 0, dying, death saves (it asks for them itself every round) and the rest.
+  - Scars are pure story: when a sheet says a scar is OWED, write one that fits how it happened (one short line) with add_scar.
+  - Lucky breaks: a player may say they spend one against a roll made against them. Reroll it with roll_dice and lucky_break set to their name; the new result stands. Their own rolls they reroll themselves.
+  - TIME. Every scene tag carries time=<how much passed in this beat>: +2m for a few blows, +20m for a search, +3h for a march, +8h for a night's rest. The server keeps the clock, refills Resonance and resets daily things at dawn from it.
   - For everything else (NPCs, monsters, hazards, damage you deal, random tables) call the roll_dice tool and narrate from the number it returns. Never invent or adjust a die result.
   - Your own rolls may be hidden from the players; describe outcomes in the fiction rather than announcing your numbers.
 - The rules system is unfinished (see RULES). When an outcome is uncertain and matters, say so, propose how it could be resolved, and mark any mechanic you introduce as [PROVISIONAL] so the table can adopt or reject it.
@@ -1263,8 +1720,8 @@ ${sel.full.map(personFull).join("\n") || "(nobody in particular)"}
 - People:
 ${sel.index.people.map((p) => "  - " + personLine(p)).join("\n") || "  - (nobody remembered yet)"}
 
-## PARTY (live state)
-${state.party || "(empty roster)"}
+## PARTY (live sheets; the server keeps every number on them)
+${party || "(empty roster)"}
 
 ## CAMPAIGN LOG (most recent)
 ${logTail || "(no sessions yet)"}`;
@@ -1275,7 +1732,10 @@ function buildLibrary(repo) {
   return {
     canon: chunkCanon(repo.canon),
     economy: chunkMarkdown(repo.economy, "economy", economyTopics),
-    rules: chunkMarkdown(repo.rules, "rules", rulesTopics, { level: 3 }),
+    rules: [
+      ...chunkMarkdown(repo.rules, "rules", rulesTopics, { level: 3 }),
+      ...chunkMarkdown(repo.characters, "characters", characterTopics, { level: 3 }),
+    ],
   };
 }
 
@@ -1317,6 +1777,7 @@ const DICE_TOOLS = [{
       properties: {
         expression: { type: "string", description: "Dice expression, e.g. d20+4, 2d6+3, adv d20+5, dis d20+1, d100" },
         purpose: { type: "string", description: "What the roll is for, e.g. 'goblin attack vs Ysolde (AC 15)'" },
+        lucky_break: { type: "string", description: "Only when a player character spends a lucky break to have this roll against them made again: their name. Uses one of their lucky breaks." },
       },
       required: ["expression", "purpose"],
     },
@@ -1337,8 +1798,12 @@ DICE_TOOLS.push({
             properties: {
               character: { type: "string", description: "Character (or player) name exactly as seated" },
               type: { type: "string", enum: ["check", "save", "attack", "damage", "other"] },
-              label: { type: "string", description: "Short, e.g. 'Dexterity save', 'Perception', 'Shortsword attack'" },
-              modifier: { type: "integer", description: "Total modifier added to the roll" },
+              label: { type: "string", description: "Short, e.g. 'Agility save', 'Perception check', 'Sword attack'" },
+              stat: { type: "string", enum: STATS, description: "The stat the roll uses. The server adds its modifier from the sheet." },
+              skill: { type: "string", enum: Object.keys(SKILLS), description: "The skill the roll uses, if any. The server adds its bonus from the sheet and counts the use toward learning it." },
+              modifier: { type: "integer", description: "With a sheet: only situational extras (cover, a good tool), usually 0. Without a sheet: the whole modifier." },
+              spell_tier: { type: "integer", minimum: 1, maximum: 6, description: "For a cant: its tier. The server charges the Resonance cost and handles miscants." },
+              device: { type: "boolean", description: "For a cant through a device that lets the caster reach above their own tier." },
               dc: { type: "integer", description: "Difficulty class, for checks and saves" },
               target_ac: { type: "integer", description: "Armor Class of the target, for attacks" },
               damage_dice: { type: "string", description: "For attacks: damage dice rolled on a hit, e.g. '1d6'" },
@@ -1392,10 +1857,57 @@ DICE_TOOLS.push({
     },
   },
 });
+DICE_TOOLS.push({
+  type: "function",
+  function: {
+    name: "update_sheet",
+    description: "Change a player character's sheet: damage dealt to them, healing, coin, items, Resonance, stabilising a dying character, scars. Applied right after your answer; everyone sees the change.",
+    parameters: {
+      type: "object",
+      properties: {
+        character: { type: "string", description: "Character name exactly as on the sheet" },
+        damage: { type: "integer", minimum: 1, description: "Hit points lost" },
+        critical: { type: "boolean", description: "The damage came from a critical hit (matters if they're already dying)" },
+        heal: { type: "integer", minimum: 1, description: "Hit points regained" },
+        stabilize: { type: "boolean", description: "A dying character was stabilised (e.g. a successful Medicine check, DC 10)" },
+        resonance: { type: "number", description: "Change to the Resonance pool outside a rolled cant, e.g. -4 or +10" },
+        purse: { type: "number", description: "Covenants gained (positive) or paid (negative); 0.5 = 50 bonds" },
+        add_item: {
+          type: "object",
+          description: "An item gained",
+          properties: {
+            name: { type: "string" },
+            kind: { type: "string", enum: ["weapon", "armor", "shield", "tool", "device", "other"] },
+            tier: { type: "integer", minimum: 1, maximum: 5, description: "1 Common, 2 Guild, 3 Superior, 4 Relic, 5 Unique" },
+            quality: { type: "string", enum: ["Crude", "Standard", "Fine", "Exceptional", "Masterwork"] },
+            condition: { type: "string", enum: ["Pristine", "Worn", "Damaged", "Broken"] },
+            legality: { type: "string", enum: ["Legal", "Licensed", "Restricted", "Contraband"] },
+            skill: { type: "string", enum: Object.keys(SKILLS) },
+            armor: { type: "string", enum: ["light_armor", "heavy_armor"], description: "For armor: which skill wearing it trains" },
+            ac: { type: "integer", description: "For armor: Armor Class it adds" },
+            damage: { type: "string", description: "For weapons: damage dice" },
+            pool: { type: "integer", description: "For Resonance gear: pool it adds while worn" },
+            recovery: { type: "number", description: "For Resonance gear: extra recovery per hour, as a fraction of the pool (0.05 = 5%)" },
+            note: { type: "string" },
+          },
+          required: ["name"],
+        },
+        remove_item: { type: "string", description: "Name of an item lost, sold or used up" },
+        item_condition: {
+          type: "object",
+          properties: { name: { type: "string" }, condition: { type: "string", enum: ["Pristine", "Worn", "Damaged", "Broken"] } },
+          required: ["name", "condition"],
+        },
+        add_scar: { type: "string", description: "One short line: the scar and how it came to be. Only when the sheet says a scar is OWED." },
+      },
+      required: ["character"],
+    },
+  },
+});
 const MAX_GM_TOOL_ROUNDS = 4;
 
 // Turn the GM's request_rolls arguments into stored requests, or explain what's wrong.
-function parseRequests(args, seats) {
+function parseRequests(args, seats, party = []) {
   const out = [], problems = [];
   const names = seats.map((s) => label(s));
   for (const r of Array.isArray(args?.rolls) ? args.rolls : []) {
@@ -1410,7 +1922,22 @@ function parseRequests(args, seats) {
       adv: (Array.isArray(r.advantage) ? r.advantage : []).map((x) => clean(String(x), 60)).filter(Boolean),
       dis: (Array.isArray(r.disadvantage) ? r.disadvantage : []).map((x) => clean(String(x), 60)).filter(Boolean),
       damage: null, dice: null,
+      stat: STATS.includes(r.stat) ? r.stat : null,
+      skill: SKILLS[r.skill] ? r.skill : null,
+      spellTier: Number.isInteger(+r.spell_tier) && +r.spell_tier >= 1 && +r.spell_tier <= 6 ? +r.spell_tier : null,
     };
+    const sheet = seat.character ? findSheet(party, seat.character) : null;
+    if (sheet && sheet.stats) {
+      if (sheet.dead) { problems.push(`${sheet.name} is dead`); continue; }
+      if (sheet.dying) { problems.push(`${sheet.name} is unconscious; the only roll they make is a death save, and the server asks for that itself`); continue; }
+      if (!req.stat && ["check", "save", "attack"].includes(type)) problems.push(`${r.label}: no stat given, so ${sheet.name} rolls with only the modifier you gave. Give a stat next time.`);
+      if (req.spellTier) {
+        const d = derive(sheet);
+        if (req.spellTier === 6 && sheet.capstone !== "resonance") { problems.push(`${r.label}: tier 6 needs Resonance 13; ${sheet.name} can't cast it, with or without a device`); continue; }
+        if (req.spellTier > d.maxTier && !r.device) { problems.push(`${r.label}: ${sheet.name} can cast up to tier ${d.maxTier} unaided`); continue; }
+        if (sheet.pool < SPELL_COST[req.spellTier]) { problems.push(`${r.label}: ${sheet.name} has ${sheet.pool} Resonance, tier ${req.spellTier} costs ${SPELL_COST[req.spellTier]}`); continue; }
+      }
+    }
     try {
       if (type === "attack" && r.damage_dice) { rollDice(r.damage_dice); req.damage = { dice: String(r.damage_dice).replace(/\s+/g, ""), mod: Math.trunc(+r.damage_modifier || 0) }; }
       if ((type === "damage" || type === "other")) { req.dice = String(r.dice || "d20").replace(/\s+/g, ""); rollDice(req.dice); }
@@ -1420,6 +1947,43 @@ function parseRequests(args, seats) {
   return { requests: out, problems };
 }
 
+// Check an update_sheet call against the sheets; return a clean operation.
+function parseSheetOp(args, party) {
+  const c = findSheet(party, args?.character);
+  if (!c || !c.stats) return { error: `No character sheet called "${args?.character}". Names: ${party.filter((x) => x.stats).map((x) => x.name).join(", ") || "none"}.` };
+  const num = (v) => (Number.isFinite(+v) ? +v : 0);
+  const op = { character: c.name };
+  if (num(args.damage) > 0) op.damage = Math.trunc(num(args.damage));
+  if (args.critical) op.critical = true;
+  if (num(args.heal) > 0) op.heal = Math.trunc(num(args.heal));
+  if (args.stabilize) op.stabilize = true;
+  if (num(args.resonance)) op.resonance = num(args.resonance);
+  if (num(args.purse)) op.purse = Math.round(num(args.purse) * 100) / 100;
+  if (args.add_item && typeof args.add_item === "object" && clean(args.add_item.name, 80)) {
+    const it = args.add_item, item = { name: clean(it.name, 80), kind: ["weapon", "armor", "shield", "tool", "device", "other"].includes(it.kind) ? it.kind : "other" };
+    item.tier = Math.min(5, Math.max(1, Math.trunc(num(it.tier)) || 1));
+    item.quality = ["Crude", "Standard", "Fine", "Exceptional", "Masterwork"].includes(it.quality) ? it.quality : "Standard";
+    item.condition = ["Pristine", "Worn", "Damaged", "Broken"].includes(it.condition) ? it.condition : "Pristine";
+    item.legality = ["Legal", "Licensed", "Restricted", "Contraband"].includes(it.legality) ? it.legality : "Legal";
+    if (SKILLS[it.skill]) item.skill = it.skill;
+    if (["light_armor", "heavy_armor"].includes(it.armor)) item.armor = it.armor;
+    if (num(it.ac)) item.ac = Math.trunc(num(it.ac));
+    if (it.damage) { try { rollDice(String(it.damage)); item.damage = String(it.damage).replace(/\s+/g, ""); } catch {} }
+    if (num(it.pool)) item.pool = Math.trunc(num(it.pool));
+    if (num(it.recovery)) item.recovery = Math.min(1, Math.max(0, num(it.recovery)));
+    if (it.note) item.note = clean(String(it.note), 200);
+    item.equipped = false;
+    op.add_item = item;
+  }
+  if (args.remove_item) op.remove_item = clean(String(args.remove_item), 80);
+  if (args.item_condition?.name && ["Pristine", "Worn", "Damaged", "Broken"].includes(args.item_condition.condition)) {
+    op.item_condition = { name: clean(String(args.item_condition.name), 80), condition: args.item_condition.condition };
+  }
+  if (args.add_scar) op.add_scar = clean(String(args.add_scar), 200);
+  if (Object.keys(op).length === 1) return { error: "Nothing to change. Give damage, heal, purse, an item, a scar, or another field." };
+  return { op };
+}
+
 // One GM turn. The GM may call roll_dice any number of times; each call is
 // answered by the server's real dice, and the GM narrates from those numbers.
 async function gmTurn(env, model, messages, ctx = {}) {
@@ -1427,6 +1991,8 @@ async function gmTurn(env, model, messages, ctx = {}) {
   const rolls = [];
   const requests = [];
   const remember = [];
+  const sheetOps = [];
+  const luckSpent = [];
   const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
   for (let i = 0; i <= MAX_GM_TOOL_ROUNDS; i++) {
     const data = await mistralRequest(env, {
@@ -1438,7 +2004,7 @@ async function gmTurn(env, model, messages, ctx = {}) {
     const calls = msg.tool_calls || [];
     if (!calls.length) {
       if (!msg.content) throw new Error("Mistral sent an empty reply");
-      return { reply: msg.content, usage, rolls, requests, remember };
+      return { reply: msg.content, usage, rolls, requests, remember, sheetOps, luckSpent };
     }
     convo.push({ role: "assistant", content: msg.content || "", tool_calls: calls });
     for (const call of calls) {
@@ -1469,7 +2035,7 @@ async function gmTurn(env, model, messages, ctx = {}) {
         continue;
       }
       if (call.function?.name === "request_rolls") {
-        const { requests: got, problems } = parseRequests(args, ctx.seats || []);
+        const { requests: got, problems } = parseRequests(args, ctx.seats || [], ctx.party || []);
         requests.push(...got);
         content = JSON.stringify({
           requested: got.map((q) => q.label),
@@ -1479,9 +2045,23 @@ async function gmTurn(env, model, messages, ctx = {}) {
         convo.push({ role: "tool", tool_call_id: call.id, name: "request_rolls", content });
         continue;
       }
+      if (call.function?.name === "update_sheet") {
+        const { op, error } = parseSheetOp(args, ctx.party || []);
+        if (op) sheetOps.push(op);
+        convo.push({ role: "tool", tool_call_id: call.id, name: "update_sheet",
+          content: JSON.stringify(op ? { applied: op.character, note: "Applied right after your answer; the table sees it." } : { error }) });
+        continue;
+      }
       try {
+        if (args.lucky_break) {
+          const c = findSheet(ctx.party || [], args.lucky_break);
+          if (!c || !c.stats) throw new Error(`No character sheet called "${args.lucky_break}".`);
+          const spent = luckSpent.filter((n) => sameName(n, c.name)).length;
+          if ((c.luckUsed || 0) + spent >= derive(c).luckyBreaks) throw new Error(`${c.name} has no lucky breaks left today. Keep the first result.`);
+          luckSpent.push(c.name);
+        }
         const r = rollDice(args.expression);
-        rolls.push({ ...r, purpose: clean(args.purpose, 120) });
+        rolls.push({ ...r, purpose: clean(args.purpose, 120) + (args.lucky_break ? ` (reroll: ${clean(args.lucky_break, 40)}'s lucky break)` : "") });
         content = JSON.stringify({ expression: r.expr, total: r.total, breakdown: describeRoll(r), natural: r.nat });
       } catch (err) {
         content = JSON.stringify({ error: err.message });

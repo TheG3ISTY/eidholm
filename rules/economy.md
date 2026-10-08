@@ -27,7 +27,7 @@ The bank **never sells a debt** to an outside collector. Letting someone else en
 
 ## Scale
 
-Everyday life and gear up to the high end of mid tier: **1 cv ≈ €20.** At the top, the covenant loses its grip on purpose, so characters can climb but not sprint to godhood.
+Everyday life and gear up to the high end of mid tier: **1 cv ≈ €20.** At the top, the covenant loses its grip on purpose, so characters can climb but never sprint to the top.
 
 Reference prices:
 
@@ -42,12 +42,12 @@ Reference prices:
 | Tier | What it is | Price | 1 cv feels like |
 |---|---|---|---|
 | **1 · Common** | food, rooms, tools, plain blades, a focus bead | 1–50 cv | ~€20 |
-| **2 · Fine** | guild-made gear, good armor, Second and Third Chamber devices | 50–500 cv | ~€20 |
-| **3 · Masterwork** | reactive plate, a proper canting-array | 500–5,000 cv **plus** a license or guild standing | ~€20 |
+| **2 · Guild** | guild-made gear, good armor, Second and Third Chamber devices | 50–500 cv | ~€20 |
+| **3 · Superior** | reactive plate, a proper canting-array | 500–5,000 cv **plus** a license or guild standing | ~€20 |
 | **4 · Relic** | Fourth Chamber autonomous devices, Combine-grade work | 5,000–50,000 cv, priced **double**, plus standing | ~€10 |
-| **5 · God-level** | non-sentient Fifth Chamber constructs: great arrays, city-engine fragments | from ~200,000 cv **or** Exchange | ~€5 |
+| **5 · Unique** | non-sentient Fifth Chamber constructs: great arrays, city-engine fragments | from ~200,000 cv **or** Exchange | ~€5 |
 
-**God-level is buyable, and buying it is meant to hurt:** around 200,000 cv and up. Once bought, it's **owned outright**: no license, no upkeep, no renewal.
+**Unique is buyable, and buying it is meant to hurt:** around 200,000 cv and up. Once bought, it's **owned outright**: no license, no upkeep, no renewal.
 
 ## Minds of glass are never owned
 
@@ -107,6 +107,7 @@ Every item carries five things:
 | Standard | does the job | ×1 |
 | Fine | noticeably better than it should be | ×2 |
 | Exceptional | a maker's masterpiece; people recognise it | ×4 |
+| **Masterwork** | beyond what the trade can teach; **only an Intelligence 13 character can make it** (see `rules/characters.md`) | ×8 |
 
 **Condition** (wears down with hard use, repaired with coin):
 

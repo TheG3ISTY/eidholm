@@ -177,6 +177,18 @@ export function rulesTopics(title) {
   return ["core"];
 }
 
+// rules/characters.md, split at "## " and "### ". The server already does the
+// arithmetic (modifiers, HP, pools, marks), so the GM mostly needs the shape.
+export function characterTopics(title) {
+  const t = title.toLowerCase();
+  if (/^eidholm|^stats|^modifiers|^origin|^the clock/.test(t)) return ["core"];
+  if (/^luck|^lattice-shields|^dying/.test(t)) return ["war"];
+  if (/^resonance|^miscants/.test(t)) return ["weave"];
+  if (/^scars/.test(t)) return ["death", "war"];
+  if (/^starting kit|^allocation|^at creation/.test(t)) return ["creation"];
+  return ["index"];
+}
+
 // ---------------------------------------------------------------------------
 // The scene tag
 // ---------------------------------------------------------------------------
@@ -200,6 +212,7 @@ export function parseSceneTag(reply) {
     if (!key) continue;
     if (key === "mode") scene.mode = val.toLowerCase().split(/[,\s]+/)[0] || "";
     else if (key === "where") scene.where = val.slice(0, 120);
+    else if (key === "time") scene.time = val.slice(0, 20);
     else if (key in scene) scene[key] = val.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 12);
   }
   if (!(scene.mode in MODES)) scene.mode = scene.mode ? "social" : "";
@@ -208,7 +221,7 @@ export function parseSceneTag(reply) {
 
 export function formatSceneTag(scene) {
   if (!scene) return "";
-  return `[[scene: mode=${scene.mode || "social"}; where=${scene.where || ""}; present=${(scene.present || []).join(", ")}; factions=${(scene.factions || []).join(", ")}; topics=${(scene.topics || []).join(", ")}]]`;
+  return `[[scene: mode=${scene.mode || "social"}; where=${scene.where || ""}; present=${(scene.present || []).join(", ")}; factions=${(scene.factions || []).join(", ")}; topics=${(scene.topics || []).join(", ")}${scene.time ? `; time=${scene.time}` : ""}]]`;
 }
 
 // ---------------------------------------------------------------------------
@@ -249,7 +262,8 @@ export function selectContext({ library, cast, scene, recent }) {
   const canon = library.canon.filter((c) => !c.topics.includes("index"));
   const loadedCanon = pick(canon);
   const loadedEconomy = everything ? library.economy.filter((c) => !c.topics.includes("minds") || wanted.has("minds")) : pick(library.economy);
-  const loadedRules = library.rules.filter((c) => c.topics.includes("core"));
+  const loadedRules = library.rules.filter((c) => c.topics.includes("core") ||
+    (!c.topics.includes("index") && (everything || c.topics.some((t) => wanted.has(t)))));
 
   // People: in full when present, named, or referred to by title; otherwise one line.
   const hay = " " + [recent, ...(scene?.present || []), scene?.where].join(" \n ").toLowerCase() + " ";

@@ -106,7 +106,7 @@ People on the same Wi-Fi share one connection as far as this is concerned. If yo
 
 Saving is built in, with two buttons:
 
-- **Save** (on your own seat chip in the roster strip, anyone at the table): a checkpoint. The transcript so far is committed to this session's archive file (`session: save session N (checkpoint by ...)`); play continues. Every later save updates the same file. One save per 30 seconds for the whole table; the header shows when and by whom it was last saved. The live scene is already stored safely on Cloudflare, so Save is about getting the record into the repo early, not about rescuing the game.
+- **Save** (on your own seat chip in the roster strip, anyone at the table): a checkpoint. The transcript so far is committed to this session's archive file (`session: save session N (checkpoint by ...)`), together with `characters/party.json` if any sheet or the clock changed; play continues. Every later save updates the same file. One save per 30 seconds for the whole table; the header shows when and by whom it was last saved. The live scene is already stored safely on Cloudflare, so Save is about getting the record into the repo early, not about rescuing the game.
 - **End session** (Settings, GM only): closes the evening, as below.
 
 In **Settings → The session**:
@@ -116,10 +116,14 @@ In **Settings → The session**:
 3. **Commit and end session** writes **one commit** (`session: end session N: Title`) containing:
    - `campaign/sessions/YYYY-MM-DD-session-NN.md`, the full transcript word for word, with arrivals, departures and any unresolved actions noted (the same file any checkpoint saves wrote to; a session keeps its number and date even past midnight);
    - a new entry at the bottom of `campaign/log.md`, which is what the GM reads every turn;
-   - the new world clock in `characters/party.json`, if it changed.
+   - `characters/party.json` with the live sheets and game clock, and the world clock line if it changed.
 
    The transcript is taken at the moment you commit, so lines posted while you were editing are included. Then the scene clears for everyone; seats stay.
 
 Players joining, leaving or stepping away mid-session are recorded as lines in the scene, so the archive, the summary and the GM all know who was there for what.
 
-**Discard scene** (also in Settings) throws the scene away without saving, for test runs. Players can no longer clear the scene themselves.
+**Discard scene** (also in Settings) throws the scene away without saving, for test runs, including any sheet changes since the last save. Players can no longer clear the scene themselves.
+
+## Character sheets during play
+
+The sheets live on the table (the `Table` Durable Object) while a session runs, so every hit, coin, mark and level is instant and nothing waits on GitHub. They go back to `characters/party.json` on **Save**, **End session**, and every edit made in the unsealed Party tab (that edit commits everything that changed at the table too, so nothing is lost either way). The header shows "sheets unsaved" until then. A hand edit made directly in the repo is picked up after End session or Discard.
