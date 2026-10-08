@@ -140,6 +140,15 @@
   .who { display: block; font-style: normal; font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; color: var(--ink-dim); margin-bottom: 2px; }
   .who .tag { color: var(--ember); margin-left: 6px; }
   .turn.pass { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); padding-left: 16px; }
+  .turn.roll { font-family: var(--mono); font-size: 13px; color: var(--ink-dim); padding-left: 16px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+  .turn.roll .rw { color: var(--ink); }
+  .turn.roll .rp { color: var(--brass); }
+  .turn.roll .rt { color: var(--glass); font-size: 18px; font-weight: 500; }
+  .turn.roll .rb { opacity: 0.7; }
+  .turn.roll .tag { color: var(--ember); letter-spacing: 0.12em; font-size: 11px; }
+  .turn.roll.nat20 .rt { color: var(--brass); }
+  .turn.roll.nat1 .rt { color: var(--danger); }
+  .turn.roll.hidden { font-style: italic; }
   .turn.event { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-dim); text-align: center; opacity: 0.8; }
   .turn.event::before, .turn.event::after { content: " ── "; color: var(--line); }
   .turn.ooc { font-family: var(--mono); font-size: 13px; color: var(--ink-dim); padding-left: 16px; white-space: pre-wrap; }
@@ -223,6 +232,8 @@
   .ghost.danger:hover { border-color: var(--danger); color: var(--ink); background: rgba(192,83,63,0.25); }
   .ghost:disabled { opacity: 0.4; cursor: default; }
   .set-foot { margin-top: 22px; }
+  .switch { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 13px; cursor: pointer; margin: 4px 0 6px; }
+  .switch input { width: 16px; height: 16px; accent-color: var(--ember); }
   .warn { border-left: 2px solid var(--ember); padding: 4px 10px; font-size: 15px; color: var(--ink); margin: 0 0 10px; }
   .ok-msg { border-left: 2px solid var(--glass); padding: 4px 10px; font-size: 15px; margin: 0 0 10px; }
   .small { font-size: 14px; }
@@ -314,7 +325,7 @@
       <button class="btn quiet" id="pass" type="button" title="Let the moment play out">Pass</button>
       <button class="btn" id="send" type="submit">Act</button>
     </div>
-    <div class="hint">Enter to act · Shift+Enter new line · OOC: talks to the table, not the GM · /help for commands</div>
+    <div class="hint">Enter to act · Shift+Enter new line · /roll d20+5 · OOC: talks to the table, not the GM · /help</div>
   </form>
 </section>
 
@@ -460,7 +471,11 @@
     }
     const proto = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(`${proto}://${location.host}${API}/api/ws?ticket=${encodeURIComponent(ticket)}`);
-    ws.onopen = () => { retry = 0; $("conn").classList.add("live"); };
+    ws.onopen = () => {
+      retry = 0; $("conn").classList.add("live");
+      // An unsealed GM proves it again on every (re)connection to see GM dice.
+      if (admin) ws.send(JSON.stringify({ t: "admin", user: admin.user, pass: admin.pass }));
+    };
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch { return; }
       if (m.t === "state") {
@@ -510,6 +525,8 @@
       if (m.kind === "gm") return `**GM:**\n\n${m.text}`;
       if (m.kind === "act") return `**${who}:** ${m.text}`;
       if (m.kind === "pass") return `*${who} passes.*`;
+      if (m.kind === "roll") return `🎲 **${who}** rolls ${m.label ? m.label + ": " : ""}${m.expr} = ${m.total} (${describeRoll(m)})`;
+      if (m.kind === "gmroll") return m.hidden ? "🎲 *The GM rolls behind the screen.*" : `🎲 *GM* rolls ${m.purpose ? m.purpose + ": " : ""}${m.expr} = ${m.total} (${describeRoll(m)})`;
       if (m.kind === "event") return `> *${m.text}*`;
       return `> OOC ${m.author}: ${m.text}`;
     }).join("\n\n---\n\n");
@@ -572,7 +589,7 @@
   // ================= render =================
   function seatById(id) { return table && table.seats.find((s) => s.id === id); }
   function seatLabel(s) { return s.character || s.player; }
-  function pending() { return table.messages.filter((m) => m.round === table.round && (m.kind === "act" || m.kind === "pass")); }
+  function pending() { return table.messages.filter((m) => m.round === table.round && (m.kind === "act" || m.kind === "pass" || m.kind === "roll")); }
 
   function totals() {
     let tokens = 0, usd = 0;
@@ -588,7 +605,13 @@
     if (!table) return;
     const me = seatById(mySeat);
     const pend = pending();
-    const answered = new Map(pend.map((m) => [m.seatId, m.kind]));
+    // A seat's status: acted beats rolled beats passed.
+    const answered = new Map();
+    for (const m of pend) {
+      const cur = answered.get(m.seatId);
+      if (!cur || m.kind === "act" || (m.kind === "roll" && cur === "pass")) answered.set(m.seatId, m.kind);
+    }
+    const retractable = pend.some((m) => m.seatId === mySeat && (m.kind === "act" || m.kind === "pass"));
 
     // header
     document.querySelectorAll(".seg button").forEach((b) => b.classList.toggle("on", b.dataset.tier === table.tier));
@@ -605,6 +628,7 @@
       const chip = document.createElement("div");
       chip.className = "chip" + (s.id === mySeat ? " me" : "") + (s.present ? "" : " absent");
       const st = !s.present ? ["absent", ""] : answered.get(s.id) === "act" ? ["acted", "acted"]
+        : answered.get(s.id) === "roll" ? ["rolled", "acted"]
         : answered.get(s.id) === "pass" ? ["passed", "passed"] : ["waiting", ""];
       chip.innerHTML = `<span class="name">${escapeHtml(seatLabel(s))}</span><span class="status ${st[1]}">${st[0]}</span>`;
       if (s.id === mySeat) {
@@ -662,6 +686,20 @@
         } else if (m.kind === "pass") {
           div.className = "turn pass";
           div.textContent = `${who} passes${isPend ? " (pending)" : ""}.`;
+        } else if (m.kind === "roll" || m.kind === "gmroll") {
+          div.className = "turn roll" + (m.nat === 20 ? " nat20" : m.nat === 1 ? " nat1" : "") + (m.hidden ? " hidden" : "");
+          if (m.hidden) {
+            div.textContent = "🎲 The GM rolls behind the screen.";
+          } else {
+            const by = m.kind === "gmroll" ? "GM" : who;
+            const what = m.label || m.purpose;
+            const secret = m.kind === "gmroll" && !table.revealGmRolls ? '<span class="tag">ONLY YOU SEE THIS</span>' : "";
+            div.innerHTML = `<span class="die">🎲</span><span class="rw">${escapeHtml(by)}</span> rolls ` +
+              (what ? `<span class="rp">${escapeHtml(what)}</span> ` : "") +
+              `<span class="rx">${escapeHtml(m.expr)}</span> → <b class="rt">${m.total}</b>` +
+              `<span class="rb">${escapeHtml(describeRoll(m))}</span>` +
+              (m.nat === 20 ? '<span class="tag">NATURAL 20</span>' : m.nat === 1 ? '<span class="tag">NATURAL 1</span>' : "") + secret;
+          }
         } else if (m.kind === "event") {
           div.className = "turn event";
           div.textContent = m.text;
@@ -697,7 +735,7 @@
         w.innerHTML = waitingOn.length
           ? `Waiting on <b>${waitingOn.map(escapeHtml).join(", ")}</b>. `
           : "Everyone has answered. ";
-        if (answered.has(mySeat)) {
+        if (retractable) {
           const r = document.createElement("button");
           r.type = "button"; r.className = "ghost"; r.textContent = "Take mine back";
           r.addEventListener("click", () => send({ t: "retract", seatId: mySeat }));
@@ -709,14 +747,17 @@
         go.addEventListener("click", () => send({ t: "resolve" }));
         w.appendChild(go);
       } else {
-        w.textContent = `Round ${table.round} · the GM answers once every present character has acted or passed.`;
+        w.textContent = `Round ${table.round} · the GM answers once every present character has acted, rolled or passed.`;
       }
     }
     const blocked = !me || !me.present || table.resolving;
     $("send").disabled = blocked; $("pass").disabled = blocked;
 
     if ($("codex").classList.contains("open") && codexTab === "table") renderTableTab();
-    if ($("codex").classList.contains("open") && codexTab === "settings" && admin) renderSettingsSeats();
+    if ($("codex").classList.contains("open") && codexTab === "settings" && admin) {
+      renderSettingsSeats();
+      if ($("reveal-toggle")) $("reveal-toggle").checked = !!table.revealGmRolls;
+    }
   }
 
   function formatProse(text) {
@@ -855,6 +896,7 @@
   }
 
   function sealSettings() {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: "admin", off: true }));
     admin = null;
     store.del("sessionStorage", "eidholm.admin");
   }
@@ -878,6 +920,7 @@
         try {
           const res = await adminCall("check", {}, creds);
           admin = { ...creds, canWriteRepo: res.canWriteRepo };
+          send({ t: "admin", user: creds.user, pass: creds.pass });
           store.set("sessionStorage", "eidholm.admin", JSON.stringify(admin));
           renderSettings();
           if (admin.canWriteRepo) $("codex-status").textContent = "Unsealed · the Party tab is now editable";
@@ -889,7 +932,10 @@
       return;
     }
     $("codex-status").textContent = "Unsealed · every action is checked by the server";
-    body.innerHTML = `<h3 class="set-h">The session</h3>
+    body.innerHTML = `<h3 class="set-h">The GM's dice</h3>
+      <p class="muted">You always see every roll the GM makes while Settings are unsealed. Players only see "the GM rolls behind the screen", unless you show them.</p>
+      <label class="switch"><input type="checkbox" id="reveal-toggle" ${table && table.revealGmRolls ? "checked" : ""}> Show GM rolls to the party</label>
+      <h3 class="set-h">The session</h3>
       <p class="muted">End session archives the whole scene word for word, adds your summary to the campaign log, updates the world clock, all as one commit, then clears the scene. Seats stay.</p>
       <div id="set-session"></div>
       <h3 class="set-h">Seats at the table</h3>
@@ -900,6 +946,7 @@
       <div id="set-party"><p class="muted">Reading the repo…</p></div>
       <div class="set-foot"><button type="button" class="ghost" id="admin-seal">Seal settings</button></div>`;
     $("admin-seal").addEventListener("click", () => { sealSettings(); renderSettings(); });
+    $("reveal-toggle").addEventListener("change", (e) => send({ t: "reveal", on: e.target.checked }));
     renderSettingsSeats();
     renderSettingsParty(force);
     renderSessionIdle();
@@ -1200,6 +1247,7 @@
 
   // ================= slash commands (local, no tokens) =================
   const HELP = [
+    ["/roll d20+5 what", "roll dice for everyone to see (adv / dis work too). A roll counts as your answer"],
     ["/party", "everyone in the party file, with the world clock"],
     ["/sheet name", "one character's sheet (name can be partial)"],
     ["/log", "the most recent part of the campaign log"],
@@ -1217,11 +1265,17 @@
     const c = (cmd || "").toLowerCase();
 
     if (c === "codex") return openCodex();
+    if (c === "roll" || c === "r") {
+      const { expr, label } = splitRoll(arg);
+      if (!expr) return note("ROLL", "<p>Roll what? For example <code>/roll d20+5 stealth</code>, <code>/roll 2d6+3</code> or <code>/roll adv d20+2</code>.</p>");
+      send({ t: "roll", seatId: mySeat, expr, label });
+      return;
+    }
     if (c === "help" || !c) return note("COMMANDS", helpHtml());
     if (c === "table") {
       const ans = new Map(pending().map((m) => [m.seatId, m.kind]));
       return note("TABLE · ROUND " + table.round, "<ul>" + table.seats.map((s) => "<li><strong>" + escapeHtml(seatLabel(s)) + "</strong> " +
-        (s.present ? (ans.get(s.id) === "act" ? "acted" : ans.get(s.id) === "pass" ? "passed" : "waiting") : "absent") + "</li>").join("") + "</ul>");
+        (s.present ? (ans.get(s.id) === "act" ? "acted" : ans.get(s.id) === "roll" ? "rolled" : ans.get(s.id) === "pass" ? "passed" : "waiting") : "absent") + "</li>").join("") + "</ul>");
     }
 
     let st;
@@ -1259,6 +1313,26 @@
   }
 
   function note(label, html) { notes.push({ ts: Date.now(), label, html }); render(); }
+
+  // ================= dice display =================
+  function describeRoll(r) {
+    return (r.parts || []).map((p, i) => {
+      if ("mod" in p) return (p.mod < 0 ? "− " : i ? "+ " : "") + Math.abs(p.mod);
+      const shown = p.rolls.length > 1 && p.kept.length < p.rolls.length
+        ? `[${p.rolls.join(", ")}]→${p.kept.join("+")}`
+        : p.rolls.length > 1 ? `(${p.rolls.join("+")})` : String(p.rolls[0]);
+      return (p.subtotal < 0 ? "− " : i ? "+ " : "") + shown;
+    }).join(" ");
+  }
+
+  // "/roll adv d20 + 5 stealth" -> { expr: "adv d20 + 5", label: "stealth" }
+  function splitRoll(text) {
+    const tokens = text.trim().split(/\s+/).filter(Boolean);
+    const isDice = (t) => /^(adv|advantage|dis|disadvantage|[+-]|[+-]?(\d*d\d+|\d+)([+-](\d*d\d+|\d+))*[+-]?)$/i.test(t);
+    let i = 0;
+    while (i < tokens.length && isDice(tokens[i])) i++;
+    return { expr: tokens.slice(0, i).join(" "), label: tokens.slice(i).join(" ") };
+  }
 
   // ================= renderers =================
   function escapeHtml(s) {

@@ -14,6 +14,7 @@
 // Optional dev overrides: MISTRAL_URL, GITHUB_API
 
 import { DurableObject } from "cloudflare:workers";
+import { rollDice, describeRoll } from "./dice.js";
 
 const STATE_FILES = {
   canon: "world/worldbuilding.md",
@@ -199,7 +200,7 @@ async function prepareEnd(env) {
     worldClock: party.world_clock || "",
     messageCount: scene.messages.length,
     rounds: scene.round,
-    pending: scene.messages.filter((m) => m.round === scene.round && isPending(m)).length,
+    pending: scene.messages.filter((m) => m.round === scene.round && isAnswer(m)).length,
     resolving: scene.resolving,
     draft,
     draftError,
@@ -326,6 +327,8 @@ function transcriptText(scene) {
     if (m.kind === "act") return `[round ${m.round}] ${who(m)}: ${m.text}`;
     if (m.kind === "pass") return `[round ${m.round}] ${who(m)} passes.`;
     if (m.kind === "event") return `[round ${m.round}] (table) ${m.text}`;
+    if (m.kind === "roll") return `[round ${m.round}] ${who(m)} rolls ${rollLine(m)}`;
+    if (m.kind === "gmroll") return `[round ${m.round}] GM rolls ${rollLine(m)}`;
     return `(out of character) ${m.author}: ${m.text}`;
   }).join("\n\n");
 }
@@ -339,9 +342,11 @@ function transcriptMarkdown(scene, { sessionNo, title, date, worldClock }) {
     if (m.kind === "act") return `**${who(m)}:** ${m.text}`;
     if (m.kind === "pass") return `*${who(m)} passes.*`;
     if (m.kind === "event") return `> *${m.text}*`;
+    if (m.kind === "roll") return `🎲 **${who(m)}** rolls ${rollLine(m)} · ${describeRoll(m)}`;
+    if (m.kind === "gmroll") return `🎲 *GM* rolls ${rollLine(m)} · ${describeRoll(m)}`;
     return `> OOC ${m.author}: ${m.text}`;
   }).join("\n\n");
-  const pending = scene.messages.filter((m) => m.round === scene.round && isPending(m));
+  const pending = scene.messages.filter((m) => m.round === scene.round && isAnswer(m));
   return `# Session ${sessionNo}: ${title}
 
 - **Date:** ${date}${title === "in progress" ? "\n- **Status:** in progress (checkpoint save)" : ""}
@@ -606,8 +611,11 @@ export class Table extends DurableObject {
 
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
+    // Each connection starts as a player. It only sees GM dice after proving
+    // the Settings username and password over this same connection.
+    pair[1].serializeAttachment({ admin: false, ip: clientIp(request) });
     const state = await this.load();
-    pair[1].send(JSON.stringify(this.snapshot(state)));
+    pair[1].send(JSON.stringify(this.snapshot(state, pair[1])));
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
@@ -642,6 +650,7 @@ export class Table extends DurableObject {
       spend: s.spend || { small: { in: 0, out: 0 }, large: { in: 0, out: 0 } },
       nextId: s.nextId || 1,
       session: s.session || null,   // { no, date, path, savedAt, savedBy } once first saved
+      revealGmRolls: !!s.revealGmRolls,
     };
   }
 
@@ -652,11 +661,17 @@ export class Table extends DurableObject {
     await this.ctx.storage.put("table", state);
   }
 
-  snapshot(state) {
+  // Per connection: GM dice are redacted on the server unless this connection
+  // is an unsealed GM or the party toggle is on. Hidden numbers never leave.
+  snapshot(state, ws) {
+    const att = (ws && ws.deserializeAttachment()) || {};
+    const canSee = !!att.admin || !!state.revealGmRolls;
     return {
       t: "state",
       seats: state.seats,
-      messages: state.messages.slice(-SNAPSHOT_MESSAGES),
+      messages: state.messages.slice(-SNAPSHOT_MESSAGES).map((m) => viewMessage(m, canSee)),
+      revealGmRolls: !!state.revealGmRolls,
+      admin: !!att.admin,
       round: state.round,
       resolving: isResolving(state),
       tier: state.tier,
@@ -666,9 +681,8 @@ export class Table extends DurableObject {
   }
 
   broadcast(state) {
-    const payload = JSON.stringify(this.snapshot(state));
     for (const ws of this.ctx.getWebSockets()) {
-      try { ws.send(payload); } catch {}
+      try { ws.send(JSON.stringify(this.snapshot(state, ws))); } catch {}
     }
   }
 
@@ -732,6 +746,49 @@ export class Table extends DurableObject {
         return this.commit(state);
       }
 
+      case "roll": {
+        if (isResolving(state)) throw new Error("The GM is answering. Roll when it's done.");
+        const s = seat(msg.seatId);
+        if (!s) throw new Error("Take a seat first.");
+        if (!s.present) throw new Error(`${label(s)} is marked absent. Mark them present to roll.`);
+        const r = rollDice(msg.expr);   // throws a readable error on bad input
+        state.messages.push({
+          id: state.nextId++, kind: "roll", round: state.round, seatId: s.id,
+          author: s.player, character: s.character, label: clean(msg.label, 60),
+          expr: r.expr, total: r.total, parts: r.parts, nat: r.nat, mode: r.mode, ts: Date.now(),
+        });
+        if (await this.maybeAutoResolve(state)) return;
+        return this.commit(state);
+      }
+
+      case "admin": {
+        const att = ws.deserializeAttachment() || {};
+        if (msg.off) {
+          ws.serializeAttachment({ ...att, admin: false });
+        } else {
+          const bouncer = this.env.BOUNCER.get(this.env.BOUNCER.idFromName(att.ip || "unknown"));
+          const res = await guarded(bouncer, "admin", async () => {
+            const [u, p] = await Promise.all([
+              passwordMatches(String(msg.user || ""), this.env.ADMIN_USERNAME),
+              passwordMatches(String(msg.pass || ""), this.env.ADMIN_PASSWORD),
+            ]);
+            return u && p;
+          });
+          if (!res.ok) throw new Error(res.locked ? "Too many wrong attempts. Settings stay sealed for now." : "The settings stay sealed.");
+          ws.serializeAttachment({ ...att, admin: true });
+        }
+        send(ws, this.snapshot(state, ws));
+        return;
+      }
+
+      case "reveal": {
+        const att = ws.deserializeAttachment() || {};
+        if (!att.admin) throw new Error("Only an unsealed GM can change that.");
+        state.revealGmRolls = !!msg.on;
+        addEvent(state, state.revealGmRolls ? "The GM's dice are now shown to the table." : "The GM's dice go back behind the screen.");
+        return this.commit(state);
+      }
+
       case "retract": {
         if (isResolving(state)) throw new Error("Too late, the GM is already answering.");
         state.messages = state.messages.filter((m) => !(m.round === state.round && isPending(m) && m.seatId === msg.seatId));
@@ -751,7 +808,7 @@ export class Table extends DurableObject {
 
       case "resolve": {
         if (isResolving(state)) return;
-        if (!pendingFor(state).length) throw new Error("Nothing to resolve yet. Someone has to act first.");
+        if (!answersFor(state).length) throw new Error("Nothing to resolve yet. Someone has to act or roll first.");
         return this.resolve(state);
       }
 
@@ -772,9 +829,9 @@ export class Table extends DurableObject {
     if (isResolving(state)) return false;
     const present = state.seats.filter((s) => s.present);
     if (!present.length) return false;
-    const pending = pendingFor(state);
-    const answered = new Set(pending.map((m) => m.seatId));
-    if (!pending.length || !present.every((s) => answered.has(s.id))) return false;
+    const answers = answersFor(state);
+    const answered = new Set(answers.map((m) => m.seatId));
+    if (!answers.length || !present.every((s) => answered.has(s.id))) return false;
     await this.resolve(state);
     return true;
   }
@@ -795,7 +852,7 @@ export class Table extends DurableObject {
         ...buildConversation(state),
       ];
       const model = tier === "large" ? this.env.MODEL_LARGE : this.env.MODEL;
-      result = await callMistral(this.env, model, messages);
+      result = await gmTurn(this.env, model, messages);
       result.model = model;
     } catch (err) {
       const fresh = await this.load();
@@ -807,6 +864,12 @@ export class Table extends DurableObject {
 
     // Re-read: other commands may have landed while the GM was thinking.
     const fresh = await this.load();
+    for (const r of result.rolls) {
+      fresh.messages.push({
+        id: fresh.nextId++, kind: "gmroll", round, purpose: r.purpose,
+        expr: r.expr, total: r.total, parts: r.parts, nat: r.nat, mode: r.mode, ts: Date.now(),
+      });
+    }
     fresh.messages.push({
       id: fresh.nextId++, kind: "gm", round, text: result.reply, ts: Date.now(),
       model: result.model, usage: result.usage,
@@ -841,6 +904,25 @@ function isPending(m) {
   return m.kind === "act" || m.kind === "pass";
 }
 
+// Anything that counts as a seat's answer for the round: acting, passing or rolling.
+function isAnswer(m) {
+  return m.kind === "act" || m.kind === "pass" || m.kind === "roll";
+}
+
+function answersFor(state) {
+  return state.messages.filter((m) => m.round === state.round && isAnswer(m));
+}
+
+function viewMessage(m, canSee) {
+  if (m.kind !== "gmroll" || canSee) return m;
+  return { id: m.id, kind: "gmroll", round: m.round, ts: m.ts, hidden: true };
+}
+
+function rollLine(m) {
+  const what = m.label || m.purpose;
+  return `${what ? what + ": " : ""}${m.expr} = ${m.total}${m.nat === 20 ? " (natural 20)" : m.nat === 1 ? " (natural 1)" : ""}`;
+}
+
 function pendingFor(state) {
   return state.messages.filter((m) => m.round === state.round && isPending(m));
 }
@@ -864,13 +946,15 @@ function buildConversation(state) {
 
   const out = [];
   for (const r of rounds) {
-    const acts = state.messages.filter((m) => m.round === r && (isPending(m) || m.kind === "event"));
+    const acts = state.messages.filter((m) => m.round === r && (isAnswer(m) || m.kind === "event"));
     const gm = state.messages.find((m) => m.round === r && m.kind === "gm");
-    if (!acts.some(isPending) && !gm) continue;
+    const gmDice = state.messages.filter((m) => m.round === r && m.kind === "gmroll");
+    if (!acts.some(isAnswer) && !gm) continue;
 
     const lines = acts.map((m) => {
       if (m.kind === "event") return `- (at the table) ${m.text}`;
       const who = m.character ? `${m.character} (played by ${m.author})` : m.author;
+      if (m.kind === "roll") return `- ${who} rolls ${rollLine(m)}`;
       return m.kind === "pass" ? `- ${who} passes this beat.` : `- ${who}: ${m.text}`;
     });
     let content = `ROUND ${r}: actions gathered from the table:\n${lines.join("\n") || "- (no actions)"}`;
@@ -879,7 +963,10 @@ function buildConversation(state) {
         (absent.length ? ` Absent (elsewhere, do not narrate them acting): ${absent.join(", ")}.` : "");
     }
     out.push({ role: "user", content });
-    if (gm) out.push({ role: "assistant", content: gm.text });
+    if (gm) out.push({
+      role: "assistant",
+      content: (gmDice.length ? `[Your dice this round: ${gmDice.map(rollLine).join("; ")}]\n\n` : "") + gm.text,
+    });
   }
   return out;
 }
@@ -904,6 +991,10 @@ function buildSystemPrompt(state) {
 - NPCs have their own agendas, faiths and fears. Minds of glass are people, not appliances.
 - Stay inside the canon below. Do not contradict it. You may invent local detail (names, streets, minor NPCs) that fits it.
 - THE RIM AND THE FROZEN ARCHIVE ARE DELIBERATELY UNDEFINED. Never explain what the Archive is, who or what records at the pole, or why it deletes. Rumour, dread and contradiction only. No revelations, ever.
+- DICE. Chance uses D&D 5e rules: d20 tests against a DC or Armor Class, advantage and disadvantage, natural 20 and 1 on attacks, damage dice, death saves.
+  - Player characters roll their own dice. When one needs a roll, say exactly what to roll and why (e.g. "Ysolde, roll a DC 14 Dexterity save: /roll d20+2"), then stop and wait. Their results arrive as "rolls ..." lines. Never roll for a player character and never invent their result.
+  - For everything else (NPCs, monsters, hazards, damage you deal, random tables) call the roll_dice tool and narrate from the number it returns. Never invent or adjust a die result.
+  - Your own rolls may be hidden from the players; describe outcomes in the fiction rather than announcing your numbers.
 - The rules system is unfinished (see RULES). When an outcome is uncertain and matters, say so, propose how it could be resolved, and mark any mechanic you introduce as [PROVISIONAL] so the table can adopt or reject it.
 
 ## CANON (settled; do not alter)
@@ -922,20 +1013,78 @@ ${state.party || "(empty roster)"}
 ${logTail || "(no sessions yet)"}`;
 }
 
-async function callMistral(env, model, messages) {
+async function mistralRequest(env, body) {
   const res = await fetch(env.MISTRAL_URL || "https://api.mistral.ai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.MISTRAL_API_KEY}` },
-    body: JSON.stringify({ model, temperature: 0.8, max_tokens: 1000, messages }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const detail = (await res.text()).slice(0, 200);
     throw new Error(`Mistral returned ${res.status}${detail ? ` (${detail})` : ""}`);
   }
-  const data = await res.json();
+  return res.json();
+}
+
+// Plain call, no tools (used for the end-of-session summary).
+async function callMistral(env, model, messages) {
+  const data = await mistralRequest(env, { model, temperature: 0.8, max_tokens: 1000, messages });
   const reply = data?.choices?.[0]?.message?.content;
   if (!reply) throw new Error("Mistral sent an empty reply");
   return { reply, usage: data.usage || null };
+}
+
+const DICE_TOOLS = [{
+  type: "function",
+  function: {
+    name: "roll_dice",
+    description: "Roll real dice for anything that is not a player character: NPC and monster attacks, saves and checks, damage, hazards, random tables. Returns the honest result; narrate from it.",
+    parameters: {
+      type: "object",
+      properties: {
+        expression: { type: "string", description: "Dice expression, e.g. d20+4, 2d6+3, adv d20+5, dis d20+1, d100" },
+        purpose: { type: "string", description: "What the roll is for, e.g. 'goblin attack vs Ysolde (AC 15)'" },
+      },
+      required: ["expression", "purpose"],
+    },
+  },
+}];
+const MAX_GM_TOOL_ROUNDS = 4;
+
+// One GM turn. The GM may call roll_dice any number of times; each call is
+// answered by the server's real dice, and the GM narrates from those numbers.
+async function gmTurn(env, model, messages) {
+  const convo = [...messages];
+  const rolls = [];
+  const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+  for (let i = 0; i <= MAX_GM_TOOL_ROUNDS; i++) {
+    const data = await mistralRequest(env, {
+      model, temperature: 0.8, max_tokens: 1000, messages: convo,
+      tools: DICE_TOOLS, tool_choice: i < MAX_GM_TOOL_ROUNDS ? "auto" : "none",
+    });
+    for (const k of Object.keys(usage)) usage[k] += data?.usage?.[k] || 0;
+    const msg = data?.choices?.[0]?.message || {};
+    const calls = msg.tool_calls || [];
+    if (!calls.length) {
+      if (!msg.content) throw new Error("Mistral sent an empty reply");
+      return { reply: msg.content, usage, rolls };
+    }
+    convo.push({ role: "assistant", content: msg.content || "", tool_calls: calls });
+    for (const call of calls) {
+      let args = {};
+      try { args = typeof call.function?.arguments === "string" ? JSON.parse(call.function.arguments) : (call.function?.arguments || {}); } catch {}
+      let content;
+      try {
+        const r = rollDice(args.expression);
+        rolls.push({ ...r, purpose: clean(args.purpose, 120) });
+        content = JSON.stringify({ expression: r.expr, total: r.total, breakdown: describeRoll(r), natural: r.nat });
+      } catch (err) {
+        content = JSON.stringify({ error: err.message });
+      }
+      convo.push({ role: "tool", tool_call_id: call.id, name: call.function?.name || "roll_dice", content });
+    }
+  }
+  throw new Error("The GM kept rolling without answering");
 }
 
 // ======================================================================

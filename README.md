@@ -11,7 +11,9 @@ world/worldbuilding.md    settled canon; change only by explicit decision
 rules/resolution.md       rules system, Draft 0, designed while playing
 characters/party.json     living party state, updated after sessions
 campaign/log.md           session log + world clock
-api/worker.js             Cloudflare Worker: gate, state loader, Mistral proxy
+api/worker.js             Cloudflare Worker: gate, state loader, Mistral proxy, shared table
+api/dice.js               dice engine: real randomness for players and the GM
+rules/economy.md          currency, prices, gear tiers, item scales
 wrangler.toml             Worker config (no secrets in here), at repo root
 web/index.html            browser client, served by the Worker
 meta/deployment.md        deploy, secrets, costs, session workflow
@@ -35,6 +37,7 @@ Everyone with the password plays the **same live scene** from their own device.
 - `OOC: ...` is table talk: everyone sees it, the GM does not, and it doesn't count as your action.
 - **Settings** (separate username + password) lets the GM remove seats, and turns the Party tab into an editor: edit, create, rename and delete character sheets, set the world clock. Every change is a commit. Players see all sheets read-only and can't remove anyone.
 - Absent characters are elsewhere in the story; the GM never narrates them.
+- **Dice:** `/roll d20+5 perception` (adv / dis work too). The server rolls, everyone sees it, and a roll counts as your answer. The GM rolls honest dice through a tool; its rolls stay behind the screen unless the GM shows them (Settings).
 
 - Arrivals, departures and presence changes are recorded in the scene as they happen.
 - **Save** (on your own seat chip, anyone) commits the transcript so far to this session's archive file; play continues.
@@ -45,8 +48,8 @@ The live session lives in a Durable Object (`Table` in `api/worker.js`); the rep
 ## In the client
 
 - **Codex** (header button): Party, Log, Rules and World tabs, read live from this repo.
-- **Slash commands** in the input bar: `/party`, `/sheet name`, `/log`, `/rules`, `/world word`, `/codex`, `/help`.
+- **Slash commands** in the input bar: `/roll`, `/party`, `/sheet name`, `/log`, `/rules`, `/economy`, `/world word`, `/table`, `/codex`, `/help`.
 
-Both read the repo through `/api/state` and never call Mistral, so they cost no tokens. The GM never sees them.
+Except `/roll`, they read the repo through `/api/state`, never call Mistral, cost no tokens, and the GM never sees them.
 
 Deploying: see [meta/deployment.md](meta/deployment.md).
