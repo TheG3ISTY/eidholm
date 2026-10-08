@@ -47,6 +47,20 @@ Never flagged: one-off shopkeepers, crowds, unnamed guards, people the party wal
 
 **Who sees what:** players see the People tab in the Codex with the public half; wants, secrets and notes are GM-only and never sent to a player's device. Remembered people are written to the repo at Save and End session.
 
+### Fixed figures
+
+Twenty-five canon-level NPCs are kept in `campaign/cast.json` as **pillars**: they never go dormant, and the GM keeps them consistent forever. Each has a public face (role, where, look) and a GM-only layer: what they want, their secret, the contradiction that cuts against their role, and how they treat the party.
+
+- **Combine Concord:** Chair Ottilie Kaldren, High Maintainer Severin Graul, Registrar Ilse Marrow, Holdmother Brann of Deephold Varek, Calder (Kalvane's Cathedral Mind)
+- **Verdant League:** Speaker Aurelio Vant, First Dream-Reader Ysmay of the Hollowwood, Master Livia Serrat of the Dueling Courts, Rector Benedek Orrin, Keeper Nella Quint
+- **Sorrow Flotillas:** Salvage Master Odalys Crane, Hierophant Sabbe Thole, Master Diver Hesper Rook, Helmswoman Imke Sarrow
+- **The Custodians** (vow-names, no family names): Lord Castellan Hadrien, Keeper Ansgar, Reader Merit
+- **The Unchained Court** (deliberately vague; the GM defines them on first contact): the Warlord, the Ambassador, the Philosopher
+- **The bank:** the Senior Partner (a title only), the Final Notice (the chief enforcer: a fact, not a character; can be outrun, never stopped, never stops)
+- **The Choir Eternal:** Precentor Odile Verane, Registrar-General Tobiah Fenn, Inquisitor Cassia Dorn
+
+**The Rim has no fixed figures, by design.** The GM never invents a leader, seat or explanation for the Archive; encounters leave more questions than answers; deletions are felt, never traced.
+
 ### Economy and equipment
 
 See [economy.md](economy.md).
