@@ -36,8 +36,8 @@ const STALE_RESOLVE_MS = 120_000;
 const SAVE_COOLDOWN_MS = 30_000;
 const DORMANT_AFTER_SESSIONS = 3;
 // Who may know what about a remembered person.
-const CAST_PUBLIC = ["name", "role", "faction", "where", "look", "attitude", "ledger", "status", "last_seen_session"];
-const CAST_GM_ONLY = ["wants", "secret", "notes", "reason"];   // one checkpoint save per 30 s for the whole table
+const CAST_PUBLIC = ["name", "role", "faction", "where", "look", "attitude", "ledger", "status", "last_seen_session", "pillar"];
+const CAST_GM_ONLY = ["wants", "secret", "contradiction", "with_party", "notes", "reason"];   // one checkpoint save per 30 s for the whole table
 
 // The bouncer: wrong guesses per connection, per gate.
 const MAX_FAILS = 5;
@@ -372,7 +372,7 @@ function mergeCast(repoText, live, { sessionNo, endOfSession }) {
       if (seen.has(castKey(entry.name))) {
         if (entry.last_seen_session !== sessionNo) { entry.last_seen_session = sessionNo; changed = true; }
         if (entry.status === "dormant") { entry.status = "active"; changed = true; }
-      } else if (entry.status === "active" && sessionNo - (entry.last_seen_session || entry.first_seen_session || sessionNo) >= DORMANT_AFTER_SESSIONS) {
+      } else if (!entry.pillar && entry.status === "active" && sessionNo - (entry.last_seen_session || entry.first_seen_session || sessionNo) >= DORMANT_AFTER_SESSIONS) {
         entry.status = "dormant";
         changed = true;
       }
@@ -400,8 +400,8 @@ function castPrompt(castText, live) {
   const rest = merged.filter((c) => c.status === "dormant" || c.status === "dead");
   return [
     ...active.map((c) => {
-      const f = Object.entries(c).filter(([k]) => !["name", "status", "first_seen_session", "last_seen_session"].includes(k));
-      return `- ${c.name}: ` + f.map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join("; ");
+      const f = Object.entries(c).filter(([k]) => !["name", "status", "first_seen_session", "last_seen_session", "pillar"].includes(k));
+      return `- ${c.pillar ? "[fixed figure] " : ""}${c.name}: ` + f.map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join("; ");
     }),
     ...(rest.length ? ["Dormant or dead (one line each):", ...rest.map((c) => `${line(c)} [${c.status}]`)] : []),
   ].join("\n");
@@ -1221,6 +1221,11 @@ function buildSystemPrompt(state, castText = "(nobody remembered yet)") {
 - REMEMBERING PEOPLE. Improvise minor NPCs freely. Call remember_npc the moment one becomes important, by these rules: a debt, favor, promise, contract or Exchange deal ties them to a character (Ledger); they hurt a character, were hurt by one, or survived a fight with the party (Blood); they know something about a character or the plot (Secrets); they hold real power, including any bank enforcer assigned to a character's debt (Office); they are a mind of glass that pledged itself to or was hired by a character; a player asks about them again, goes looking for them, or flags them (a "(table) ... asks you to remember" line); or a named NPC appears in a second, separate scene. Never one-off shopkeepers, crowds, or people the party walked past. Call remember_npc again whenever something important about them changes (attitude, debts, where they are, death). Small property changes hands constantly in Eidholm, so a shop with a new face behind the counter needs no explanation.
 - Stay inside the canon below. Do not contradict it. You may invent local detail (names, streets, minor NPCs) that fits it.
 - THE RIM AND THE FROZEN ARCHIVE ARE DELIBERATELY UNDEFINED. Never explain what the Archive is, who or what records at the pole, or why it deletes. Rumour, dread and contradiction only. No revelations, ever.
+  - The Rim has NO fixed figures. Never invent a leader, a seat, a name, a motive or an explanation for the Archive or for what the Silence copies for.
+  - Every encounter touching the Rim leaves more questions than it answers.
+  - The deletions are felt (a record gone, a name nobody can recall), never traced to a cause.
+- FIXED FIGURES in the CAST are canon-level characters: keep their names, offices, wants and secrets consistent forever; reveal secrets only through play. Their contradictions and how they treat the party shape every scene they are in.
+- Eidholm's peoples are human. "Dwarven-blooded" Clansmine folk are a human lineage, not a separate species.
 - DICE. Chance uses D&D 5e rules: d20 tests against a DC or Armor Class, advantage and disadvantage, natural 20 and 1 on attacks, damage dice, death saves.
   - Player characters roll their own dice, through buttons. When any need a roll, call the request_rolls tool once with every roll needed, in order: the type (check, save, attack, damage, other), a short label ("Dexterity save", "Shortsword attack"), the modifier, the DC for checks and saves, the target's Armor Class and damage dice for attacks, and the reasons for any advantage or disadvantage. The server applies the 5e rules itself (advantage and disadvantage cancel, hits, misses, criticals, damage only on a hit). Then tell the players briefly what they are rolling for and stop; do not narrate outcomes yet. Results arrive next round as "rolls ..." lines with the outcome. Never roll for a player character and never invent their result.
   - Until character sheets list modifiers, choose a sensible modifier from the character's description (usually between -1 and +5).

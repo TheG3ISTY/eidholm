@@ -1396,15 +1396,17 @@
     $("codex-status").textContent = admin ? "Unsealed · GM-only notes shown" : "People the GM has chosen to remember";
     body.innerHTML = '<p class="muted">The people who matter to your story. The GM decides who goes here, and anyone at the table can ask it to with <code>/remember name</code>.</p>';
     if (!cast.length) { body.insertAdjacentHTML("beforeend", '<p class="muted">Nobody yet.</p>'); return; }
-    const groups = [["active", "In play"], ["dormant", "Not seen for a while"], ["dead", "Dead"]];
+    const groups = [["pillar", "Known figures of Eidholm"], ["active", "People you've met"], ["dormant", "Not seen for a while"], ["dead", "Dead"]];
     for (const [st, title] of groups) {
-      const people = cast.filter((c) => (c.status || "active") === st);
+      const people = st === "pillar"
+        ? cast.filter((c) => c.pillar && (c.status || "active") !== "dead")
+        : cast.filter((c) => (c.status || "active") === st && !(c.pillar && st === "active"));
       if (!people.length) continue;
       body.insertAdjacentHTML("beforeend", `<h3 class="set-h">${title}</h3>`);
       for (const c of people) {
         const pub = [["role", c.role], ["faction", c.faction], ["where", c.where], ["look", c.look], ["attitude", c.attitude], ["ledger", c.ledger]]
           .filter(([, v]) => v);
-        const gm = admin ? [["wants", c.wants], ["secret", c.secret], ["notes", c.notes], ["why remembered", c.reason]].filter(([, v]) => v) : [];
+        const gm = admin ? [["wants", c.wants], ["secret", c.secret], ["contradiction", c.contradiction], ["with the party", c.with_party], ["notes", c.notes], ["why remembered", c.reason]].filter(([, v]) => v) : [];
         const kv = (rows) => '<dl class="kv">' + rows.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("") + "</dl>";
         body.insertAdjacentHTML("beforeend",
           `<div class="card${st !== "active" ? " faded" : ""}"><h3>${escapeHtml(c.name)}</h3>` +
