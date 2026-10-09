@@ -32,7 +32,7 @@
         },
         "artifice": {
           "rank": 1,
-          "marks": 0
+          "marks": 1
         }
       },
       "items": [
@@ -103,7 +103,7 @@
         }
       ],
       "debts": [],
-      "purse": 500,
+      "purse": 3500,
       "scars": [],
       "created": "2026-10-09",
       "hp": 26,
