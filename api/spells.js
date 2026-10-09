@@ -4,7 +4,7 @@
 // Each tier's table rows look like:
 //   | **Spark Query** | what it does | Ranged canting vs AC |
 
-export const START_SPELLS = 2;   // tier-1 spells picked at creation, unproven
+export const START_SPELLS = 2;   // tier-1 spells picked at creation
 
 export function parseSpellbook(md) {
   const out = [];
@@ -33,11 +33,11 @@ export function findSpell(list, name) {
 }
 
 // Which natural rolls miscant. Luck 13 takes away only the 1.
-//   proven spell 1 · unproven or freeform 1-2
-// (A spell not on the sheet is learned by casting: the d8 gate decides, then 1.)
-export function miscantOn({ proven = true, freeform = false } = {}) {
-  if (freeform || !proven) return 2;
-  return 1;
+//   a spell on the sheet (taught, found, or cast successfully once): 1
+//   a freeform cant's first cast: 1 up to its tier
+// (A spellbook spell not on the sheet is learned by casting: the d8 gate decides, then 1.)
+export function miscantOn({ freeform = false, tier = 1 } = {}) {
+  return freeform ? Math.max(1, tier) : 1;
 }
 
 // Learning by casting: a straight d8 before the cast; equal to or lower than the tier fails.

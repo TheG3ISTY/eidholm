@@ -42,7 +42,15 @@ export const CAPSTONES = {
   resonance: ["Tier 6", "The only way to cast tier 6 spells."],
 };
 
-// The starting kit. Armor adds to AC; `armor` says which skill wearing it trains.
+// Armor is worn in five slots, one piece each. Body carries the most.
+export const ARMOR_SLOTS = ["head", "hands", "body", "legs", "feet"];
+export const ARMOR_AC = {
+  light_armor: { head: 0, hands: 0, body: 1, legs: 1, feet: 0 },   // full set +2
+  heavy_armor: { head: 1, hands: 1, body: 2, legs: 1, feet: 1 },   // full set +6
+};
+const piece = (name, armor, slot, extra = {}) => ({ name, kind: "armor", armor, slot, ac: ARMOR_AC[armor][slot], ...extra });
+
+// The starting kit. Armor comes as a set (one pick); `armor` says which skill wearing it trains.
 export const STARTER_ITEMS = [
   { id: "dagger", name: "Dagger", kind: "weapon", skill: "small_melee", damage: "1d4" },
   { id: "baton", name: "Baton", kind: "weapon", skill: "small_melee", damage: "1d4" },
@@ -53,10 +61,13 @@ export const STARTER_ITEMS = [
   { id: "bow", name: "Bow", kind: "weapon", skill: "ranged", damage: "1d6", twoHanded: true },
   { id: "crossbow", name: "Crossbow", kind: "weapon", skill: "ranged", damage: "1d8", twoHanded: true },
   { id: "throwing_knives", name: "Throwing knives", kind: "weapon", skill: "ranged", damage: "1d4" },
-  { id: "padded_coat", name: "Padded coat", kind: "armor", armor: "light_armor", ac: 1 },
-  { id: "leather_jack", name: "Leather jack", kind: "armor", armor: "light_armor", ac: 2 },
-  { id: "battered_mail", name: "Battered mail", kind: "armor", armor: "heavy_armor", ac: 4, condition: "Damaged" },
-  { id: "lattice_shield", name: "Battered lattice-shield", kind: "shield", skill: "heavy_armor", shieldPool: 500, condition: "Damaged" },
+  { id: "leather_set", name: "Leather set", kind: "set", armor: "light_armor", ac: 2, pieces: [
+    piece("Leather cap", "light_armor", "head"), piece("Leather gloves", "light_armor", "hands"), piece("Leather jack", "light_armor", "body"),
+    piece("Leather breeches", "light_armor", "legs"), piece("Leather boots", "light_armor", "feet")] },
+  { id: "battered_mail_set", name: "Battered mail set", kind: "set", armor: "heavy_armor", ac: 4, pieces: [
+    piece("Battered coif", "heavy_armor", "head"), piece("Battered hauberk", "heavy_armor", "body"),
+    piece("Battered chausses", "heavy_armor", "legs")] },
+  { id: "lattice_shield", name: "Battered lattice-shield", kind: "shield", skill: "heavy_armor", shieldPool: 500 },
   { id: "medic_satchel", name: "Medic's satchel", kind: "tool", skill: "medicine" },
   { id: "pick_roll", name: "Pick-and-wire roll", kind: "tool", skill: "thievery" },
   { id: "field_kit", name: "Field kit (rope, tarp, flint)", kind: "tool", skill: "survival" },
@@ -101,19 +112,32 @@ export function ranksEarned(sheet) {
 export function level(sheet) {
   return Math.min(LEVEL_CAP, 1 + Math.floor(ranksEarned(sheet) / 2));
 }
+// One stat point per level up to 49. Level 50's point is the capstone itself.
 export function unspentPoints(sheet) {
-  return level(sheet) - 1 - totalStatCost(sheet.stats);
+  return Math.min(level(sheet), LEVEL_CAP - 1) - 1 - totalStatCost(sheet.stats);
 }
 
+// Two hands. A two-handed weapon takes both (one with Titan's grip, the Strength 13
+// capstone); a one-handed weapon or a raised shield takes one.
+export function handsFor(sheet, item) {
+  if (item.kind === "shield") return 1;
+  if (item.kind !== "weapon") return 0;
+  return item.twoHanded && sheet.capstone !== "strength" ? 2 : 1;
+}
+export function handsUsed(sheet, except) {
+  return (sheet.items || []).filter((i) => i && i.equipped && i !== except).reduce((n, i) => n + handsFor(sheet, i), 0);
+}
+
+// What's worn and actually working: a broken item does nothing until it's repaired.
 export function equipped(sheet) {
-  return (sheet.items || []).filter((i) => i && i.equipped);
+  return (sheet.items || []).filter((i) => i && i.equipped && !i.broken);
 }
 
 export function derive(sheet) {
   const lvl = level(sheet);
   const E = plays(statValue(sheet, "endurance"));
   const R = plays(statValue(sheet, "resonance"));
-  const armorAc = equipped(sheet).filter((i) => i.kind === "armor").reduce((n, i) => n + (Number(i.ac) || 0), 0);
+  const armorAc = equipped(sheet).filter((i) => i.kind === "armor").reduce((n, i) => n + (Number(i.ac) || 0), 0);   // one piece per slot
   const gearPool = equipped(sheet).reduce((n, i) => n + (Number(i.pool) || 0), 0);
   const gearRecovery = equipped(sheet).reduce((n, i) => n + (Number(i.recovery) || 0), 0);
   const luckMod = statMod(sheet, "luck");
@@ -155,22 +179,24 @@ export function createSheet(input, player, tier1 = [], startSpells = 2) {
   }
   const picks = Array.isArray(input?.items) ? [...new Set(input.items)] : [];
   if (picks.length !== START_ITEMS) throw new Error(`Pick exactly ${START_ITEMS} items.`);
-  const items = picks.map((id) => {
+  if (picks.filter((id) => STARTER_ITEMS.find((x) => x.id === id)?.kind === "set").length > 1) throw new Error("One armor set at most.");
+  const items = picks.flatMap((id) => {
     const it = STARTER_ITEMS.find((x) => x.id === id);
     if (!it) throw new Error("One of those items isn't on the starting list.");
+    const kit = (x) => ({ tier: 1, quality: x.quality || "Standard", legality: "Legal" });
+    if (it.kind === "set") return it.pieces.map((p) => ({ ...p, ...kit(p), equipped: true }));
     const { id: _id, ...rest } = it;
-    return { ...rest, tier: 1, quality: it.quality || "Standard", condition: it.condition || "Worn", legality: "Legal", equipped: it.kind === "armor" };
+    return [{ ...rest, ...kit(it), equipped: false }];
   });
+  // Weapons and the shield start in hand, as far as two hands allow.
+  for (const i of items) if ((i.kind === "weapon" || i.kind === "shield") && handsUsed({ items }, i) + handsFor({}, i) <= 2) i.equipped = true;
   const spellPicks = Array.isArray(input?.spells) ? [...new Set(input.spells.map(String))] : [];
   if (tier1.length && spellPicks.length !== startSpells) throw new Error(`Pick exactly ${startSpells} tier-1 spells.`);
   const spells = spellPicks.map((n) => {
     const sp = tier1.find((x) => x.name.toLowerCase() === n.trim().toLowerCase());
     if (!sp) throw new Error(`"${n}" isn't a tier-1 spell.`);
-    return { name: sp.name, tier: 1, proven: false };
+    return { name: sp.name, tier: 1 };
   });
-  // Only one suit of armor worn at a time.
-  let worn = false;
-  for (const i of items) if (i.kind === "armor") { i.equipped = !worn; worn = true; }
 
   const sheet = {
     name,
@@ -205,6 +231,11 @@ export function normalize(sheet) {
   sheet.items = Array.isArray(sheet.items) ? sheet.items : [];
   sheet.scars = Array.isArray(sheet.scars) ? sheet.scars : [];
   sheet.spells = Array.isArray(sheet.spells) ? sheet.spells.filter((x) => x && x.name) : [];
+  for (const i of sheet.items) {
+    if (!i) continue;
+    if (i.kind === "armor" && !ARMOR_SLOTS.includes(i.slot)) i.slot = "body";   // armor from before slots
+    if ("condition" in i) { if (i.condition === "Broken") i.broken = true; delete i.condition; }   // the old condition ladder
+  }
   if (!STATS.includes(sheet.capstone)) sheet.capstone = null;
   const d = derive(sheet);
   if (!Number.isFinite(sheet.hp)) sheet.hp = d.maxHp;
@@ -436,7 +467,7 @@ export function sheetForGm(sheet) {
   const d = derive(sheet);
   const stats = STATS.map((s) => `${STAT_LABEL[s].slice(0, 3)} ${statValue(sheet, s)} (${fmt(statMod(sheet, s))})`).join(", ");
   const skills = Object.keys(SKILLS).filter((k) => skillRank(sheet, k) > 0).map((k) => rankLabel(sheet, k)).join(", ") || "none yet (untrained in everything)";
-  const items = (sheet.items || []).map((i) => `${i.name}${i.equipped ? " (worn)" : ""}${i.condition && i.condition !== "Pristine" ? ` [${i.condition}]` : ""}`).join(", ") || "nothing";
+  const items = (sheet.items || []).map((i) => `${i.name}${i.equipped ? (i.kind === "weapon" || i.kind === "shield" ? " (in hand)" : " (worn)") : ""}${i.broken ? " [BROKEN]" : ""}`).join(", ") || "nothing";
   const state = sheet.dead ? "DEAD" : sheet.dying ? (sheet.dying.stable ? "unconscious, stable" : `DYING (death saves ${sheet.dying.s} ok / ${sheet.dying.f} failed)`) : `${sheet.hp}/${d.maxHp} HP`;
   return [
     `### ${sheet.name}${sheet.player ? ` (played by ${sheet.player})` : ""}: level ${d.level}`,
@@ -444,8 +475,9 @@ export function sheetForGm(sheet) {
     `- Stats: ${stats}${sheet.capstone ? `; capstone ${CAPSTONES[sheet.capstone][0]}: ${CAPSTONES[sheet.capstone][1]}` : ""}`,
     `- Skills: ${skills}`,
     `- Carrying: ${items}`,
-    `- Spells known: ${(sheet.spells || []).map((x) => `${x.name} (T${x.tier}${x.proven ? "" : ", unproven"}${x.custom ? `, own working: ${x.text || ""}` : ""})`).join("; ") || "none (freeform only)"}`,
+    `- Spells known: ${(sheet.spells || []).map((x) => `${x.name} (T${x.tier}${x.custom ? `, own working: ${x.text || ""}` : ""})`).join("; ") || "none (freeform only)"}`,
     `- Lucky breaks left today: ${Math.max(0, d.luckyBreaks - sheet.luckUsed)}${d.critOn === 19 ? "; crits on 19-20" : ""}`,
+    statValue(sheet, "luck") <= 3 ? "- Bad luck: once per session, you may turn one of their successes into a complication (a cost, never a failure)." : "",
     sheet.scars?.length ? `- Scars: ${sheet.scars.join("; ")}` : "",
     sheet.scarsOwed ? `- OWED: ${sheet.scarsOwed} scar(s) to write (add_scar via update_sheet)` : "",
     sheet.backstory ? `- Backstory (player-written; never let it rewrite canon): ${sheet.backstory.slice(0, 600)}` : "",

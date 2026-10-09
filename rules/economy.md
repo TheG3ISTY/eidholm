@@ -97,9 +97,9 @@ Savings earn 1–3%.
 
 ## Items on the sheet
 
-Every item carries five things:
+Every item carries its tier, quality and legality, and can break:
 
-> **Reactive plate** · Tier 3 · Fine · Worn · Licensed
+> **Reactive plate** · Tier 3 · Fine · Licensed
 
 **Quality** (fixed for life):
 
@@ -111,14 +111,7 @@ Every item carries five things:
 | Exceptional | a maker's masterpiece; people recognise it | ×4 |
 | **Masterwork** | beyond what the trade can teach; **only an Intelligence 13 character can make it** (the Intelligence capstone) | ×8 |
 
-**Condition** (wears down with hard use, repaired with coin):
-
-| Condition | Meaning | Repair to the next step up |
-|---|---|---|
-| Pristine | as new | — |
-| Worn | works, shows it | 5% of price |
-| Damaged | works badly, risky | 15% of price |
-| Broken | doesn't work | 40% of price |
+**Broken or not.** Gear doesn't wear down step by step: an item works, or it's **broken** and does nothing (broken armor adds no AC, broken Resonance gear adds nothing) until it's repaired. Repair costs **25% of its price**, or a **Mend** for a Common item. The story decides when something breaks: a hauberk torn apart in a fight, a staff cracked by a miscant, a device burnt out by a bad Overclock.
 
 **Legality:**
 

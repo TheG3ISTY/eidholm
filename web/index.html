@@ -905,6 +905,8 @@
           div.className = "turn roll" + (m.nat === 20 ? " nat20" : m.nat === 1 ? " nat1" : "") + (m.hidden ? " hidden" : "");
           if (m.hidden) {
             div.textContent = "🎲 The GM rolls behind the screen.";
+          } else if (m.outcome === "fizzles") {
+            div.innerHTML = `<span class="die">🎲</span><span class="rw">${escapeHtml(who)}</span> tries <span class="rp">${escapeHtml(m.label || "a cant")}</span> <span class="oc failure">FIZZLES</span> <span class="rb">${escapeHtml(m.note || "")}</span>`;
           } else {
             const by = m.kind === "gmroll" ? "GM" : who;
             const what = m.label || m.purpose;
@@ -927,7 +929,7 @@
               (m.modFrom ? `<span class="rf">${escapeHtml(m.modFrom)}</span>` : "");
             const mine = mySheet();
             if (m.kind === "roll" && m.seatId === mySeat && m.round === table.round && !table.resolving && mine &&
-                ["check", "save", "attack", "death"].includes(m.rtype) && mine.d.luckyBreaks - (mine.luckUsed || 0) > 0) {
+                ["check", "save", "attack", "death"].includes(m.rtype) && m.outcome !== "fizzles" && mine.d.luckyBreaks - (mine.luckUsed || 0) > 0) {
               const lb = document.createElement("button");
               lb.type = "button"; lb.className = "luck";
               lb.textContent = `Lucky break (${mine.d.luckyBreaks - (mine.luckUsed || 0)} left)`;
@@ -1141,8 +1143,8 @@
         ${L("GIVE ITEM", inp("item", "item name"))}
         ${L("ITEM TIER", sel("itemTier", [["1", "1 Common"], ["2", "2 Guild"], ["3", "3 Superior"], ["4", "4 Relic"], ["5", "5 Unique"]]))}
         ${L("TAKE ITEM", inp("remove_item", "item name"))}
-        ${L("ITEM CONDITION", inp("condName", "item name"))}
-        ${L("BECOMES", sel("cond", [["", "unchanged"], ["Pristine", "Pristine"], ["Worn", "Worn"], ["Damaged", "Damaged"], ["Broken", "Broken"]]))}
+        ${L("BREAK ITEM", inp("breakItem", "item name"))}
+        ${L("REPAIR ITEM", inp("repairItem", "item name"))}
         ${L("TEACH SPELL", inp("spell", "spellbook name, or their own"))}
         ${L("OWN SPELL TIER", inp("spellTier", "only for their own", "number"))}
         ${L("OWN SPELL TEXT", inp("spellText", "one sentence"))}
@@ -1181,7 +1183,8 @@
         if (v.purse) out.purse = num(v.purse);
         if (v.item) out.add_item = { name: v.item, tier: num(v.itemTier) || 1 };
         if (v.remove_item) out.remove_item = v.remove_item;
-        if (v.condName && v.cond) out.item_condition = { name: v.condName, condition: v.cond };
+        if (v.breakItem) out.break_item = v.breakItem;
+        if (v.repairItem) out.repair_item = v.repairItem;
         if (v.spell) out.learn_spell = { name: v.spell, tier: num(v.spellTier), text: v.spellText, fused_from: list(v.fusedFrom) };
         if (v.scar) out.add_scar = v.scar;
         if (Object.keys(out).length === 1) return ($("gmf-msg").textContent = "Nothing to change yet.");
@@ -2145,14 +2148,16 @@
     h += "</table>";
     h += "<h4>CARRYING</h4>";
     h += (c.items || []).length ? '<ul class="items">' + c.items.map((it, i) => {
-      const tags = [it.equipped ? "worn" : "", it.tier ? "tier " + it.tier : "", it.quality, it.condition, it.legality && it.legality !== "Legal" ? it.legality : "",
+      const tags = [it.broken ? "BROKEN" : "", it.equipped ? (it.kind === "weapon" || it.kind === "shield" ? "in hand" : "worn") : "", it.twoHanded ? "two hands" : "", it.kind === "armor" ? (it.slot || "body") + " · " + (it.armor === "heavy_armor" ? "heavy" : "light") : "", it.tier ? "tier " + it.tier : "", it.quality, it.legality && it.legality !== "Legal" ? it.legality : "",
         it.ac ? "AC +" + it.ac : "", it.damage ? it.damage : "", it.shieldPool ? "shield " + it.shieldPool : ""].filter(Boolean).join(" · ");
-      const wear = mine && ["armor", "shield", "device"].includes(it.kind) ? `<button type="button" class="ghost" data-equip="${i}">${it.equipped ? "Take off" : "Wear"}</button>` : "";
+      const held = it.kind === "weapon" || it.kind === "shield";
+      const wear = mine && ["armor", "shield", "device", "weapon"].includes(it.kind)
+        ? `<button type="button" class="ghost" data-equip="${i}">${held ? (it.equipped ? "Put away" : "Take up") : (it.equipped ? "Take off" : "Wear")}</button>` : "";
       return `<li><span>${escapeHtml(it.name)} <small>${escapeHtml(tags)}</small></span>${wear}</li>`;
     }).join("") + "</ul>" : '<p class="muted">Nothing.</p>';
     h += "<h4>SPELLS</h4>";
     h += (c.spells || []).length ? '<ul class="items">' + [...c.spells].sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name)).map((sp) =>
-      `<li><span>${escapeHtml(sp.name)} <small>tier ${sp.tier}${sp.custom ? " · own working" : ""}${sp.text ? " · " + escapeHtml(sp.text) : ""}</small></span><small>${sp.proven ? "proven" : "unproven"}</small></li>`).join("") + "</ul>"
+      `<li><span>${escapeHtml(sp.name)} <small>tier ${sp.tier}${sp.custom ? " · own working" : ""}${sp.text ? " · " + escapeHtml(sp.text) : ""}</small></span></li>`).join("") + "</ul>"
       : '<p class="muted">None known. Freeform only.</p>';
     if ((c.scars || []).length || c.scarsOwed) {
       h += "<h4>SCARS</h4>" + (c.scars || []).map((x) => `<p>${escapeHtml(x)}</p>`).join("") +
@@ -2194,7 +2199,7 @@
       <textarea class="field" id="cr-back" rows="5" maxlength="4000" placeholder="Where you come from, who you served, what you believe, what you owe."></textarea>
       <div class="lbl">Starting kit · ${rules.purse} cv, clothes, a pack, and ${rules.picks} of these</div>
       <div class="cr-kit" id="cr-kit"></div>
-      <div class="lbl">Spells · ${rules.startSpells || 2} from tier 1 <small>unproven until you first cast them successfully</small></div>
+      <div class="lbl">Spells · ${rules.startSpells || 2} from tier 1 <small>the ones your character already knows</small></div>
       <div class="cr-spells" id="cr-spells"></div>
       <div class="ebar"><span class="emsg" id="cr-msg"></span><button type="button" class="ghost" id="cr-cancel">Cancel</button><button type="button" class="btn" id="cr-go">Create</button></div>
     </div>`;
@@ -2213,20 +2218,22 @@
       $("cr-stats").querySelectorAll("[data-up]").forEach((x) => x.addEventListener("click", () => { st[x.dataset.up]++; draw(); }));
       $("cr-stats").querySelectorAll("[data-dn]").forEach((x) => x.addEventListener("click", () => { st[x.dataset.dn]--; draw(); }));
       const E = playsAs(st.endurance), A = playsAs(st.agility) - 5, Rz = playsAs(st.resonance), L = playsAs(st.luck) - 5;
-      const armor = [...picks].map((id) => rules.kit.find((x) => x.id === id)).filter((x) => x && x.kind === "armor").reduce((m, x) => Math.max(m, x.ac || 0), 0);
+      const armor = [...picks].map((id) => rules.kit.find((x) => x.id === id)).filter((x) => x && x.kind === "set").reduce((n, x) => n + (x.ac || 0), 0);
       $("cr-derived").textContent = `HP ${8 + 2 * E} · AC ${10 + A + armor} · Resonance pool ${Rz * 4}, casts up to tier ${Math.min(5, Math.floor(Rz / 2))} · lucky breaks ${Math.max(0, L)} a day${st.luck >= 9 ? " · crits on 19–20" : ""} · carry ${st.strength * 10} kg`;
       $("cr-go").disabled = bal !== 0 || picks.size !== rules.picks || spellPicks.size !== wantSpells;
     };
-    const groups = [["WEAPONS", "weapon"], ["ARMOR", "armor"], ["ARMOR", "shield"], ["TOOLS", "tool"]];
+    const groups = [["WEAPONS", "weapon"], ["ARMOR", "set"], ["ARMOR", "shield"], ["TOOLS", "tool"]];
     const cols = { WEAPONS: [], ARMOR: [], TOOLS: [] };
     for (const it of rules.kit) {
       const g = groups.find(([, kind]) => kind === it.kind);
       cols[g ? g[0] : "TOOLS"].push(it);
     }
     $("cr-kit").innerHTML = Object.entries(cols).map(([h, list]) => `<div><h5>${h}</h5>` + list.map((it) =>
-      `<label><input type="checkbox" value="${it.id}"> ${escapeHtml(it.name)} <small class="muted">${escapeHtml((rules.skills[it.skill || it.armor] || "") + (it.damage ? " · " + it.damage : it.ac ? " · AC +" + it.ac : it.shieldPool ? " · pool " + it.shieldPool : ""))}</small></label>`
+      `<label><input type="checkbox" value="${it.id}"> ${escapeHtml(it.name)} <small class="muted">${escapeHtml((rules.skills[it.skill || it.armor] || "") + (it.damage ? " · " + it.damage : it.kind === "set" ? " · AC +" + it.ac + " · " + it.pieces.map((p) => p.slot).join(", ") : it.shieldPool ? " · pool " + it.shieldPool : ""))}</small></label>`
     ).join("") + "</div>").join("");
     $("cr-kit").querySelectorAll("input").forEach((x) => x.addEventListener("change", () => {
+      const isSet = (id) => rules.kit.find((k) => k.id === id)?.kind === "set";
+      if (x.checked && isSet(x.value) && [...picks].some(isSet)) { x.checked = false; $("cr-msg").textContent = "One armor set at most."; return; }
       if (x.checked) { if (picks.size >= rules.picks) { x.checked = false; $("cr-msg").textContent = `Only ${rules.picks}. Uncheck one first.`; return; } picks.add(x.value); }
       else picks.delete(x.value);
       $("cr-msg").textContent = "";

@@ -22,7 +22,7 @@ import {
   parseSceneTag, formatSceneTag, lookup, personLine, personFull, characterTopics,
 } from "./context.js";
 import {
-  STATS, STAT_LABEL, SKILLS, MELEE_SKILLS, CANTING_SKILLS, SPELL_COST, BACKLASH, STARTER_ITEMS, CAPSTONES, RANKS, MARKS_TO_REACH,
+  STATS, STAT_LABEL, SKILLS, ARMOR_AC, ARMOR_SLOTS, handsFor, handsUsed, MELEE_SKILLS, CANTING_SKILLS, SPELL_COST, BACKLASH, STARTER_ITEMS, CAPSTONES, RANKS, MARKS_TO_REACH,
   derive, normalize, createSheet, raiseStat, takeCapstone, addMark, takeDamage, heal, stabilize, deathSave,
   statMod, skillBonus, skillRank, equipped, clockLabel, parseElapsed, dawnsBetween, passTime, sheetForGm, findSheet,
 } from "./characters.js";
@@ -578,7 +578,7 @@ async function updatePartyFile(env, message, mutate) {
   const live = await tableCall(env, { t: "liveParty" }).catch(() => null);
   if (live?.loaded) {
     data.party = mergeParty(data.party, live.list);
-    data.clock = { minutes: live.clock.minutes, label: clockLabel(live.clock) };
+    data.clock = { minutes: live.clock.minutes, max: Math.max(live.clock.minutes, Number(live.clock.max) || 0), label: clockLabel(live.clock) };
   }
 
   const result = mutate(data);
@@ -728,7 +728,7 @@ export class Table extends DurableObject {
       if (msg.t === "setParty") {
         // The party file was just committed from Settings; it is now the live truth.
         const p = parsePartyFile(JSON.stringify(msg.data || {}));
-        state.live = { loaded: true, list: p.list, clock: { minutes: clockMinutes(p.data) }, dirty: 0 };
+        state.live = { loaded: true, list: p.list, clock: clockOf(p.data), dirty: 0 };
         if (msg.removed) {
           for (const s of state.seats) {
             if (sameName(s.character, msg.removed)) { addEvent(state, `${msg.removed} is struck from the game.`, s); s.character = ""; }
@@ -925,7 +925,7 @@ export class Table extends DurableObject {
       const repo = await loadState(this.env);
       const p = parsePartyFile(repo.party);
       if (!p) return null;
-      state.live = { loaded: true, list: p.list, clock: { minutes: clockMinutes(p.data) }, dirty: 0 };
+      state.live = { loaded: true, list: p.list, clock: clockOf(p.data), dirty: 0 };
       return state.live;
     } catch {
       return null;
@@ -1151,7 +1151,12 @@ export class Table extends DurableObject {
         const item = sheet.items[Number(msg.index)];
         if (!item) throw new Error("That item is gone.");
         const on = !item.equipped;
-        if (on && item.kind === "armor") for (const i of sheet.items) if (i.kind === "armor") i.equipped = false;
+        // Two hands: a two-hander takes both (one with Titan's grip), a one-hander or a raised shield takes one.
+        if (on && (item.kind === "weapon" || item.kind === "shield") && handsUsed(sheet, item) + handsFor(sheet, item) > 2) {
+          throw new Error(`Your hands are full: put something away before taking up the ${item.name}.`);
+        }
+        // One armor piece per slot: wearing a new one takes off whatever was in that slot.
+        if (on && item.kind === "armor") for (const i of sheet.items) if (i.kind === "armor" && (i.slot || "body") === (item.slot || "body")) i.equipped = false;
         item.equipped = on;
         const d = derive(sheet);
         sheet.pool = Math.min(sheet.pool, d.maxPool);
@@ -1166,13 +1171,17 @@ export class Table extends DurableObject {
         if (!m || m.kind !== "roll" || m.seatId !== s.id || m.round !== state.round || !m.rid) {
           throw new Error("A lucky break rerolls one of your own rolls from this round.");
         }
-        if (!["check", "save", "attack", "death"].includes(m.rtype)) throw new Error("Lucky breaks reroll d20s, not damage.");
+        if (!["check", "save", "attack", "death"].includes(m.rtype) || m.outcome === "fizzles") throw new Error("Lucky breaks reroll d20s, not damage.");
         const sheet = sheetFor(state, s);
         if (!sheet) throw new Error("Lucky breaks need a character sheet.");
         const d = derive(sheet);
         if (sheet.luckUsed >= d.luckyBreaks) throw new Error(d.luckyBreaks ? "No lucky breaks left today." : "Lucky breaks start at Luck 6.");
         const req = state.requests.find((r) => r.rid === m.rid);
         if (!req) throw new Error("That roll can't be taken back any more.");
+        // Luck is powerful, not a crutch: once a later roll of yours has changed your sheet, an earlier one is locked.
+        const builtOn = state.requests.some((r) => r !== req && r.seatId === s.id && r.round === state.round && r.status === "rolled" &&
+          (r.seq || 0) > (req.seq || 0) && r.before && r.after && JSON.stringify(r.before) !== JSON.stringify(r.after));
+        if (builtOn) throw new Error("Too late for a lucky break on that: something after it already changed your sheet.");
         // Undo the roll and everything that came from it, then roll again. The new result stands.
         if (req.before) restoreSheet(sheet, req.before);
         state.messages = state.messages.filter((x) => x.rid !== m.rid);
@@ -1481,6 +1490,7 @@ function viewMessage(m, canSee) {
 
 function rollLine(m) {
   const what = m.label || m.purpose;
+  if (m.outcome === "fizzles") return `${what || "a cant"}: FIZZLES (${m.note || "not enough Resonance"})`;
   const ctx = [];
   if (m.dc != null) ctx.push(`DC ${m.dc}`);
   if (m.ac != null) ctx.push(`vs AC ${m.ac}`);
@@ -1535,7 +1545,7 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
       tell(lines);
       markDirty(state);
     }
-    req.status = "rolled";
+    finishRequest(state, req, sheet);
     return;
   }
 
@@ -1544,7 +1554,15 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
     const adv = req.adv || [], dis = [...(req.dis || []), ...m.autoDis];
     if (sheet && req.spellTier && !req.paid) {
       const cost = SPELL_COST[req.spellTier];
-      if (sheet.pool < cost) throw new Error(`${sheet.name} doesn't have the Resonance for that: ${cost} needed, ${round2(sheet.pool)} left.`);
+      if (sheet.pool < cost) {
+        // Not enough left by the time it's rolled: the cant fizzles. No cost, no backlash, the round goes on.
+        state.messages.push({
+          id: state.nextId++, kind: "roll", ...base, rtype: req.type, label: req.label, outcome: "fizzles",
+          note: `not enough Resonance: ${cost} needed, ${round2(sheet.pool)} left`, expr: "", total: 0, parts: [], nat: null, mode: null, ts: Date.now(),
+        });
+        finishRequest(state, req, sheet);
+        return;
+      }
       sheet.pool = round2(sheet.pool - cost);
       req.paid = cost;
       markDirty(state);
@@ -1568,7 +1586,7 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
         if (req.spellTier >= 3) { sheet.scarsOwed += 1; tell([`The miscant leaves ${sheet.name} scarred.`]); }
         markDirty(state);
         if (!req.marked) { awardMarks(state, sheet, req, seat); req.marked = true; }
-        req.status = "rolled";
+        finishRequest(state, req, sheet);
         return;
       }
     }
@@ -1585,24 +1603,30 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
     }
     // Which naturals miscant depends on what's cast; Luck 13 only ever takes away the 1.
     const known = sheet && req.spell && !req.fusion && !req.learning ? findSpell(sheet.spells, req.spell) : null;
-    const threshold = miscantOn({ proven: known ? !!known.proven : true, freeform: req.freeform });
+    const threshold = miscantOn({ freeform: req.freeform, tier: req.spellTier || 1 });
     const miscant = !!(sheet && req.spellTier && CANTING_SKILLS.includes(req.skill) && face != null &&
       face <= threshold && !(face === 1 && d?.noFumble));
     if (miscant) outcome = "miscant";
     const worked = !miscant && !["failure", "miss"].includes(outcome);
     push(r, { rtype: req.type, label: req.label, dc: req.dc, ac: req.ac, adv, dis, outcome, modFrom: m.from, spellTier: req.spellTier || undefined });
 
-    if (sheet && worked && known && !known.proven) {
-      known.proven = true;
-      tell([`${sheet.name} has proven ${known.name}: it holds now.`]);
-      markDirty(state);
-    }
     if (sheet && worked && req.fusion && !findSpell(sheet.spells, req.spell)) {
-      sheet.spells.push({ name: req.spell, tier: 6, proven: true, custom: true, text: `fused from ${req.fusion.join(" + ")}` });
+      sheet.spells.push({ name: req.spell, tier: 6, custom: true, text: `fused from ${req.fusion.join(" + ")}` });
       tell([`${sheet.name} fuses ${req.fusion.join(" and ")} into a working of their own: ${req.spell}.`]);
       markDirty(state);
+    }
+    // Overclock: a d4 after it works. 1 runs the minute then breaks; 2-3 as written; 4 runs two minutes.
+    if (worked && req.spell && /^overclock$/i.test(req.spell)) {
+      const oc = rollDice("d4");
+      const how = oc.total === 1 ? "runs hot for the minute, then breaks" : oc.total === 4 ? "holds: double output for two minutes, and keeps working" : "double output for a minute, and keeps working";
+      push(oc, { rtype: "overclock", label: `Overclock: the device ${how}`, outcome: oc.total === 1 ? "breaks" : oc.total === 4 ? "doubled" : "holds" });
+    }
+    if (sheet && worked && req.freeform && req.spell && !findSpell(sheet.spells, req.spell)) {
+      sheet.spells.push({ name: req.spell, tier: req.spellTier, custom: true, skill: req.skill, text: "worked out in the root-language" });
+      tell([`${sheet.name}'s improvised cant holds: ${req.spell} is theirs now (tier ${req.spellTier}).`]);
+      markDirty(state);
     } else if (sheet && worked && req.learning && !findSpell(sheet.spells, req.spell)) {
-      sheet.spells.push({ name: req.spell, tier: req.spellTier, proven: true });
+      sheet.spells.push({ name: req.spell, tier: req.spellTier });
       tell([`${sheet.name} has learned ${req.spell} by casting it.`]);
       markDirty(state);
     }
@@ -1629,7 +1653,15 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
     awardMarks(state, sheet, req, seat);
     req.marked = true;
   }
+  finishRequest(state, req, sheet);
+}
+
+// Remember when a request was rolled and what it left the sheet like, so a
+// lucky break can tell whether anything after it already built on the result.
+function finishRequest(state, req, sheet) {
   req.status = "rolled";
+  req.seq = state.nextId;
+  if (sheet) req.after = snapSheet(sheet);
 }
 
 // Stat + skill (+ situational extra) when the sheet and the request say which;
@@ -1645,8 +1677,8 @@ function computeMod(sheet, req) {
   if (extra) from.push(`situational ${signed(extra)}`);
   const autoDis = [];
   if (req.type !== "death" && (req.stat === "agility" || CANTING_SKILLS.includes(req.skill))) {
-    for (const a of equipped(sheet).filter((i) => i.kind === "armor" && SKILLS[i.armor])) {
-      if (skillRank(sheet, a.armor) === 0) autoDis.push(`untrained in ${SKILLS[a.armor].toLowerCase()}`);
+    for (const sk of new Set(equipped(sheet).filter((i) => i.kind === "armor" && SKILLS[i.armor]).map((i) => i.armor))) {
+      if (skillRank(sheet, sk) === 0) autoDis.push(`untrained in ${SKILLS[sk].toLowerCase()}`);
     }
   }
   return { total: sm + sk + extra, from: from.join(", "), autoDis };
@@ -1719,6 +1751,10 @@ function clockMinutes(data) {
   const m = Number(data?.clock?.minutes);
   return Number.isFinite(m) && m >= 0 ? Math.trunc(m) : DAWN;
 }
+function clockOf(data) {
+  const minutes = clockMinutes(data);
+  return { minutes, max: Math.max(minutes, Math.trunc(Number(data?.clock?.max) || 0)) };
+}
 
 function parsePartyFile(text) {
   let data;
@@ -1734,7 +1770,7 @@ function buildPartyFile(repoText, live) {
   try { data = JSON.parse(repoText || "{}"); } catch { data = {}; }
   if (!data || typeof data !== "object" || Array.isArray(data)) data = {};
   data.party = mergeParty(partyList(data), live.list);
-  data.clock = { minutes: live.clock.minutes, label: clockLabel(live.clock) };
+  data.clock = { minutes: live.clock.minutes, max: Math.max(live.clock.minutes, Number(live.clock.max) || 0), label: clockLabel(live.clock) };
   return JSON.stringify(data, null, 2) + "\n";
 }
 
@@ -1745,13 +1781,18 @@ function mergeParty(repoList, liveList) {
 }
 
 // Time passes for everyone: pools refill, and each dawn resets the daily things.
+// Only time beyond the furthest the clock has ever been pays out, so setting it
+// back and running it forward again never refills or resets anything twice.
 function advanceClock(state, minutes) {
   const live = state.live;
   if (!live?.loaded || minutes <= 0) return;
   const from = live.clock.minutes, to = from + minutes;
-  const dawns = dawnsBetween(from, to);
-  for (const c of live.list) if (isSheet(c)) passTime(c, minutes, dawns);
+  const furthest = Math.max(from, Number(live.clock.max) || 0);
+  const pay = Math.max(0, to - furthest);
+  const dawns = pay ? dawnsBetween(furthest, to) : 0;
+  if (pay) for (const c of live.list) if (isSheet(c)) passTime(c, pay, dawns);
   live.clock.minutes = to;
+  live.clock.max = Math.max(furthest, to);
   markDirty(state);
   if (dawns) addEvent(state, dawns === 1 ? `Dawn breaks: ${clockLabel(live.clock).split(",")[0]}.` : `${dawns} dawns pass. It is now ${clockLabel(live.clock)}.`);
 }
@@ -1787,13 +1828,17 @@ function applySheetOp(state, op) {
     const i = sheet.items.findIndex((x) => sameName(x.name, op.remove_item));
     if (i >= 0) out.push(`${sheet.name} loses ${sheet.items.splice(i, 1)[0].name}.`);
   }
-  if (op.item_condition) {
-    const it = sheet.items.find((x) => sameName(x.name, op.item_condition.name));
-    if (it) { it.condition = op.item_condition.condition; out.push(`${sheet.name}'s ${it.name} is now ${it.condition.toLowerCase()}.`); }
+  if (op.break_item) {
+    const it = sheet.items.find((x) => sameName(x.name, op.break_item));
+    if (it) { it.broken = true; out.push(`${sheet.name}'s ${it.name} breaks.`); }
+  }
+  if (op.repair_item) {
+    const it = sheet.items.find((x) => sameName(x.name, op.repair_item));
+    if (it) { it.broken = false; out.push(`${sheet.name}'s ${it.name} is repaired.`); }
   }
   if (op.learn_spell) {
     sheet.spells.push(op.learn_spell);
-    out.push(`${sheet.name} learns ${op.learn_spell.name} (tier ${op.learn_spell.tier}). Unproven until it's cast successfully.`);
+    out.push(`${sheet.name} learns ${op.learn_spell.name} (tier ${op.learn_spell.tier}).`);
   }
   if (op.add_scar) {
     sheet.scars.push(op.add_scar);
@@ -1924,16 +1969,18 @@ function buildSystemPrompt(state, sel, party) {
   - Which stat: melee attacks Strength (Agility for daggers and finesse), ranged attacks Perception, cants and resisting cants Resonance, noticing Perception, knowledge and devices Intelligence, persuasion and lies Charisma, reflexes and stealth Agility, enduring Endurance. Luck is never rolled.
   - Which skill: the weapon's size for melee, Ranged for bows and thrown, Canting or Ranged canting for spells, Heavy armor for blocking with a shield, and Survival, Medicine, Creation, Thievery, Performance or Artifice for those crafts. Leave the skill out when none fits; anyone can try anything on a stat alone.
   - A character without a sheet: give the whole modifier yourself (usually -1 to +5).
-  - Spells: a character casts the spells on their sheet (give "spell" with its name; the server knows its tier and whether it is proven). Anything else is a freeform cant (freeform: true plus spell_tier). Unproven spells and freeform cants miscant on a natural 1 or 2; the server handles it. A character can't cast above their tier or without the Resonance for it; the server refuses and tells you. Devices can reach higher tiers (device: true).
-  - Spells are learned by being taught or found (update_sheet learn_spell; they start unproven), or by casting one the character doesn't know yet (request_rolls with learning: true): a straight d8 first, failing and miscasting on the spell's tier or lower, so a tier-4 spell is a coin flip. Make teachers and tomes worth their price: coin, service or standing.
-  - TIER 6 has no list. Only a Resonance 13 canter reaches it, and writes their own: developed over about a week of downtime (learn_spell with tier 6 and one sentence), or fused from two known tier-5 or three known tier-4 spells: meditated overnight (update_sheet learn_spell with fused_from; it starts unproven) or mid-fight (request_rolls with fusion and the new working's name in spell; the d8 fails on 1-6). Judge every working against the tier-6 benchmarks. It can never undo death, bend a mind of glass, or touch the bank. It can reach the Rim, but nothing that comes back can be read, and you never explain it. Every tier-6 cast is felt across the continent; the powers notice.
-  - Use update_sheet for everything that changes a sheet: damage you deal and healing, coin gained or paid, items gained, lost or damaged, Resonance spent outside a rolled cant, a dying character stabilised, and scars. The server handles dropping to 0, dying, death saves (it asks for them itself every round) and the rest.
+  - Spells: a character casts the spells on their sheet (give "spell" with its name; the server knows its tier). Anything else is a freeform cant (freeform: true, spell_tier, and a short name in spell): its first cast miscants on a natural 1 up to its tier, and if it works it becomes the caster's own spell. The server handles all of it. A character can't cast above their tier or without the Resonance for it; the server refuses and tells you. Devices can reach higher tiers (device: true).
+  - Spells are learned by being taught or found (update_sheet learn_spell; a learned spell miscants only on a 1), or by casting one the character doesn't know yet (request_rolls with learning: true): a straight d8 first, failing and miscasting on the spell's tier or lower, so a tier-4 spell is a coin flip. Make teachers and tomes worth their price: coin, service or standing.
+  - TIER 6 has no list. Only a Resonance 13 canter reaches it, and writes their own: developed over about a week of downtime (learn_spell with tier 6 and one sentence), or fused from two known tier-5 or three known tier-4 spells: meditated overnight (update_sheet learn_spell with fused_from) or mid-fight (request_rolls with fusion and the new working's name in spell; the d8 fails on 1-6). Judge every working against the tier-6 benchmarks. It can never undo death, bend a mind of glass, or touch the bank. It can reach the Rim, but nothing that comes back can be read, and you never explain it. Every tier-6 cast is felt across the continent; the powers notice.
+  - Use update_sheet for everything that changes a sheet: damage you deal and healing, coin gained or paid, items gained, lost, broken or repaired, Resonance spent outside a rolled cant, a dying character stabilised, and scars. The server handles dropping to 0, dying, death saves (it asks for them itself every round) and the rest.
+  - Overclock rolls its own d4 when it works: on a 1 the device breaks after its minute (break_item, if it's on a sheet); on a 4 it runs two minutes.
+  - Hands: a character holds at most two hands' worth (a two-hander is two, a one-hander or raised shield one; Titan's grip makes a two-hander one). The sheet shows what is in hand; don't narrate more than that.
   - Scars are pure story: when a sheet says a scar is OWED, write one that fits how it happened (one short line) with add_scar.
   - Lucky breaks: a player may say they spend one against a roll made against them. Reroll it with roll_dice and lucky_break set to their name; the new result stands. Their own rolls they reroll themselves.
   - TIME. Every scene tag carries time=<how much passed in this beat>: +2m for a few blows, +20m for a search, +3h for a march, +8h for a night's rest. The server keeps the clock, refills Resonance and resets daily things at dawn from it.
   - For everything else (NPCs, monsters, hazards, damage you deal, random tables) call the roll_dice tool and narrate from the number it returns. Never invent or adjust a die result.
   - Your own rolls may be hidden from the players; describe outcomes in the fiction rather than announcing your numbers.
-- The rules system is unfinished (see RULES). When an outcome is uncertain and matters, say so, propose how it could be resolved, and mark any mechanic you introduce as [PROVISIONAL] so the table can adopt or reject it.
+- The rules are adopted and the server enforces them. Never invent a mechanic for something the rules already cover. Only when a situation truly isn't covered, resolve it narratively or propose a ruling, mark it [PROVISIONAL], and let the table decide.
 
 ## CORE CANON (always true; do not alter)
 ${block(core)}
@@ -2058,9 +2105,9 @@ DICE_TOOLS.push({
               stat: { type: "string", enum: STATS, description: "The stat the roll uses. The server adds its modifier from the sheet." },
               skill: { type: "string", enum: Object.keys(SKILLS), description: "The skill the roll uses, if any. The server adds its bonus from the sheet and counts the use toward learning it." },
               modifier: { type: "integer", description: "With a sheet: only situational extras (cover, a good tool), usually 0. Without a sheet: the whole modifier." },
-              spell: { type: "string", description: "For a cant: the spell's name as on the caster's sheet. The server takes its tier from there, and knows whether it is proven." },
+              spell: { type: "string", description: "For a cant: the spell's name as on the caster's sheet. The server takes its tier from there." },
               spell_tier: { type: "integer", minimum: 1, maximum: 6, description: "For a freeform cant (or a new tier-6 fusion): its tier. Known spells take their tier from the sheet." },
-              freeform: { type: "boolean", description: "A cant improvised from the root-language grammar, not a spell the caster knows. Miscants on a natural 1 or 2." },
+              freeform: { type: "boolean", description: "A cant improvised from the root-language grammar (tiers 1-5), not a spellbook spell. Name it in 'spell'. Its first cast miscants on a natural 1 up to its tier; if it works, it becomes the caster's own spell." },
               learning: { type: "boolean", description: "Casting a spellbook spell the caster does NOT know yet (worked out from theory or watching). A straight d8 first: equal to or lower than the tier miscasts. If the cast works, they learn it." },
               fusion: { type: "array", items: { type: "string" }, description: "Tier 6 only, mid-fight: the known spells being fused right now (two tier-5 or three tier-4); name the new working in 'spell'. Learning by casting at tier 6: the d8 fails on 1-6. On a success it goes on the sheet. (A fusion meditated overnight is update_sheet learn_spell with fused_from instead.)" },
               device: { type: "boolean", description: "For a cant through a device that lets the caster reach above their own tier." },
@@ -2140,12 +2187,14 @@ DICE_TOOLS.push({
             kind: { type: "string", enum: ["weapon", "armor", "shield", "tool", "device", "other"] },
             tier: { type: "integer", minimum: 1, maximum: 5, description: "1 Common, 2 Guild, 3 Superior, 4 Relic, 5 Unique" },
             quality: { type: "string", enum: ["Crude", "Standard", "Fine", "Exceptional", "Masterwork"] },
-            condition: { type: "string", enum: ["Pristine", "Worn", "Damaged", "Broken"] },
+            broken: { type: "boolean", description: "Found or given already broken" },
             legality: { type: "string", enum: ["Legal", "Licensed", "Restricted", "Contraband"] },
             skill: { type: "string", enum: Object.keys(SKILLS) },
-            armor: { type: "string", enum: ["light_armor", "heavy_armor"], description: "For armor: which skill wearing it trains" },
-            ac: { type: "integer", description: "For armor: Armor Class it adds" },
+            armor: { type: "string", enum: ["light_armor", "heavy_armor"], description: "For armor: light or heavy" },
+            slot: { type: "string", enum: ["head", "hands", "body", "legs", "feet"], description: "For armor: the slot it's worn in. AC follows from slot and weight unless given." },
+            ac: { type: "integer", description: "For armor: AC it adds, only to override the standard (light: body +1, legs +1, others 0; heavy: body +2, others +1)" },
             damage: { type: "string", description: "For weapons: damage dice" },
+            two_handed: { type: "boolean", description: "For weapons that need both hands (greatswords, halberds, bows, crossbows, staves)" },
             pool: { type: "integer", description: "For Resonance gear: pool it adds while worn" },
             recovery: { type: "number", description: "For Resonance gear: extra recovery per hour, as a fraction of the pool (0.05 = 5%)" },
             note: { type: "string" },
@@ -2153,15 +2202,12 @@ DICE_TOOLS.push({
           required: ["name"],
         },
         remove_item: { type: "string", description: "Name of an item lost, sold or used up" },
-        item_condition: {
-          type: "object",
-          properties: { name: { type: "string" }, condition: { type: "string", enum: ["Pristine", "Worn", "Damaged", "Broken"] } },
-          required: ["name", "condition"],
-        },
+        break_item: { type: "string", description: "Name of an item that breaks: it does nothing until repaired" },
+        repair_item: { type: "string", description: "Name of a broken item that's been repaired (Mend for Common items, or paid for: 25% of its price)" },
         add_scar: { type: "string", description: "One short line: the scar and how it came to be. Only when the sheet says a scar is OWED." },
         learn_spell: {
           type: "object",
-          description: "The character learns a spell: taught, found, or worked out. A spellbook spell needs only its name. A working of their own (a developed tier-6, or a custom spell) needs tier and text. It starts unproven.",
+          description: "The character learns a spell: taught, found, or worked out. A spellbook spell needs only its name. A working of their own (a developed tier-6, or a custom spell) needs tier and text.",
           properties: {
             name: { type: "string" }, tier: { type: "integer", minimum: 1, maximum: 6 },
             text: { type: "string", description: "For their own working: one sentence of what it does" },
@@ -2204,7 +2250,6 @@ function parseRequests(args, seats, party = [], book = []) {
     if (sheet && sheet.stats) {
       if (sheet.dead) { problems.push(`${sheet.name} is dead`); continue; }
       if (sheet.dying) { problems.push(`${sheet.name} is unconscious; the only roll they make is a death save, and the server asks for that itself`); continue; }
-      if (!req.stat && ["check", "save", "attack"].includes(type)) problems.push(`${r.label}: no stat given, so ${sheet.name} rolls with only the modifier you gave. Give a stat next time.`);
       // Spells: known ones take their tier from the sheet; fusion and freeform are checked here.
       if (req.fusion) {
         const parts = req.fusion.map((n) => findSpell(sheet.spells, n));
@@ -2219,25 +2264,37 @@ function parseRequests(args, seats, party = [], book = []) {
         req.spellTier = 6;
         req.freeform = false;
         req.learning = true;   // fusing mid-fight is learning by casting at tier 6
-      } else if (req.spell && !req.freeform) {
+      } else if (req.spell && findSpell(sheet.spells, req.spell)) {
         const known = findSpell(sheet.spells, req.spell);
-        if (known) {
+        req.freeform = false;
+        {
           req.spell = known.name;
           req.spellTier = known.tier;
           req.learning = false;
-          if (!req.skill) req.skill = findSpell(book, known.name)?.skill || "canting";
-        } else {
+          req.skill = findSpell(book, known.name)?.skill || known.skill || (CANTING_SKILLS.includes(req.skill) ? req.skill : "canting");
+        }
+      } else if (req.spell && (!req.freeform || findSpell(book, req.spell))) {
+        {
           const inBook = findSpell(book, req.spell);
+          if (inBook && req.freeform) { req.freeform = false; req.learning = true; }   // a spellbook spell is learned with the d8, never "improvised"
           if (!inBook) { problems.push(`${r.label}: "${req.spell}" isn't in the spellbook and ${sheet.name} doesn't know it. Cast it as freeform, or teach a working of their own with update_sheet learn_spell`); continue; }
           if (!req.learning) { problems.push(`${r.label}: ${sheet.name} doesn't know ${inBook.name}. To try it anyway, set learning: true (a d8 first, failing on ${inBook.tier} or lower); or teach it with update_sheet learn_spell`); continue; }
           req.spell = inBook.name;
           req.spellTier = inBook.tier;
-          if (!req.skill) req.skill = inBook.skill;
+          req.skill = inBook.skill;
         }
-      } else if (req.freeform && !req.spellTier) {
-        problems.push(`${r.label}: a freeform cant needs a spell_tier`); continue;
+      } else if ((req.freeform || (req.spellTier && !req.spell)) && !req.fusion) {
+        // Improvised from the root-language: on its first cast it miscants on 1 up to its tier;
+        // once it works, it's the caster's own spell (named after the roll if the GM gave no name).
+        if (!req.spellTier) { problems.push(`${r.label}: a freeform cant needs a spell_tier`); continue; }
+        if (req.spellTier === 6) { problems.push(`${r.label}: tier 6 is never freeform; it is developed or fused`); continue; }
+        req.freeform = true;
+        req.spell = req.spell || req.label;
       }
-      if (req.spellTier && !req.skill) req.skill = "canting";
+      // Every cant rolls Canting or Ranged canting, on Resonance unless the GM names another stat.
+      if (req.spellTier && !CANTING_SKILLS.includes(req.skill)) req.skill = "canting";
+      if (req.spellTier && !req.stat && ["check", "save", "attack"].includes(type)) req.stat = "resonance";
+      if (!req.stat && ["check", "save", "attack"].includes(type)) problems.push(`${r.label}: no stat given, so ${sheet.name} rolls with only the modifier you gave. Give a stat next time.`);
       if (req.spellTier) {
         const d = derive(sheet);
         if (req.spellTier === 6 && sheet.capstone !== "resonance") { problems.push(`${r.label}: tier 6 needs Resonance 13; ${sheet.name} can't cast it, with or without a device`); continue; }
@@ -2283,11 +2340,17 @@ function parseSheetOp(args, party, book = []) {
     const it = args.add_item, item = { name: clean(it.name, 80), kind: ["weapon", "armor", "shield", "tool", "device", "other"].includes(it.kind) ? it.kind : "other" };
     item.tier = Math.min(5, Math.max(1, Math.trunc(num(it.tier)) || 1));
     item.quality = ["Crude", "Standard", "Fine", "Exceptional", "Masterwork"].includes(it.quality) ? it.quality : "Standard";
-    item.condition = ["Pristine", "Worn", "Damaged", "Broken"].includes(it.condition) ? it.condition : "Pristine";
+    if (it.broken) item.broken = true;
     item.legality = ["Legal", "Licensed", "Restricted", "Contraband"].includes(it.legality) ? it.legality : "Legal";
     if (SKILLS[it.skill]) item.skill = it.skill;
     if (["light_armor", "heavy_armor"].includes(it.armor)) item.armor = it.armor;
+    if (item.kind === "armor") {
+      item.armor = item.armor || "light_armor";
+      item.slot = ["head", "hands", "body", "legs", "feet"].includes(it.slot) ? it.slot : "body";
+      item.ac = ARMOR_AC[item.armor][item.slot];
+    }
     if (num(it.ac)) item.ac = Math.trunc(num(it.ac));
+    if (it.two_handed) item.twoHanded = true;
     if (it.damage) { try { rollDice(String(it.damage)); item.damage = String(it.damage).replace(/\s+/g, ""); } catch {} }
     if (num(it.pool)) item.pool = Math.trunc(num(it.pool));
     if (num(it.recovery)) item.recovery = Math.min(1, Math.max(0, num(it.recovery)));
@@ -2296,9 +2359,8 @@ function parseSheetOp(args, party, book = []) {
     op.add_item = item;
   }
   if (args.remove_item) op.remove_item = clean(String(args.remove_item), 80);
-  if (args.item_condition?.name && ["Pristine", "Worn", "Damaged", "Broken"].includes(args.item_condition.condition)) {
-    op.item_condition = { name: clean(String(args.item_condition.name), 80), condition: args.item_condition.condition };
-  }
+  if (args.break_item) op.break_item = clean(String(args.break_item), 80);
+  if (args.repair_item) op.repair_item = clean(String(args.repair_item), 80);
   if (args.add_scar) op.add_scar = clean(String(args.add_scar), 200);
   if (args.learn_spell?.name) {
     const name = clean(String(args.learn_spell.name), 80);
@@ -2313,14 +2375,14 @@ function parseSheetOp(args, party, book = []) {
       const tiers = parts.map((x) => x.tier);
       const ok = (tiers.length === 2 && tiers.every((t) => t === 5)) || (tiers.length === 3 && tiers.every((t) => t === 4));
       if (!ok) return { error: "A fusion takes two tier-5 spells or three tier-4 spells." };
-      op.learn_spell = { name, tier: 6, proven: false, custom: true, text: clean(String(args.learn_spell.text || ""), 240) || `fused from ${parts.map((x) => x.name).join(" + ")}` };
-    } else if (fromBook) op.learn_spell = { name: fromBook.name, tier: fromBook.tier, proven: false };
+      op.learn_spell = { name, tier: 6, custom: true, text: clean(String(args.learn_spell.text || ""), 240) || `fused from ${parts.map((x) => x.name).join(" + ")}` };
+    } else if (fromBook) op.learn_spell = { name: fromBook.name, tier: fromBook.tier };
     else {
       const tier = Math.trunc(num(args.learn_spell.tier));
       const text = clean(String(args.learn_spell.text || ""), 240);
       if (!(tier >= 1 && tier <= 6) || !text) return { error: `${name} isn't in the spellbook. For a working of their own, give tier (1-6) and one sentence of text.` };
       if (tier === 6 && c.capstone !== "resonance") return { error: `Only a Resonance 13 canter can write a tier-6 working.` };
-      op.learn_spell = { name, tier, proven: false, custom: true, text };
+      op.learn_spell = { name, tier, custom: true, text };
     }
   }
   if (Object.keys(op).length === 1) return { error: "Nothing to change. Give damage, heal, purse, an item, a scar, or another field." };

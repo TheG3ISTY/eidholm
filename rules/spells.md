@@ -7,7 +7,7 @@ Status: **adopted.** The server reads the named spells straight from the tables 
 ## How the spellbook works
 
 - **Named protocols** at every tier from 1 to 5: taught, reliable, written down in academies and guild manuals.
-- **Freeform cants** built from the root-language grammar: anything the caster can phrase, priced by the tier its effect reaches. Riskier than a protocol.
+- **Freeform cants** built from the root-language grammar: anything the caster can phrase, priced by the tier its effect reaches (1 to 5). The first cast is the risk; once it works, it is the caster's own spell.
 - **Tier 6 has no list at all.** See below.
 
 Costs and limits are on the Characters page (pool, recovery, highest tier unaided, miscants).
@@ -20,14 +20,14 @@ A canter can only cast the named spells they know. Spells are learned three ways
 - **Found:** from manuals, etched beads, salvaged arrays, a dead canter's notes.
 - **By doing:** working it out from theory or from watching it cast, then trying it for real.
 
-Taught and found spells go on the sheet **unproven** until they have been cast successfully once.
+A spell that was taught or found is **learned**: it goes on the sheet and miscants only on a natural 1.
 
 ### Learning by casting
 
 Casting a spell that is not on the sheet yet is a gamble the canter takes before the cant even starts:
 
 - Roll a **straight d8**. **Equal to or lower than the spell's tier, it fails and miscasts**: the Resonance is spent and the backlash for its tier lands.
-- Higher, and the cast goes ahead as normal. If it works, the spell goes on the sheet, **proven**: it has been cast successfully.
+- Higher, and the cast goes ahead as normal. If it works, the spell is **learned** and goes on the sheet.
 
 | Tier | 1 | 2 | 3 | 4 | 5 | 6 |
 |---|---|---|---|---|---|---|
@@ -40,10 +40,11 @@ That is the point: low spells can be picked up on the street, but anyone who tri
 
 | What is being cast | Miscants on a natural |
 |---|---|
-| A **proven** spell (cast successfully before) | 1 |
-| An **unproven** spell (taught or found, never yet cast successfully) | 1 or 2 |
-| A **freeform** cant | 1 or 2 |
-| A spell **not on the sheet** (learning by casting) | the d8 above, then 1 |
+| A **learned** spell (on the sheet: taught, found, or cast successfully once) | 1 |
+| A **freeform** cant, first cast | 1 up to its tier (1–2 at tier 2, 1–3 at tier 3, …) |
+| A spellbook spell **not on the sheet** (learning by casting) | the d8 above, then 1 |
+
+A freeform cant that works goes on the sheet as the caster's own spell, **learned**: from then on it miscants only on a 1. A spellbook spell is never "improvised": casting one you don't know is always the d8.
 
 Luck 13 removes only the natural 1, never the rest. Backlash always follows the tier (see Characters).
 
@@ -56,7 +57,7 @@ The first handshakes. What a Choir novice learns first, what a hedge-witch etche
 | Spell | What it does | Roll |
 |---|---|---|
 | **Spark Query** | "A fireball is a query." A thrown mote of fire, 2d6; sets loose things alight. | Ranged canting vs AC |
-| **Mend** | Repairs one condition step on a Common item (Damaged → Worn), or a small break: a strap, a lock spring, a cracked lens. | DC 12 |
+| **Mend** | Repairs a broken Common item, or a small break: a strap, a lock spring, a cracked lens. | DC 12 |
 | **Stitch** | Closes a wound: heals 1d8 + Resonance modifier. The Choir's oldest kindness. | DC 10 |
 | **Kindle Ward** | A thin personal ward on one person; soaks the next 5 damage, for the scene. | DC 10 |
 | **Listen** | Hear the Lattice nearby: active devices, cants being cast, minds of glass, within 30 m. | vs whatever hides |
@@ -81,7 +82,7 @@ What the trade actually runs on: a guild engineer's daily cants, a League duelis
 | **Borrowed Eyes** | See and hear through a device or an animal within 100 m, for ten minutes. | DC 12; devices may resist |
 | **Static Veil** | Devices and the senses of minds of glass slide past the caster for ten minutes. Eyes still see them. | vs whatever watches |
 | **Machine Tongue** | Question a non-sapient device: what it saw, what it is for, who made it. | DC 12 |
-| **Overclock** | A device runs at double output for a minute, then drops one condition step. | DC 12 |
+| **Overclock** | A device runs at double output for a minute. Then roll a **d4**: **1**, it breaks once the minute is up; **2–3**, it keeps working; **4**, the overclock lasts two minutes and it keeps working. | DC 12 |
 
 ## Tier 3 · 8 Resonance
 
@@ -149,8 +150,8 @@ Every tier-6 working is written by its caster, in play. Two ways:
 
 - **Developed:** composed from nothing in the root-language during downtime, about **a week of in-game time**. Anything within the scale below.
 - **Fused:** the fast road. Weave **two tier-5 spells or three tier-4 spells** the canter knows into one working that does what its parts do, at tier-6 scale (Ashfall + Quake becomes a burning collapse across a whole city quarter). Custom spellweaving at its peak. Two ways to do it:
-  - **Meditated:** a quiet night, about **8 hours** of downtime. The working goes on the sheet unproven, like a spell that was taught.
-  - **Mid-fight:** the weaving is the cast, right now, for the usual 39 Resonance. That is learning by casting at tier 6: the **d8 fails on 1–6, three times in four**. If it holds, the working goes on the sheet, proven.
+  - **Meditated:** a quiet night, about **8 hours** of downtime. The working goes on the sheet, learned, like a spell that was taught.
+  - **Mid-fight:** the weaving is the cast, right now, for the usual 39 Resonance. That is learning by casting at tier 6: the **d8 fails on 1–6, three times in four**. If it holds, the working goes on the sheet, learned.
 - Either way the result is theirs: named, on their sheet, castable again. The player states in one sentence what it does; the GM checks it against the benchmarks and accepts it, or says where it reaches too far.
 
 ### The scale
