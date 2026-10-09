@@ -2067,6 +2067,7 @@ function buildConversation(state) {
       { const nudge = rollReminder(state, acts); if (nudge) content += "\n\n" + nudge; }
       content += `\n\nAt the table now: ${present.join(", ") || "nobody"}.` +
         (absent.length ? ` Absent (elsewhere, do not narrate them acting): ${absent.join(", ")}.` : "");
+      if (acts.some((m) => m.kind === "act")) content += "\n\n" + YOUR_TURN;
     }
     out.push({ role: "user", content });
     if (gm) out.push({
@@ -2077,6 +2078,9 @@ function buildConversation(state) {
   }
   return out;
 }
+
+// Last thing the GM reads each round: small models drift into retelling the players' actions.
+const YOUR_TURN = "(Now write what happens next. The actions above are already done and said: do not repeat, rephrase or narrate them again, and do not write any new words or choices for those characters. Begin with the world's response. Anyone asked a question answers it now, in this reply.)";
 
 // Said every round, louder after rounds of none: the small model tends to narrate past the dice.
 const ROLL_DROUGHT = 3;
