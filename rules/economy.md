@@ -86,6 +86,8 @@ Mixed deals are normal: "80,000 cv and you bring my daughter's Echo back from th
 | Irregular income (most adventurers) | 12–18% |
 | Nothing to show | 20–25%, collateral demanded, or refused |
 
+- **Debts live on the sheet:** to whom, how much, on what terms. A purse never goes below zero: what can't be paid either isn't bought, or becomes a debt.
+
 Savings earn 1–3%.
 
 - **Regional prices:** one currency; local prices shift with distance and scarcity. The GM handles it in the moment.
@@ -110,6 +112,8 @@ Every item carries its tier, quality and legality, and can break:
 | Fine | noticeably better than it should be | ×2 |
 | Exceptional | a maker's masterpiece; people recognise it | ×4 |
 | **Masterwork** | beyond what the trade can teach; **only an Intelligence 13 character can make it** (the Intelligence capstone) | ×8 |
+
+**Masterwork is vanishingly rare.** A handful of pieces exist in the world, made by hands long gone or by makers no one names. **No owner parts with one willingly:** they are never in a shop, never casual loot, never simply sold. One changes hands only through the story: taken, inherited, or paid for with a debt no sane person would take on.
 
 **Broken or not.** Gear doesn't wear down step by step: an item works, or it's **broken** and does nothing (broken armor adds no AC, broken Resonance gear adds nothing) until it's repaired. Repair costs **25% of its price**, or a **Mend** for a Common item. The story decides when something breaks: a hauberk torn apart in a fight, a staff cracked by a miscant, a device burnt out by a bad Overclock.
 

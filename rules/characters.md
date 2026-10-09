@@ -51,7 +51,7 @@ Eight stats, each from 1 to 10.
 | **Intelligence 13** | Masterwork | The true artificer: everything you make with Creation comes out **one quality step above** what the roll gave (Crude → Standard → Fine → Exceptional → **Masterwork**). Masterwork quality exists only through this capstone: nothing else makes it. You also work any lattice device on first touch with no skill penalty. |
 | **Agility 13** | Pinpoint | Once per combat encounter, **choose the face of every die** in one of your attacks, however many dice it has. A chosen 20 is a natural 20. |
 | **Luck 13** | Never fumble | No critical failures: a natural 1 is just a 1 (it adds your modifier and can still miss), never an automatic miss, and **a natural 1 never miscants.** It removes the critical failure only: the wider miscant range of a freeform cant's first cast still applies, and the d8 for learning by casting has no critical failure to remove. |
-| **Resonance 13** | Tier 6 | The only way to cast **tier 6** spells. Nothing else unlocks them: no device, gear, ritual, assist or mind of glass. |
+| **Resonance 13** | Tier 6 | The only way to cast **tier 6** spells. Nothing else unlocks them: no focus, device, gear, ritual, assist or mind of glass. |
 
 ## Derived numbers
 
@@ -94,7 +94,7 @@ All are recalculated from the **current** sheet (raising Endurance raises HP for
 | **Recovery** | **12.5% of the maximum pool per in-game hour**, rest or no rest (empty to full in 8 hours) |
 | **What raises what** | Resonance raises the pool only. Gear can raise the pool **and** the recovery rate. Gear never raises the Resonance stat itself. |
 | **Spell cost** | tier 1: 2 · tier 2: 4 · tier 3: 8 · tier 4: 14 · tier 5: 22 · **tier 6: 39** |
-| **Highest tier unaided** | Resonance ÷ 2, rounded down (a 1 cannot cant without a device; devices reach higher tiers). Tier 6: Resonance 13 only, period. |
+| **Highest tier** | Resonance ÷ 2, rounded down, **plus the best focus worn or in hand**: a Common focus +1, Guild +2, Superior +3 (so a Resonance 2–3 canter casts tier 1 with a bead). Never above tier 5. **Tier 6: Resonance 13 only, period**; no focus opens it. |
 
 ### Miscants
 
@@ -187,7 +187,8 @@ Shields are **held, never worn.** A shield needs a hand, a direction, and a mome
 
 **Two hands.** What a character holds is marked on the sheet (*Take up* / *Put away*): a two-handed weapon takes both hands, a one-handed weapon or a raised shield takes one, and nothing more fits. Titan's grip makes a two-handed weapon take one hand. Starting weapons and shields are in hand, as far as two hands allow.
 
-- **Against ranged attacks (cants and projectiles alike):** a **raised** shield absorbs everything coming from the direction it faces, into its own pool of **500 to 1,500**, by quality. When the pool is spent, it **shatters**. Smashing a real shield takes a sustained barrage: rare and dramatic.
+- **Against ranged attacks (cants and projectiles alike):** a **raised** shield (in hand) absorbs everything coming from the direction it faces, into its own pool of **500 to 1,500**, by quality. When the pool is spent, it **shatters**: broken until repaired, then full again. Smashing a real shield takes a sustained barrage: rare and dramatic.
+- **The pool refills by itself:** 1/24 of it per in-game hour (about 4.17%), so empty to full takes a day. A shattered shield doesn't refill until it's repaired.
 - A shield at your side does nothing; **attacks from the flank or behind go straight through.** Keeping it raised costs a hand and slows you as if heavily laden.
 - **Against melee, the block:** once per round, an aware shield-bearer may roll **d20 + Agility modifier + Heavy armor skill** against the attack's total. Win: the blow lands on the shield's pool instead. Lose: it gets past.
 - **Blocking a small melee weapon is at disadvantage**: daggers slip past shields.
@@ -211,8 +212,8 @@ A fresh character starts with **50 cv**, clothes, a pack, and **3 items** of the
 | Sword (medium melee) | Battered lattice-shield, pool 500 (heavy armor) | Field kit: rope, tarp, flint (Survival) |
 | Mace (medium melee) | | Tinker's case (Creation) |
 | Greatsword (large melee) | | Salvage gauge (Artifice) |
-| Halberd (large melee) | | Focus bead (Canting) |
-| Bow, crossbow or throwing knives (ranged) | | Cracked energy staff (Ranged canting) |
+| Halberd (large melee) | | Focus bead (Canting; focus +1, worn) |
+| Bow, crossbow or throwing knives (ranged) | | Cracked energy staff (Ranged canting; focus +1, two hands) |
 
 Every item points at a skill: what you carry is where you start learning.
 
@@ -228,10 +229,12 @@ At **0 HP** a character falls **unconscious** and makes **death saves**, as 5e:
 
 - At the start of each of their turns, roll **d20**: 10 or higher is a success, 9 or lower a failure.
 - **Three successes:** stable. **Three failures:** dead.
-- **Natural 20:** back up with 1 HP. **Natural 1:** two failures (not with **Luck 13**: there it is one).
+- **Natural 20:** stable at once. **Natural 1:** two failures (not with **Luck 13**: there it is one).
 - Taking damage at 0 HP is one failure; a critical hit is two.
 - **Massive damage:** if the damage left over after hitting 0 equals or exceeds maximum HP, death is instant.
 - Anyone can stabilise a dying character with a **Medicine** check, DC 10.
+- **A dying character whose player leaves the table** (marked absent) counts as stabilised: no death saves, out cold until treated.
+- **Nobody gets up on their own.** A stable character stays unconscious until they're **treated**: a healing spell, or a medic's care. Any healing brings them back with that many HP.
 - **Endurance 13** (Won't stay down) triggers before any of this, once per in-game day.
 - A dying character is asked for a death save **every round**, automatically.
 - **Miscants** follow their own rule: unconscious and automatically stable, no death saves.
@@ -240,7 +243,7 @@ At **0 HP** a character falls **unconscious** and makes **death saves**, as 5e:
 
 ## Scars
 
-Scars come from **surviving a drop to 0 HP** and from **miscants of tier 3 and up**. They are **pure story**: no penalty, no bonus. The GM writes each one to fit how it happened, it goes on the sheet for good, and the world reacts to it: NPCs notice, remember, and judge.
+Scars come from **surviving a drop to 0 HP** and from **miscants of tier 3 and up**. One event leaves one scar: a miscant whose backlash also drops the caster to 0 scars them once. They are **pure story**: no penalty, no bonus. The GM writes each one to fit how it happened, it goes on the sheet for good, and the world reacts to it: NPCs notice, remember, and judge.
 
 ## The clock
 

@@ -919,6 +919,8 @@
             if (!m.mode && m.adv?.length && m.dis?.length) ctx.push("adv + dis cancel");
             if (m.crit) ctx.push("critical: dice doubled");
             if (m.spellTier) ctx.push("tier " + m.spellTier + " cant");
+            if (m.spellDc != null && m.outcome !== "miscant") ctx.push("save DC " + m.spellDc);
+            if (m.pinpoint) ctx.push("PINPOINT");
             const oc = m.outcome ? `<span class="oc ${m.outcome.replace(/\s+/g, "-")}">${escapeHtml(m.outcome.toUpperCase())}</span>` : "";
             div.innerHTML = `<span class="die">🎲</span><span class="rw">${escapeHtml(by)}</span> rolls ` +
               (what ? `<span class="rp">${escapeHtml(what)}</span> ` : "") +
@@ -1140,6 +1142,11 @@
         ${L("STABILISE?", sel("stabilize", [["", "no"], ["1", "yes"]]))}
         ${L("RESONANCE +/-", inp("resonance", "-4", "number"))}
         ${L("COIN +/- (CV)", inp("purse", "12.5", "number"))}
+        ${L("NEW DEBT TO", inp("debtTo", "the bank, or a name"))}
+        ${L("DEBT AMOUNT", inp("debtAmount", "cv", "number"))}
+        ${L("DEBT TERMS", inp("debtTerms", "8% a month, due Day 30"))}
+        ${L("PAY DEBT TO", inp("payTo", "creditor"))}
+        ${L("PAY AMOUNT", inp("payAmount", "cv", "number"))}
         ${L("GIVE ITEM", inp("item", "item name"))}
         ${L("ITEM TIER", sel("itemTier", [["1", "1 Common"], ["2", "2 Guild"], ["3", "3 Superior"], ["4", "4 Relic"], ["5", "5 Unique"]]))}
         ${L("TAKE ITEM", inp("remove_item", "item name"))}
@@ -1181,6 +1188,8 @@
         if (v.stabilize) out.stabilize = true;
         if (v.resonance) out.resonance = num(v.resonance);
         if (v.purse) out.purse = num(v.purse);
+        if (v.debtTo && v.debtAmount) out.add_debt = { to: v.debtTo, amount: num(v.debtAmount), terms: v.debtTerms };
+        if (v.payTo && v.payAmount) out.pay_debt = { to: v.payTo, amount: num(v.payAmount) };
         if (v.item) out.add_item = { name: v.item, tier: num(v.itemTier) || 1 };
         if (v.remove_item) out.remove_item = v.remove_item;
         if (v.breakItem) out.break_item = v.breakItem;
@@ -1203,7 +1212,7 @@
   function renderRail(me) {
     const box = $("rail-rolls");
     const mine = (table.requests || []).filter((r) => r.seatId === mySeat).sort((a, b) => a.order - b.order);
-    const sig = JSON.stringify([mine.map((r) => [r.rid, r.mod, r.autoDis]), !!(me && me.present), table.resolving]);
+    const sig = JSON.stringify([mine.map((r) => [r.rid, r.mod, r.autoDis]), !!(me && me.present), table.resolving, table.fight, mySheet() && mySheet().pinpointFight]);
     if (box.dataset.sig === sig) return;   // don't rebuild (and re-animate) when nothing changed
     box.dataset.sig = sig;
     box.innerHTML = "";
@@ -1230,6 +1239,15 @@
       if (why.length) b.title = why.join("\n");
       b.addEventListener("click", () => send({ t: "rollRequest", rid: r.rid }));
       box.appendChild(b);
+      const me2 = mySheet();
+      if (r.type === "attack" && me2 && me2.capstone === "agility" && table.fight != null && me2.pinpointFight !== table.fight) {
+        const pp = document.createElement("button");
+        pp.type = "button"; pp.className = "ghost rall"; pp.disabled = blocked;
+        pp.textContent = "Pinpoint this attack";
+        pp.title = "Once per fight: every die shows its best face (a natural 20, maximum damage)";
+        pp.addEventListener("click", () => send({ t: "rollRequest", rid: r.rid, pinpoint: true }));
+        box.appendChild(pp);
+      }
     });
     if (mine.length > 1) {
       const all = document.createElement("button");
@@ -2121,7 +2139,7 @@
     const state = c.dead ? '<span class="bad">DEAD</span>'
       : c.dying ? (c.dying.stable ? '<span class="bad">UNCONSCIOUS · STABLE</span>' : `<span class="bad">DYING · saves ${c.dying.s}✓ ${c.dying.f}✗</span>`)
       : `HP ${c.hp}/${d.maxHp}`;
-    h += `<div class="vit"><span>${state}</span><span>AC ${d.ac}</span><span>Resonance ${+(+c.pool).toFixed(2)}/${d.maxPool} · tier ${d.maxTier}</span>` +
+    h += `<div class="vit"><span>${state}</span><span>AC ${d.ac}</span><span>Resonance ${+(+c.pool).toFixed(2)}/${d.maxPool} · tier ${d.maxTier}</span><span>Spell DC ${d.spellDc}${d.spellDcRanged !== d.spellDc ? "/" + d.spellDcRanged : ""}</span>` +
       `<span>${+(+c.purse).toFixed(2)} cv</span><span>Lucky breaks ${Math.max(0, d.luckyBreaks - (c.luckUsed || 0))}/${d.luckyBreaks}</span>` +
       `<span>Initiative ${signed(d.initiative)}</span><span>Carry ${d.carryKg} kg</span>${d.critOn === 19 ? "<span>Crits 19–20</span>" : ""}</div>`;
     h += '<div class="stats">';
@@ -2148,10 +2166,10 @@
     h += "</table>";
     h += "<h4>CARRYING</h4>";
     h += (c.items || []).length ? '<ul class="items">' + c.items.map((it, i) => {
-      const tags = [it.broken ? "BROKEN" : "", it.equipped ? (it.kind === "weapon" || it.kind === "shield" ? "in hand" : "worn") : "", it.twoHanded ? "two hands" : "", it.kind === "armor" ? (it.slot || "body") + " · " + (it.armor === "heavy_armor" ? "heavy" : "light") : "", it.tier ? "tier " + it.tier : "", it.quality, it.legality && it.legality !== "Legal" ? it.legality : "",
-        it.ac ? "AC +" + it.ac : "", it.damage ? it.damage : "", it.shieldPool ? "shield " + it.shieldPool : ""].filter(Boolean).join(" · ");
+      const tags = [it.broken ? "BROKEN" : "", it.equipped ? (it.kind === "weapon" || it.kind === "shield" ? "in hand" : "worn") : "", it.twoHanded ? "two hands" : "", it.focus ? "focus +" + it.focus + " tier" : "", it.kind === "armor" ? (it.slot || "body") + " · " + (it.armor === "heavy_armor" ? "heavy" : "light") : "", it.tier ? "tier " + it.tier : "", it.quality, it.legality && it.legality !== "Legal" ? it.legality : "",
+        it.ac ? "AC +" + it.ac : "", it.damage ? it.damage : "", it.shieldPool ? "shield " + Math.floor(it.shieldLeft ?? it.shieldPool) + "/" + it.shieldPool : ""].filter(Boolean).join(" · ");
       const held = it.kind === "weapon" || it.kind === "shield";
-      const wear = mine && ["armor", "shield", "device", "weapon"].includes(it.kind)
+      const wear = mine && ["armor", "shield", "device", "weapon", "focus"].includes(it.kind)
         ? `<button type="button" class="ghost" data-equip="${i}">${held ? (it.equipped ? "Put away" : "Take up") : (it.equipped ? "Take off" : "Wear")}</button>` : "";
       return `<li><span>${escapeHtml(it.name)} <small>${escapeHtml(tags)}</small></span>${wear}</li>`;
     }).join("") + "</ul>" : '<p class="muted">Nothing.</p>';
@@ -2159,6 +2177,9 @@
     h += (c.spells || []).length ? '<ul class="items">' + [...c.spells].sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name)).map((sp) =>
       `<li><span>${escapeHtml(sp.name)} <small>tier ${sp.tier}${sp.custom ? " · own working" : ""}${sp.text ? " · " + escapeHtml(sp.text) : ""}</small></span></li>`).join("") + "</ul>"
       : '<p class="muted">None known. Freeform only.</p>';
+    if ((c.debts || []).length) {
+      h += "<h4>DEBTS</h4><ul class=\"items\">" + c.debts.map((x) => `<li><span>${escapeHtml(x.to)} <small>${escapeHtml(x.terms || "")}</small></span><span>${+(+x.amount).toFixed(2)} cv</span></li>`).join("") + "</ul>";
+    }
     if ((c.scars || []).length || c.scarsOwed) {
       h += "<h4>SCARS</h4>" + (c.scars || []).map((x) => `<p>${escapeHtml(x)}</p>`).join("") +
         (c.scarsOwed ? `<p class="muted">${c.scarsOwed} still to be written by the GM.</p>` : "");

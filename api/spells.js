@@ -22,9 +22,16 @@ export function parseSpellbook(md) {
       text: row[2].trim(),
       roll: row[3].trim(),
       skill: /ranged canting/i.test(row[3]) ? "ranged_canting" : "canting",
+      lasting: isLasting(row[2]),
     });
   }
   return out;
+}
+
+// A held spell lasts only while the canter holds it: one at a time (concentration).
+// Marked in the spellbook's text with **Held.**
+export function isLasting(text) {
+  return /\*\*Held\.\*\*/.test(String(text || ""));
 }
 
 export function findSpell(list, name) {

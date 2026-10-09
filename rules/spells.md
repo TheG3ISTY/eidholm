@@ -22,6 +22,22 @@ A canter can only cast the named spells they know. Spells are learned three ways
 
 A spell that was taught or found is **learned**: it goes on the sheet and miscants only on a natural 1.
 
+### What learning costs
+
+Every spell takes **one 8-hour training session** with a teacher, whatever its tier.
+
+| Tier | Teacher's fee | Coin only, no standing |
+|---|---|---|
+| 1 | 10 cv | 10 cv |
+| 2 | 40 cv | 40 cv |
+| 3 | 150 cv | 150 cv |
+| 4 | 600 cv, with standing in a guild, academy or diocese | 1,200 cv |
+| 5 | 2,500 cv, with standing and a favour owed | 20,000 cv |
+
+High spells can be bought with coin alone, the way high gear can: it is meant to hurt. Most teachers of tier 5 would rather be owed than paid.
+
+- **A tome** (a manual, an etched bead, a dead canter's notes) costs **half** the teacher's fee and takes **two** sessions (16 hours): nobody is there to ask. A tome that is **found** costs nothing but the time.
+
 ### Learning by casting
 
 Casting a spell that is not on the sheet yet is a gamble the canter takes before the cant even starts:
@@ -48,7 +64,11 @@ A freeform cant that works goes on the sheet as the caster's own spell, **learne
 
 Luck 13 removes only the natural 1, never the rest. Backlash always follows the tier (see Characters).
 
-Every spell rolls **Resonance + Canting** (or **Ranged canting** for anything thrown at a target), against a DC or the target's AC or save.
+Every spell rolls **Resonance + Canting** (or **Ranged canting** for anything thrown at a target), against a DC or the target's AC; that roll is also where a miscant shows.
+
+**Held spells.** A spell marked **Held.** lasts only while the canter holds it, and a canter holds **one** at a time: casting another held spell lets go of the first. Taking damage while holding calls for an **Endurance save, DC 10 or half the damage** (whichever is higher), or the spell drops. Dropping to 0 HP lets go of it. It ends when its time runs out.
+
+**Spell save DC = 8 + Resonance modifier + Canting bonus** (Ranged canting for ranged cants). When a spell says "vs Agility save" or the like, the caster's roll only decides whether it miscants; the targets roll their save against the caster's DC. A fresh Resonance 5 canter has DC 8; a Resonance 10 Legend has DC 20.
 
 ## Tier 1 · 2 Resonance
 
@@ -59,11 +79,11 @@ The first handshakes. What a Choir novice learns first, what a hedge-witch etche
 | **Spark Query** | "A fireball is a query." A thrown mote of fire, 2d6; sets loose things alight. | Ranged canting vs AC |
 | **Mend** | Repairs a broken Common item, or a small break: a strap, a lock spring, a cracked lens. | DC 12 |
 | **Stitch** | Closes a wound: heals 1d8 + Resonance modifier. The Choir's oldest kindness. | DC 10 |
-| **Kindle Ward** | A thin personal ward on one person; soaks the next 5 damage, for the scene. | DC 10 |
+| **Kindle Ward** | A thin personal ward on one person; soaks the next 5 damage, for the scene. **Held.** | DC 10 |
 | **Listen** | Hear the Lattice nearby: active devices, cants being cast, minds of glass, within 30 m. | vs whatever hides |
 | **Jolt** | A touch of raw Lattice: 1d10 to a person, or a device stops working for a round. | vs AC |
-| **Hush** | Sound dies in a 5 m circle around the caster for a minute. | DC 10 |
-| **Glimmer** | A hovering light, any colour, for an hour; or a flash that dazzles one target. | vs Perception save |
+| **Hush** | Sound dies in a 5 m circle around the caster for a minute. **Held.** | DC 10 |
+| **Glimmer** | A hovering light, any colour, for an hour; or a flash that dazzles one target. **Held.** | vs Perception save |
 | **Whisper-line** | A short message to someone the caster can see, or touched today, within 1 km. | DC 10 |
 | **Snuff** | Ends a tier-1 cant, or puts a small device to sleep for a minute. | vs the caster's roll |
 
@@ -78,9 +98,9 @@ What the trade actually runs on: a guild engineer's daily cants, a League duelis
 | **Seal** | Locks a door, chest or hatch with a spoken phoneme; only the caster opens it, or someone who beats DC 15 with Thievery or Canting. | DC 12 |
 | **Grip** | Moves an object up to 50 kg at a distance, or pins one person in place for a round. | DC 12, or vs Strength save |
 | **Shiver** | The Lattice drags at a target: on a failed Endurance save they lose their next action. | vs Endurance save |
-| **Ward Panel** | A 3 m pane of lattice that stops ranged attacks from one side and soaks 30 damage, for a minute. | DC 12 |
-| **Borrowed Eyes** | See and hear through a device or an animal within 100 m, for ten minutes. | DC 12; devices may resist |
-| **Static Veil** | Devices and the senses of minds of glass slide past the caster for ten minutes. Eyes still see them. | vs whatever watches |
+| **Ward Panel** | A 3 m pane of lattice that stops ranged attacks from one side and soaks 30 damage, for a minute. **Held.** | DC 12 |
+| **Borrowed Eyes** | See and hear through a device or an animal within 100 m, for ten minutes. **Held.** | DC 12; devices may resist |
+| **Static Veil** | Devices and the senses of minds of glass slide past the caster for ten minutes. Eyes still see them. **Held.** | vs whatever watches |
 | **Machine Tongue** | Question a non-sapient device: what it saw, what it is for, who made it. | DC 12 |
 | **Overclock** | A device runs at double output for a minute. Then roll a **d4**: **1**, it breaks once the minute is up; **2–3**, it keeps working; **4**, the overclock lasts two minutes and it keeps working. | DC 12 |
 
@@ -95,12 +115,12 @@ Where it gets dangerous: from here up, a miscant scars. Academy graduates, dioce
 | **Restore** | Heals 4d8 + Resonance modifier, or ends one lingering harm: blinded, deafened, paralysed by a cant. | DC 14 |
 | **Unweave** | Ends any cant of tier 3 or lower; higher tiers become a contest. | DC 14, or vs the caster |
 | **Lattice Step** | Step through the Weave to anywhere in sight within 100 m, with one willing person. | DC 14 |
-| **Bulwark** | A 6 m dome that stops ranged attacks from every side and soaks 120 damage, for a minute. | DC 14 |
+| **Bulwark** | A 6 m dome that stops ranged attacks from every side and soaks 120 damage, for a minute. **Held.** | DC 14 |
 | **Last Words** | Ask a body dead less than a day three questions; its fading pattern answers. Choir work, and the Choir licenses it. | DC 14 |
-| **Red Hand** | One piece of metal glows red-hot: 2d8 a round to whoever holds or wears it, or bars and locks soften enough to bend. | vs Endurance save |
-| **Borrowed Face** | Wear another person's face and voice for an hour. | vs Perception to see through |
-| **Root Call** | Roots and vines erupt in a 10 m circle; anyone caught is held fast for a minute on a failed Strength save. | vs Strength save |
-| **Planted Thought** | One person takes the caster's suggestion as their own idea for an hour. Never works on minds of glass. | vs Charisma save |
+| **Red Hand** | One piece of metal glows red-hot: 2d8 a round to whoever holds or wears it, or bars and locks soften enough to bend. **Held.** | vs Endurance save |
+| **Borrowed Face** | Wear another person's face and voice for an hour. **Held.** | vs Perception to see through |
+| **Root Call** | Roots and vines erupt in a 10 m circle; anyone caught is held fast for a minute on a failed Strength save. **Held.** | vs Strength save |
+| **Planted Thought** | One person takes the caster's suggestion as their own idea for an hour. Never works on minds of glass. **Held.** | vs Charisma save |
 
 ## Tier 4 · 14 Resonance
 
@@ -109,17 +129,17 @@ Masters: League Speakers, champion duelists, cathedral priests, the combines' be
 | Spell | What it does | Roll |
 |---|---|---|
 | **Caldera Rite** | A pillar of fire falls from above: 10 m radius, 10d6, half on a successful Agility save; the ground keeps burning for a minute. | vs Agility save |
-| **Stormcall** | A storm over 200 m for ten minutes; each round the caster drops one bolt where they choose, 6d10. | Ranged canting vs AC |
+| **Stormcall** | A storm over 200 m for a minute; each round the caster drops one bolt where they choose, 6d10. **Held.** | Ranged canting vs AC |
 | **Rebuild** | Heals 8d8 + Resonance modifier and regrows a lost hand, eye or finger. It cannot touch the dead. | DC 16 |
-| **Gate Pair** | A doorway for a minute between here and any place within 50 km the caster has stood. | DC 16 |
+| **Gate Pair** | A doorway for a minute between here and any place within 50 km the caster has stood. **Held.** | DC 16 |
 | **Heavy Shield** | One held lattice-shield becomes impossibly heavy: on a failed Strength save the bearer drops it. It isn't broken; it can be picked up again once the cant fades, after a minute. | vs Strength save |
-| **Glass Sleep** | Every non-sapient device within 50 m stops for ten minutes. | DC 16 |
+| **Glass Sleep** | Every non-sapient device within 50 m stops for ten minutes. **Held.** | DC 16 |
 | **Unmake** | Unravels an object up to the size of a cart, or 8d8 to a creature, half on a successful Endurance save. | vs Endurance save |
-| **Walk Unseen** | Up to four people are invisible to eyes and devices for ten minutes. | DC 16 |
+| **Walk Unseen** | Up to four people are invisible to eyes and devices for ten minutes. **Held.** | DC 16 |
 | **Earthshaper** | Reshapes 20 m of earth or stone into a wall, a trench or a bridge; it lasts until someone undoes it. | DC 16 |
-| **Choir Hymn** | Up to ten allies each get a ward that soaks 20 damage, for an hour. | DC 16 |
-| **Truthbind** | No one in the room can lie for ten minutes. League courts use it. | vs Charisma save |
-| **Iron Word** | One person obeys the caster's spoken commands for a minute, saving each round to break free. Never works on minds of glass. | vs Charisma save |
+| **Choir Hymn** | Up to ten allies each get a ward that soaks 20 damage, for an hour. **Held.** | DC 16 |
+| **Truthbind** | No one in the room can lie for ten minutes. League courts use it. **Held.** | vs Charisma save |
+| **Iron Word** | One person obeys the caster's spoken commands for a minute, saving each round to break free. Never works on minds of glass. **Held.** | vs Charisma save |
 
 ## Tier 5 · 22 Resonance
 
@@ -127,18 +147,18 @@ Grandmasters, and the ceiling for anyone without the capstone. District-sized: o
 
 | Spell | What it does | Roll |
 |---|---|---|
-| **Ashfall** | Fire rains on a 50 m area for a minute: 8d6 a round, half on a successful Agility save. | vs Agility save |
-| **Undertow** | The sea rises and drags one ship under, whatever its size. | DC 18 |
+| **Ashfall** | Fire rains on a 50 m area: 8d6 as it lands (half on a successful Agility save), then 2d6 a round to anyone still inside, for a minute. **Held.** | vs Agility save |
+| **Undertow** | The sea rises and drags one ship under, up to a warship. Never a city-hull like the Wrackmother: that is tier-6 work. | DC 18 |
 | **Quake** | The ground breaks across 100 m: buildings crack, everyone falls unless they make an Agility save. | vs Agility save |
 | **Full Restoration** | One person back to full HP with every lingering harm gone; someone dying gets up. The dead stay dead. | DC 18 |
 | **Long Gate** | Carries up to 20 people to anywhere on the continent the caster has stood. | DC 18 |
-| **Fortress Ward** | A 30 m dome nothing crosses, ranged or melee, soaking 1,000 damage, for an hour. | DC 18 |
+| **Fortress Ward** | A 30 m dome nothing crosses, ranged or melee, soaking 1,000 damage, for an hour. **Held.** | DC 18 |
 | **Wordbreak** | Every cant within 50 m ends, up to tier 5. Tier 6 does not notice. | DC 18 |
-| **Lattice Prison** | One creature is shut out of the world in a lattice cell for a day; a Resonance save every hour to break out. | vs Resonance save |
+| **Lattice Prison** | One creature is shut out of the world in a lattice cell for a day; a Resonance save every hour to break out. **Held.** | vs Resonance save |
 | **Witness** | See the last day of a place as if standing there through it. The Lattice remembers. | DC 18 |
-| **Thousand Faces** | Up to 50 people see whatever the caster wants, for ten minutes. | vs Perception save |
-| **Dread Choir** | Every enemy within 50 m flees for a minute on a failed Charisma save. | vs Charisma save |
-| **Skyward** | The caster and up to six others fly for an hour. | DC 18 |
+| **Thousand Faces** | Up to 50 people see whatever the caster wants, for ten minutes. **Held.** | vs Perception save |
+| **Dread Choir** | Every enemy within 50 m flees for a minute on a failed Charisma save. **Held.** | vs Charisma save |
+| **Skyward** | The caster and up to six others fly for an hour. **Held.** | DC 18 |
 
 ## Tier 6: world-altering
 

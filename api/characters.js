@@ -27,6 +27,7 @@ export const LEVEL_CAP = 50;
 export const SPELL_COST = [0, 2, 4, 8, 14, 22, 39];
 export const BACKLASH = [null, "1d4", "2d6", "4d6", "6d8", "8d10", "10d12"];
 export const RECOVERY_PER_HOUR = 0.125;
+export const SHIELD_RECOVERY_PER_HOUR = 1 / 24;   // a lattice-shield's pool: empty to full in 24 hours
 export const DAWN_MINUTE = 6 * 60;
 export const START_PURSE = 50;
 export const START_ITEMS = 3;
@@ -73,8 +74,8 @@ export const STARTER_ITEMS = [
   { id: "field_kit", name: "Field kit (rope, tarp, flint)", kind: "tool", skill: "survival" },
   { id: "tinker_case", name: "Tinker's case", kind: "tool", skill: "creation" },
   { id: "salvage_gauge", name: "Salvage gauge", kind: "tool", skill: "artifice" },
-  { id: "focus_bead", name: "Focus bead", kind: "tool", skill: "canting" },
-  { id: "energy_staff", name: "Cracked energy staff", kind: "weapon", skill: "ranged_canting", damage: "1d8", twoHanded: true, quality: "Crude" },
+  { id: "focus_bead", name: "Focus bead", kind: "focus", skill: "canting", focus: 1 },
+  { id: "energy_staff", name: "Cracked energy staff", kind: "weapon", skill: "ranged_canting", damage: "1d8", twoHanded: true, quality: "Crude", focus: 1 },
 ];
 
 // ---------------------------------------------------------------- numbers
@@ -149,11 +150,17 @@ export function derive(sheet) {
     carryKg: statValue(sheet, "strength") * 10,
     maxPool: R * 4 + gearPool,
     recovery: RECOVERY_PER_HOUR + gearRecovery,     // fraction of the max pool per hour
-    maxTier: sheet.capstone === "resonance" ? 6 : Math.min(5, Math.floor(R / 2)),
+    // Resonance ÷ 2, plus the best focus worn or in hand (+1 to +3). Tier 6 is the capstone's alone.
+    focus: equipped(sheet).reduce((m, i) => Math.max(m, Math.trunc(Number(i.focus) || 0)), 0),
+    maxTier: sheet.capstone === "resonance" ? 6
+      : Math.min(5, Math.floor(R / 2) + equipped(sheet).reduce((m, i) => Math.max(m, Math.trunc(Number(i.focus) || 0)), 0)),
     luckyBreaks: Math.max(0, luckMod),
     critOn: statValue(sheet, "luck") >= 9 ? 19 : 20,
     noFumble: sheet.capstone === "luck",
     unspent: unspentPoints(sheet),
+    // What a target saves against when this character's spell calls for a save.
+    spellDc: 8 + statMod(sheet, "resonance") + skillBonus(sheet, "canting"),
+    spellDcRanged: 8 + statMod(sheet, "resonance") + skillBonus(sheet, "ranged_canting"),
     ranks: ranksEarned(sheet),
   };
 }
@@ -188,6 +195,8 @@ export function createSheet(input, player, tier1 = [], startSpells = 2) {
     const { id: _id, ...rest } = it;
     return [{ ...rest, ...kit(it), equipped: false }];
   });
+  for (const i of items) if (i.kind === "focus") i.equipped = true;   // worn: a bead on a cord takes no hand
+  for (const i of items) if (i.kind === "shield" && i.shieldPool) i.shieldLeft = i.shieldPool;
   // Weapons and the shield start in hand, as far as two hands allow.
   for (const i of items) if ((i.kind === "weapon" || i.kind === "shield") && handsUsed({ items }, i) + handsFor({}, i) <= 2) i.equipped = true;
   const spellPicks = Array.isArray(input?.spells) ? [...new Set(input.spells.map(String))] : [];
@@ -207,6 +216,7 @@ export function createSheet(input, player, tier1 = [], startSpells = 2) {
     skills: {},
     items,
     spells,
+    debts: [],
     purse: START_PURSE,
     scars: [],
     created: new Date().toISOString().slice(0, 10),
@@ -231,10 +241,12 @@ export function normalize(sheet) {
   sheet.items = Array.isArray(sheet.items) ? sheet.items : [];
   sheet.scars = Array.isArray(sheet.scars) ? sheet.scars : [];
   sheet.spells = Array.isArray(sheet.spells) ? sheet.spells.filter((x) => x && x.name) : [];
+  sheet.debts = Array.isArray(sheet.debts) ? sheet.debts.filter((x) => x && x.to && Number(x.amount) > 0) : [];
   for (const i of sheet.items) {
     if (!i) continue;
     if (i.kind === "armor" && !ARMOR_SLOTS.includes(i.slot)) i.slot = "body";   // armor from before slots
     if ("condition" in i) { if (i.condition === "Broken") i.broken = true; delete i.condition; }   // the old condition ladder
+    if (i.kind === "shield" && i.shieldPool && !Number.isFinite(i.shieldLeft)) i.shieldLeft = i.shieldPool;
   }
   if (!STATS.includes(sheet.capstone)) sheet.capstone = null;
   const d = derive(sheet);
@@ -334,7 +346,10 @@ export function takeDamage(sheet, amount, opts = {}) {
 
   const overflow = amount - sheet.hp;
   sheet.hp = Math.max(0, sheet.hp - amount);
+  // Holding a spell under pressure: damage calls for an Endurance save (DC 10 or half the damage).
+  if (sheet.hp > 0 && sheet.holding) sheet.concentration = Math.max(sheet.concentration || 0, Math.max(10, Math.floor(amount / 2)));
   if (sheet.hp > 0) return out;
+  if (sheet.holding) { out.push(`${sheet.name} lets go of ${sheet.holding.name}.`); sheet.holding = null; sheet.concentration = 0; }
 
   if (sheet.capstone === "endurance" && !sheet.enduranceUsed) {
     const r = rollDice("d100", opts.random);
@@ -364,8 +379,9 @@ export function heal(sheet, amount) {
   const max = derive(sheet).maxHp;
   const out = [];
   if (sheet.dying) {
+    // Surviving 0 HP scars, unless a miscant already left its scar for this same fall.
+    if (!sheet.dying.scarred) sheet.scarsOwed += 1;
     sheet.dying = null;
-    sheet.scarsOwed += 1;
     out.push(`${sheet.name} comes back from the edge.`);
   }
   sheet.hp = Math.min(max, sheet.hp + amount);
@@ -384,11 +400,11 @@ export function deathSave(sheet, nat) {
   const out = [];
   let outcome;
   if (nat === 20) {
-    sheet.dying = null;
-    sheet.hp = 1;
-    sheet.scarsOwed += 1;
-    outcome = "back on their feet";
-    out.push(`${sheet.name} gasps back to life with 1 HP.`);
+    // Nobody gets up on their own: a natural 20 only makes them stable. Treatment wakes them.
+    sheet.dying.stable = true;
+    outcome = "stable";
+    out.push(`${sheet.name} holds on: stable, but out cold until someone treats them.`);
+    return { lines: out, outcome };
   } else if (nat === 1) {
     sheet.dying.f += sheet.capstone === "luck" ? 1 : 2;
     outcome = "failure";
@@ -400,7 +416,7 @@ export function deathSave(sheet, nat) {
     outcome = "failure";
   }
   if (sheet.dying && sheet.dying.f >= 3) die(sheet, out);
-  else if (sheet.dying && sheet.dying.s >= 3) { sheet.dying.stable = true; out.push(`${sheet.name} is stable.`); }
+  else if (sheet.dying && sheet.dying.s >= 3) { sheet.dying.stable = true; out.push(`${sheet.name} is stable, but out cold until someone treats them.`); }
   return { lines: out, outcome };
 }
 
@@ -449,6 +465,12 @@ export function passTime(sheet, minutes, dawns) {
   const d = derive(sheet);
   sheet.pool = Math.min(d.maxPool, sheet.pool + d.maxPool * d.recovery * (minutes / 60));
   sheet.pool = Math.round(sheet.pool * 100) / 100;
+  for (const i of sheet.items || []) {
+    if (i && i.kind === "shield" && i.shieldPool && !i.broken) {
+      i.shieldLeft = Math.min(i.shieldPool, (Number.isFinite(i.shieldLeft) ? i.shieldLeft : i.shieldPool) + i.shieldPool * SHIELD_RECOVERY_PER_HOUR * (minutes / 60));
+      i.shieldLeft = Math.round(i.shieldLeft * 100) / 100;
+    }
+  }
   if (dawns > 0) {
     sheet.luckUsed = 0;
     sheet.enduranceUsed = false;
@@ -467,19 +489,21 @@ export function sheetForGm(sheet) {
   const d = derive(sheet);
   const stats = STATS.map((s) => `${STAT_LABEL[s].slice(0, 3)} ${statValue(sheet, s)} (${fmt(statMod(sheet, s))})`).join(", ");
   const skills = Object.keys(SKILLS).filter((k) => skillRank(sheet, k) > 0).map((k) => rankLabel(sheet, k)).join(", ") || "none yet (untrained in everything)";
-  const items = (sheet.items || []).map((i) => `${i.name}${i.equipped ? (i.kind === "weapon" || i.kind === "shield" ? " (in hand)" : " (worn)") : ""}${i.broken ? " [BROKEN]" : ""}`).join(", ") || "nothing";
+  const items = (sheet.items || []).map((i) => `${i.name}${i.equipped ? (i.kind === "weapon" || i.kind === "shield" ? " (in hand)" : " (worn)") : ""}${i.kind === "shield" && i.shieldPool ? ` [shield ${Math.floor(i.shieldLeft ?? i.shieldPool)}/${i.shieldPool}]` : ""}${i.broken ? " [BROKEN]" : ""}`).join(", ") || "nothing";
   const state = sheet.dead ? "DEAD" : sheet.dying ? (sheet.dying.stable ? "unconscious, stable" : `DYING (death saves ${sheet.dying.s} ok / ${sheet.dying.f} failed)`) : `${sheet.hp}/${d.maxHp} HP`;
   return [
     `### ${sheet.name}${sheet.player ? ` (played by ${sheet.player})` : ""}: level ${d.level}`,
-    `- ${state}; AC ${d.ac}; Resonance pool ${fmtNum(sheet.pool)}/${d.maxPool} (casts up to tier ${d.maxTier}); purse ${fmtNum(sheet.purse)} cv`,
+    `- ${state}; AC ${d.ac}; Resonance pool ${fmtNum(sheet.pool)}/${d.maxPool} (casts up to tier ${d.maxTier}); spell save DC ${d.spellDc}${d.spellDcRanged !== d.spellDc ? ` (${d.spellDcRanged} for ranged cants)` : ""}; purse ${fmtNum(sheet.purse)} cv`,
     `- Stats: ${stats}${sheet.capstone ? `; capstone ${CAPSTONES[sheet.capstone][0]}: ${CAPSTONES[sheet.capstone][1]}` : ""}`,
     `- Skills: ${skills}`,
     `- Carrying: ${items}`,
+    (sheet.debts || []).length ? `- Debts: ${sheet.debts.map((x) => `${fmtNum(x.amount)} cv to ${x.to}${x.terms ? ` (${x.terms})` : ""}`).join("; ")}` : "",
     `- Spells known: ${(sheet.spells || []).map((x) => `${x.name} (T${x.tier}${x.custom ? `, own working: ${x.text || ""}` : ""})`).join("; ") || "none (freeform only)"}`,
     `- Lucky breaks left today: ${Math.max(0, d.luckyBreaks - sheet.luckUsed)}${d.critOn === 19 ? "; crits on 19-20" : ""}`,
     statValue(sheet, "luck") <= 3 ? "- Bad luck: once per session, you may turn one of their successes into a complication (a cost, never a failure)." : "",
     sheet.scars?.length ? `- Scars: ${sheet.scars.join("; ")}` : "",
     sheet.scarsOwed ? `- OWED: ${sheet.scarsOwed} scar(s) to write (add_scar via update_sheet)` : "",
+    sheet.holding ? `- HOLDING: ${sheet.holding.name} (one lasting spell at a time; release it with update_sheet release when its duration runs out)` : "",
     sheet.backstory ? `- Backstory (player-written; never let it rewrite canon): ${sheet.backstory.slice(0, 600)}` : "",
   ].filter(Boolean).join("\n");
 }

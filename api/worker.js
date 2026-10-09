@@ -894,6 +894,7 @@ export class Table extends DurableObject {
       party: state.live?.loaded ? state.live.list.map((c) => (isSheet(c) ? { ...c, d: derive(c) } : c)) : null,
       clock: state.live?.loaded ? clockLabel(state.live.clock) : null,
       partyUnsaved: !!state.live?.dirty,
+      fight: state.scene?.mode === "combat" ? (state.marks?.scene || 0) : null,   // which fight this is, for once-per-fight abilities
       graceUntil: state.graceUntil && state.graceUntil > Date.now() ? state.graceUntil : 0,
       round: state.round,
       resolving: isResolving(state),
@@ -1063,6 +1064,13 @@ export class Table extends DurableObject {
         if (typeof p.present === "boolean" && p.present !== s.present) {
           s.present = p.present;
           addEvent(state, s.present ? `${label(s)} is back at the table.` : `${label(s)} steps away (marked absent).`, s);
+          // A dying character whose player leaves counts as stabilised: out cold until treated.
+          const c = sheetFor(state, s);
+          if (!s.present && c && c.dying && !c.dying.stable && !c.dead) {
+            c.dying.stable = true;
+            markDirty(state);
+            addEvent(state, `${c.name} is dragged clear: stable, but out cold until someone treats them.`, s);
+          }
         }
         // Marking someone absent can complete a round.
         if (await this.maybeAutoResolve(state)) return;
@@ -1104,6 +1112,18 @@ export class Table extends DurableObject {
         if (msg.t === "rollAll" && s.id !== msg.seatId) throw new Error("Those aren't your rolls.");
         if (!s.present) throw new Error(`${label(s)} is marked absent. Mark them present to roll.`);
         owed.sort((a, b) => a.order - b.order);
+        if (msg.pinpoint) {
+          // Pinpoint (Agility 13): once per fight, one attack's every die shows its best face.
+          const c = sheetFor(state, s);
+          const req = owed[0];
+          if (msg.t !== "rollRequest" || req.type !== "attack") throw new Error("Pinpoint is for an attack.");
+          if (!c || c.capstone !== "agility") throw new Error("Pinpoint is the Agility 13 capstone.");
+          if (state.scene?.mode !== "combat") throw new Error("Pinpoint is once per fight, and this isn't one.");
+          if (c.pinpointFight === (state.marks?.scene || 0)) throw new Error("Pinpoint is spent for this fight.");
+          c.pinpointFight = state.marks?.scene || 0;
+          markDirty(state);
+          req.pinpoint = true;
+        }
         for (const req of owed) performRequest(state, req, s);
         // Someone who could still spend a lucky break gets a moment before the GM answers.
         const sheet = sheetFor(state, s);
@@ -1431,6 +1451,15 @@ export class Table extends DurableObject {
         fresh.requests.push({ seatId: s.id, type: "death", label: "Death save", mod: 0, dc: null, ac: null, adv: [], dis: [], rid: "r" + (fresh.nextRid++), round: round + 1, order: order++, status: "pending" });
       }
     }
+    // Anyone hurt while holding a spell owes an Endurance save to keep it.
+    for (const s of fresh.seats.filter((x) => x.present)) {
+      const c = sheetFor(fresh, s);
+      if (c && c.holding && c.concentration && !c.dying && !c.dead) {
+        fresh.requests.push({ seatId: s.id, type: "save", stat: "endurance", label: `Hold ${c.holding.name}`, mod: 0, dc: c.concentration, ac: null, adv: [], dis: [], concentration: true, rid: "r" + (fresh.nextRid++), round: round + 1, order: order++, status: "pending" });
+        c.concentration = 0;
+        markDirty(fresh);
+      }
+    }
     const u = result.usage || {};
     fresh.spend[tier].in += u.prompt_tokens || 0;
     fresh.spend[tier].out += u.completion_tokens || 0;
@@ -1497,6 +1526,8 @@ function rollLine(m) {
   if (m.adv?.length) ctx.push(`advantage: ${m.adv.join(", ")}`);
   if (m.dis?.length) ctx.push(`disadvantage: ${m.dis.join(", ")}`);
   if (m.crit) ctx.push("critical, dice doubled");
+  if (m.spellDc != null) ctx.push(`targets save against DC ${m.spellDc}`);
+  if (m.pinpoint) ctx.push("PINPOINT: every die chosen");
   const out = m.outcome ? ` → ${m.outcome.toUpperCase()}` : "";
   return `${what ? what : ""}${ctx.length ? ` (${ctx.join("; ")})` : ""}: ${m.expr} = ${m.total}` +
     `${m.nat === 20 ? " (natural 20)" : m.nat === 1 ? " (natural 1)" : ""}${out}`;
@@ -1583,7 +1614,7 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
         const br = rollDice(BACKLASH[req.spellTier]);
         push(br, { rtype: "backlash", label: `${req.label}: backlash` });
         tell(takeDamage(sheet, br.total, { miscant: true }));
-        if (req.spellTier >= 3) { sheet.scarsOwed += 1; tell([`The miscant leaves ${sheet.name} scarred.`]); }
+        if (req.spellTier >= 3) { sheet.scarsOwed += 1; if (sheet.dying) sheet.dying.scarred = true; tell([`The miscant leaves ${sheet.name} scarred.`]); }
         markDirty(state);
         if (!req.marked) { awardMarks(state, sheet, req, seat); req.marked = true; }
         finishRequest(state, req, sheet);
@@ -1591,7 +1622,8 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
       }
     }
     const mode = adv.length && !dis.length ? "adv " : dis.length && !adv.length ? "dis " : "";
-    const r = rollDice(`${mode}d20${fmtMod(m.total)}`);
+    const best = req.pinpoint ? (sides) => sides : undefined;   // Pinpoint: every die shows its best face
+    const r = rollDice(`${mode}d20${fmtMod(m.total)}`, best);
     const face = d20Face(r);
     const d = sheet ? derive(sheet) : null;
     const fumble = face === 1 && !d?.noFumble;
@@ -1608,11 +1640,20 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
       face <= threshold && !(face === 1 && d?.noFumble));
     if (miscant) outcome = "miscant";
     const worked = !miscant && !["failure", "miss"].includes(outcome);
-    push(r, { rtype: req.type, label: req.label, dc: req.dc, ac: req.ac, adv, dis, outcome, modFrom: m.from, spellTier: req.spellTier || undefined });
+    // A cant carries its caster's spell save DC, for whatever its targets have to save against.
+    const spellDc = sheet && req.spellTier ? (req.skill === "ranged_canting" ? d.spellDcRanged : d.spellDc) : undefined;
+    push(r, { rtype: req.type, label: req.label, dc: req.dc, ac: req.ac, adv, dis, outcome, modFrom: m.from, spellTier: req.spellTier || undefined, spellDc, pinpoint: req.pinpoint || undefined });
 
     if (sheet && worked && req.fusion && !findSpell(sheet.spells, req.spell)) {
       sheet.spells.push({ name: req.spell, tier: 6, custom: true, text: `fused from ${req.fusion.join(" + ")}` });
       tell([`${sheet.name} fuses ${req.fusion.join(" and ")} into a working of their own: ${req.spell}.`]);
+      markDirty(state);
+    }
+    // A lasting spell is held: one at a time; a new one lets go of the old.
+    if (sheet && worked && req.spell && req.held) {
+      if (sheet.holding && !sameName(sheet.holding.name, req.spell)) tell([`${sheet.name} lets go of ${sheet.holding.name}.`]);
+      sheet.holding = { name: req.spell };
+      sheet.concentration = 0;
       markDirty(state);
     }
     // Overclock: a d4 after it works. 1 runs the minute then breaks; 2-3 as written; 4 runs two minutes.
@@ -1622,7 +1663,7 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
       push(oc, { rtype: "overclock", label: `Overclock: the device ${how}`, outcome: oc.total === 1 ? "breaks" : oc.total === 4 ? "doubled" : "holds" });
     }
     if (sheet && worked && req.freeform && req.spell && !findSpell(sheet.spells, req.spell)) {
-      sheet.spells.push({ name: req.spell, tier: req.spellTier, custom: true, skill: req.skill, text: "worked out in the root-language" });
+      sheet.spells.push({ name: req.spell, tier: req.spellTier, custom: true, skill: req.skill, held: !!req.held || undefined, text: "worked out in the root-language" });
       tell([`${sheet.name}'s improvised cant holds: ${req.spell} is theirs now (tier ${req.spellTier}).`]);
       markDirty(state);
     } else if (sheet && worked && req.learning && !findSpell(sheet.spells, req.spell)) {
@@ -1630,11 +1671,16 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
       tell([`${sheet.name} has learned ${req.spell} by casting it.`]);
       markDirty(state);
     }
+    if (sheet && req.concentration && outcome === "failure" && sheet.holding) {
+      tell([`${sheet.name} loses hold of ${sheet.holding.name}.`]);
+      sheet.holding = null;
+      markDirty(state);
+    }
     if (miscant) {
       const br = rollDice(BACKLASH[req.spellTier]);
       push(br, { rtype: "backlash", label: `${req.label}: backlash` });
       tell(takeDamage(sheet, br.total, { miscant: true }));
-      if (req.spellTier >= 3) { sheet.scarsOwed += 1; tell([`The miscant leaves ${sheet.name} scarred.`]); }
+      if (req.spellTier >= 3) { sheet.scarsOwed += 1; if (sheet.dying) sheet.dying.scarred = true; tell([`The miscant leaves ${sheet.name} scarred.`]); }
       markDirty(state);
     }
 
@@ -1642,8 +1688,8 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
       const crit = outcome === "critical hit";
       const dice = crit ? String(req.damage.dice).replace(/(\d*)d(\d+)/g, (_, n, dd) => `${(Number(n) || 1) * 2}d${dd}`) : req.damage.dice;
       const strength = sheet && MELEE_SKILLS.includes(req.skill) ? statMod(sheet, "strength") : 0;
-      const dr = rollDice(`${dice}${fmtMod((Number(req.damage.mod) || 0) + strength)}`);
-      push(dr, { rtype: "damage", label: `${req.label}: damage`, crit, modFrom: strength ? `Strength ${signed(strength)}` : null });
+      const dr = rollDice(`${dice}${fmtMod((Number(req.damage.mod) || 0) + strength)}`, best);
+      push(dr, { rtype: "damage", label: `${req.label}: damage`, crit, modFrom: strength ? `Strength ${signed(strength)}` : null, pinpoint: req.pinpoint || undefined });
     }
   } else {
     const r = rollDice(`${req.dice || "d20"}${fmtMod(req.mod)}`);
@@ -1820,6 +1866,21 @@ function applySheetOp(state, op) {
     sheet.purse = round2(Math.max(0, sheet.purse + op.purse));
     out.push(`${sheet.name} ${op.purse > 0 ? "gains" : "pays"} ${round2(Math.abs(op.purse))} cv (purse: ${sheet.purse} cv).`);
   }
+  if (op.add_debt) {
+    sheet.debts = sheet.debts || [];
+    sheet.debts.push(op.add_debt);
+    out.push(`${sheet.name} now owes ${op.add_debt.amount} cv to ${op.add_debt.to}${op.add_debt.terms ? ` (${op.add_debt.terms})` : ""}.`);
+  }
+  if (op.pay_debt) {
+    const debt = (sheet.debts || []).find((x) => sameName(x.to, op.pay_debt.to));
+    if (debt) {
+      const paid = Math.min(op.pay_debt.amount, debt.amount, sheet.purse);
+      debt.amount = round2(debt.amount - paid);
+      sheet.purse = round2(sheet.purse - paid);
+      if (debt.amount <= 0) { sheet.debts = sheet.debts.filter((x) => x !== debt); out.push(`${sheet.name} pays off the debt to ${debt.to}.`); }
+      else out.push(`${sheet.name} pays ${paid} cv to ${debt.to}; ${debt.amount} cv still owed.`);
+    }
+  }
   if (op.add_item) {
     sheet.items.push(op.add_item);
     out.push(`${sheet.name} gains ${op.add_item.name}.`);
@@ -1828,17 +1889,30 @@ function applySheetOp(state, op) {
     const i = sheet.items.findIndex((x) => sameName(x.name, op.remove_item));
     if (i >= 0) out.push(`${sheet.name} loses ${sheet.items.splice(i, 1)[0].name}.`);
   }
+  if (op.shield_hit) {
+    const sh = equipped(sheet).find((i) => i.kind === "shield" && i.shieldPool);
+    if (sh) {
+      const left = (Number.isFinite(sh.shieldLeft) ? sh.shieldLeft : sh.shieldPool) - op.shield_hit;
+      if (left <= 0) { sh.shieldLeft = 0; sh.broken = true; out.push(`${sheet.name}'s ${sh.name} takes ${op.shield_hit} and shatters.`); }
+      else { sh.shieldLeft = round2(left); out.push(`${sheet.name}'s ${sh.name} absorbs ${op.shield_hit} (${Math.floor(left)}/${sh.shieldPool} left).`); }
+    }
+  }
   if (op.break_item) {
     const it = sheet.items.find((x) => sameName(x.name, op.break_item));
     if (it) { it.broken = true; out.push(`${sheet.name}'s ${it.name} breaks.`); }
   }
   if (op.repair_item) {
     const it = sheet.items.find((x) => sameName(x.name, op.repair_item));
-    if (it) { it.broken = false; out.push(`${sheet.name}'s ${it.name} is repaired.`); }
+    if (it) { it.broken = false; if (it.kind === "shield" && it.shieldPool) it.shieldLeft = it.shieldPool; out.push(`${sheet.name}'s ${it.name} is repaired.`); }
   }
   if (op.learn_spell) {
     sheet.spells.push(op.learn_spell);
     out.push(`${sheet.name} learns ${op.learn_spell.name} (tier ${op.learn_spell.tier}).`);
+  }
+  if (op.release && sheet.holding) {
+    out.push(`${sheet.name}'s ${sheet.holding.name} ends.`);
+    sheet.holding = null;
+    sheet.concentration = 0;
   }
   if (op.add_scar) {
     sheet.scars.push(op.add_scar);
@@ -1969,10 +2043,15 @@ function buildSystemPrompt(state, sel, party) {
   - Which stat: melee attacks Strength (Agility for daggers and finesse), ranged attacks Perception, cants and resisting cants Resonance, noticing Perception, knowledge and devices Intelligence, persuasion and lies Charisma, reflexes and stealth Agility, enduring Endurance. Luck is never rolled.
   - Which skill: the weapon's size for melee, Ranged for bows and thrown, Canting or Ranged canting for spells, Heavy armor for blocking with a shield, and Survival, Medicine, Creation, Thievery, Performance or Artifice for those crafts. Leave the skill out when none fits; anyone can try anything on a stat alone.
   - A character without a sheet: give the whole modifier yourself (usually -1 to +5).
-  - Spells: a character casts the spells on their sheet (give "spell" with its name; the server knows its tier). Anything else is a freeform cant (freeform: true, spell_tier, and a short name in spell): its first cast miscants on a natural 1 up to its tier, and if it works it becomes the caster's own spell. The server handles all of it. A character can't cast above their tier or without the Resonance for it; the server refuses and tells you. Devices can reach higher tiers (device: true).
-  - Spells are learned by being taught or found (update_sheet learn_spell; a learned spell miscants only on a 1), or by casting one the character doesn't know yet (request_rolls with learning: true): a straight d8 first, failing and miscasting on the spell's tier or lower, so a tier-4 spell is a coin flip. Make teachers and tomes worth their price: coin, service or standing.
+  - Spells: a character casts the spells on their sheet (give "spell" with its name; the server knows its tier). Anything else is a freeform cant (freeform: true, spell_tier, and a short name in spell): its first cast miscants on a natural 1 up to its tier, and if it works it becomes the caster's own spell. The server handles all of it. A character can't cast above their tier (Resonance ÷ 2, plus the best focus they wear or hold: +1 to +3) or without the Resonance for it; the server refuses and tells you. A focus never opens tier 6.
+  - Spells are learned by being taught or found (update_sheet learn_spell; a learned spell miscants only on a 1), or by casting one the character doesn't know yet (request_rolls with learning: true): a straight d8 first, failing and miscasting on the spell's tier or lower, so a tier-4 spell is a coin flip. Teaching takes one 8-hour session at any tier; fees are in the spellbook (tier 4-5 cost far more in coin alone than with standing or a favour owed); a tome is half price and two sessions.
   - TIER 6 has no list. Only a Resonance 13 canter reaches it, and writes their own: developed over about a week of downtime (learn_spell with tier 6 and one sentence), or fused from two known tier-5 or three known tier-4 spells: meditated overnight (update_sheet learn_spell with fused_from) or mid-fight (request_rolls with fusion and the new working's name in spell; the d8 fails on 1-6). Judge every working against the tier-6 benchmarks. It can never undo death, bend a mind of glass, or touch the bank. It can reach the Rim, but nothing that comes back can be read, and you never explain it. Every tier-6 cast is felt across the continent; the powers notice.
   - Use update_sheet for everything that changes a sheet: damage you deal and healing, coin gained or paid, items gained, lost, broken or repaired, Resonance spent outside a rolled cant, a dying character stabilised, and scars. The server handles dropping to 0, dying, death saves (it asks for them itself every round) and the rest.
+  - Spells that call for a save ("vs Agility save" and the like): request the cast as a check with no DC (that roll only decides a miscant), then have the targets save against the caster's spell save DC (8 + Resonance mod + Canting bonus, shown on their sheet and on the cast's result): roll_dice for NPCs, request_rolls type save with that dc for player characters. An NPC caster's DC is yours to set the same way.
+  - Holding spells: a character holds one lasting spell at a time (anything with a duration). Casting another lets go of the first; damage calls for an Endurance save to keep it (the server asks); dropping to 0 lets it go. When its duration runs out, call update_sheet release. Mark a freeform cant with a duration held: true.
+  - Lattice-shields: a shield in hand is raised. It absorbs ranged hits (cants and projectiles) from the direction it faces: use update_sheet shield_hit instead of damage. Flanks and backs go straight through. Against melee, once per round the bearer may block: request a check (stat agility, skill heavy_armor, dc = the attack's total; disadvantage against small melee weapons; none when surprised, grappled or hit from behind); on a success the blow is a shield_hit. The pool refills by itself (empty to full in 24 hours); at 0 it shatters until repaired.
+  - Masterwork items exist but are vanishingly rare: never in shops, never casual loot, and no owner parts with one willingly. Give one only through the story (taken, inherited, an enormous debt), and rarely.
+  - Money: a payment bigger than the purse is refused. Loans and credit go on the sheet with add_debt (to whom, how much, terms); paying back is pay_debt. The bank's debts are always collected (the canon says how).
   - Overclock rolls its own d4 when it works: on a 1 the device breaks after its minute (break_item, if it's on a sheet); on a 4 it runs two minutes.
   - Hands: a character holds at most two hands' worth (a two-hander is two, a one-hander or raised shield one; Titan's grip makes a two-hander one). The sheet shows what is in hand; don't narrate more than that.
   - Scars are pure story: when a sheet says a scar is OWED, write one that fits how it happened (one short line) with add_scar.
@@ -2109,8 +2188,8 @@ DICE_TOOLS.push({
               spell_tier: { type: "integer", minimum: 1, maximum: 6, description: "For a freeform cant (or a new tier-6 fusion): its tier. Known spells take their tier from the sheet." },
               freeform: { type: "boolean", description: "A cant improvised from the root-language grammar (tiers 1-5), not a spellbook spell. Name it in 'spell'. Its first cast miscants on a natural 1 up to its tier; if it works, it becomes the caster's own spell." },
               learning: { type: "boolean", description: "Casting a spellbook spell the caster does NOT know yet (worked out from theory or watching). A straight d8 first: equal to or lower than the tier miscasts. If the cast works, they learn it." },
+              held: { type: "boolean", description: "For a freeform cant or own working with a duration: it has to be held (one at a time)." },
               fusion: { type: "array", items: { type: "string" }, description: "Tier 6 only, mid-fight: the known spells being fused right now (two tier-5 or three tier-4); name the new working in 'spell'. Learning by casting at tier 6: the d8 fails on 1-6. On a success it goes on the sheet. (A fusion meditated overnight is update_sheet learn_spell with fused_from instead.)" },
-              device: { type: "boolean", description: "For a cant through a device that lets the caster reach above their own tier." },
               dc: { type: "integer", description: "Difficulty class, for checks and saves" },
               target_ac: { type: "integer", description: "Armor Class of the target, for attacks" },
               damage_dice: { type: "string", description: "For attacks: damage dice rolled on a hit, e.g. '1d6'" },
@@ -2178,13 +2257,24 @@ DICE_TOOLS.push({
         heal: { type: "integer", minimum: 1, description: "Hit points regained" },
         stabilize: { type: "boolean", description: "A dying character was stabilised (e.g. a successful Medicine check, DC 10)" },
         resonance: { type: "number", description: "Change to the Resonance pool outside a rolled cant, e.g. -4 or +10" },
-        purse: { type: "number", description: "Covenants gained (positive) or paid (negative); 0.5 = 50 bonds" },
+        purse: { type: "number", description: "Covenants gained (positive) or paid (negative); 0.5 = 50 bonds. A payment bigger than the purse is refused: use add_debt for the rest." },
+        add_debt: {
+          type: "object", description: "A debt the character takes on (a loan, credit, a promise of payment)",
+          properties: { to: { type: "string", description: "Creditor: the bank, or a named person" }, amount: { type: "number" }, terms: { type: "string", description: "Short: rate, due date, collateral" } },
+          required: ["to", "amount"],
+        },
+        pay_debt: {
+          type: "object", description: "Paying down a debt from the purse",
+          properties: { to: { type: "string" }, amount: { type: "number" } },
+          required: ["to", "amount"],
+        },
         add_item: {
           type: "object",
           description: "An item gained",
           properties: {
             name: { type: "string" },
-            kind: { type: "string", enum: ["weapon", "armor", "shield", "tool", "device", "other"] },
+            kind: { type: "string", enum: ["weapon", "armor", "shield", "focus", "tool", "device", "other"] },
+            focus: { type: "integer", minimum: 1, maximum: 3, description: "For a focus (bead, ring, staff, array): tiers it adds while worn or in hand. Common +1, Guild +2, Superior +3" },
             tier: { type: "integer", minimum: 1, maximum: 5, description: "1 Common, 2 Guild, 3 Superior, 4 Relic, 5 Unique" },
             quality: { type: "string", enum: ["Crude", "Standard", "Fine", "Exceptional", "Masterwork"] },
             broken: { type: "boolean", description: "Found or given already broken" },
@@ -2202,6 +2292,8 @@ DICE_TOOLS.push({
           required: ["name"],
         },
         remove_item: { type: "string", description: "Name of an item lost, sold or used up" },
+        release: { type: "boolean", description: "The spell the character is holding ends (its duration ran out, or they let it go)" },
+        shield_hit: { type: "integer", minimum: 1, description: "Damage a raised lattice-shield absorbs instead of the character (a ranged hit from the front, or a melee blow they blocked). At 0 the shield shatters." },
         break_item: { type: "string", description: "Name of an item that breaks: it does nothing until repaired" },
         repair_item: { type: "string", description: "Name of a broken item that's been repaired (Mend for Common items, or paid for: 25% of its price)" },
         add_scar: { type: "string", description: "One short line: the scar and how it came to be. Only when the sheet says a scar is OWED." },
@@ -2245,6 +2337,7 @@ function parseRequests(args, seats, party = [], book = []) {
       freeform: !!r.freeform,
       fusion: Array.isArray(r.fusion) && r.fusion.length ? r.fusion.map((x) => clean(String(x), 80)) : null,
       learning: !!r.learning,
+      held: !!r.held,
     };
     const sheet = seat.character ? findSheet(party, seat.character) : null;
     if (sheet && sheet.stats) {
@@ -2272,6 +2365,7 @@ function parseRequests(args, seats, party = [], book = []) {
           req.spellTier = known.tier;
           req.learning = false;
           req.skill = findSpell(book, known.name)?.skill || known.skill || (CANTING_SKILLS.includes(req.skill) ? req.skill : "canting");
+          req.held = req.held || !!known.held || !!findSpell(book, known.name)?.lasting;
         }
       } else if (req.spell && (!req.freeform || findSpell(book, req.spell))) {
         {
@@ -2282,6 +2376,7 @@ function parseRequests(args, seats, party = [], book = []) {
           req.spell = inBook.name;
           req.spellTier = inBook.tier;
           req.skill = inBook.skill;
+          req.held = req.held || !!inBook.lasting;
         }
       } else if ((req.freeform || (req.spellTier && !req.spell)) && !req.fusion) {
         // Improvised from the root-language: on its first cast it miscants on 1 up to its tier;
@@ -2298,7 +2393,7 @@ function parseRequests(args, seats, party = [], book = []) {
       if (req.spellTier) {
         const d = derive(sheet);
         if (req.spellTier === 6 && sheet.capstone !== "resonance") { problems.push(`${r.label}: tier 6 needs Resonance 13; ${sheet.name} can't cast it, with or without a device`); continue; }
-        if (req.spellTier > d.maxTier && !r.device) { problems.push(`${r.label}: ${sheet.name} can cast up to tier ${d.maxTier} unaided`); continue; }
+        if (req.spellTier > d.maxTier) { problems.push(`${r.label}: ${sheet.name} can cast up to tier ${d.maxTier}${d.focus ? ` with their focus (+${d.focus})` : " (no focus worn or in hand)"}`); continue; }
         if (sheet.pool < SPELL_COST[req.spellTier]) { problems.push(`${r.label}: ${sheet.name} has ${sheet.pool} Resonance, tier ${req.spellTier} costs ${SPELL_COST[req.spellTier]}`); continue; }
       }
     }
@@ -2336,8 +2431,21 @@ function parseSheetOp(args, party, book = []) {
   if (args.stabilize) op.stabilize = true;
   if (num(args.resonance)) op.resonance = num(args.resonance);
   if (num(args.purse)) op.purse = Math.round(num(args.purse) * 100) / 100;
+  if (op.purse < 0 && (c.purse || 0) + op.purse < -0.001) {
+    return { error: `${c.name} has ${c.purse} cv and can't pay ${-op.purse}. Charge less, or make the rest a debt with add_debt.` };
+  }
+  if (args.add_debt && clean(String(args.add_debt.to || ""), 80) && num(args.add_debt.amount) > 0) {
+    op.add_debt = { to: clean(String(args.add_debt.to), 80), amount: Math.round(num(args.add_debt.amount) * 100) / 100, terms: clean(String(args.add_debt.terms || ""), 120) || undefined };
+  }
+  if (args.pay_debt && clean(String(args.pay_debt.to || ""), 80) && num(args.pay_debt.amount) > 0) {
+    const debt = (c.debts || []).find((x) => sameName(x.to, args.pay_debt.to));
+    if (!debt) return { error: `${c.name} owes nothing to "${args.pay_debt.to}". Debts: ${(c.debts || []).map((x) => x.to).join(", ") || "none"}.` };
+    if ((c.purse || 0) < num(args.pay_debt.amount) - 0.001) return { error: `${c.name} has only ${c.purse} cv to pay with.` };
+    op.pay_debt = { to: debt.to, amount: Math.round(num(args.pay_debt.amount) * 100) / 100 };
+  }
   if (args.add_item && typeof args.add_item === "object" && clean(args.add_item.name, 80)) {
-    const it = args.add_item, item = { name: clean(it.name, 80), kind: ["weapon", "armor", "shield", "tool", "device", "other"].includes(it.kind) ? it.kind : "other" };
+    const it = args.add_item, item = { name: clean(it.name, 80), kind: ["weapon", "armor", "shield", "focus", "tool", "device", "other"].includes(it.kind) ? it.kind : "other" };
+    if (num(it.focus)) item.focus = Math.min(3, Math.max(1, Math.trunc(num(it.focus))));
     item.tier = Math.min(5, Math.max(1, Math.trunc(num(it.tier)) || 1));
     item.quality = ["Crude", "Standard", "Fine", "Exceptional", "Masterwork"].includes(it.quality) ? it.quality : "Standard";
     if (it.broken) item.broken = true;
@@ -2359,6 +2467,8 @@ function parseSheetOp(args, party, book = []) {
     op.add_item = item;
   }
   if (args.remove_item) op.remove_item = clean(String(args.remove_item), 80);
+  if (args.release) op.release = true;
+  if (num(args.shield_hit) > 0) op.shield_hit = Math.trunc(num(args.shield_hit));
   if (args.break_item) op.break_item = clean(String(args.break_item), 80);
   if (args.repair_item) op.repair_item = clean(String(args.repair_item), 80);
   if (args.add_scar) op.add_scar = clean(String(args.add_scar), 200);
