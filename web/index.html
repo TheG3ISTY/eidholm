@@ -314,6 +314,7 @@
   .emsg { flex: 1; font-family: var(--mono); font-size: 11px; color: var(--danger); min-width: 80px; }
   .turn.roll .oc.miscant { color: var(--danger); border-style: double; }
   .turn.roll .oc.back-on-their-feet { color: var(--brass); }
+  .turn.roll .oc.holds { color: var(--glass); }
   .turn.roll .luck { font-family: var(--mono); font-size: 11px; background: transparent; border: 1px solid var(--brass); color: var(--brass); border-radius: 2px; padding: 1px 7px; cursor: pointer; }
   .turn.roll .luck:hover { background: var(--brass); color: var(--bg); }
   .turn.roll .rf { font-size: 11px; color: var(--ink-dim); opacity: 0.8; }
@@ -1122,6 +1123,7 @@
         ${L("DAMAGE DICE", inp("damage_dice", "1d8, on a hit"))}
         ${L("DICE", inp("dice", "for damage/other rolls"))}
         ${L("SPELL", inp("spell", "name on their sheet"))}
+        ${L("NOT ON THEIR SHEET?", sel("learning", [["", "no, they know it"], ["1", "learning it by casting (d8)"]]))}
         ${L("FREEFORM TIER", inp("spell_tier", "1-6, freeform only", "number"))}
         ${L("FUSE (TIER 6)", inp("fusion", "Ashfall, Quake"))}
         ${L("SITUATIONAL +/-", inp("modifier", "0", "number"))}
@@ -1144,6 +1146,7 @@
         ${L("TEACH SPELL", inp("spell", "spellbook name, or their own"))}
         ${L("OWN SPELL TIER", inp("spellTier", "only for their own", "number"))}
         ${L("OWN SPELL TEXT", inp("spellText", "one sentence"))}
+        ${L("MEDITATED FUSION OF", inp("fusedFrom", "Ashfall, Quake (tier 6)"))}
         ${L("SCAR", inp("scar", "one short line"))}
       </div>`;
     if (kind === "npc") html = `<div class="grid">
@@ -1163,7 +1166,8 @@
       if (kind === "roll") {
         if (!v.label) return ($("gmf-msg").textContent = "Give it a label.");
         out = { character: v.character, type: v.type, label: v.label, stat: v.stat, skill: v.skill, dc: num(v.dc), target_ac: num(v.target_ac),
-          damage_dice: v.damage_dice, dice: v.dice, spell: v.spell, modifier: num(v.modifier), advantage: list(v.advantage), disadvantage: list(v.disadvantage) };
+          damage_dice: v.damage_dice, dice: v.dice, spell: v.spell, modifier: num(v.modifier), advantage: list(v.advantage), disadvantage: list(v.disadvantage),
+          learning: v.learning ? true : undefined };
         if (v.spell_tier && !v.fusion) { out.spell_tier = num(v.spell_tier); out.freeform = true; }
         if (v.fusion) { out.fusion = list(v.fusion); out.freeform = false; }
         gmQueue.rolls.push(out);
@@ -1178,7 +1182,7 @@
         if (v.item) out.add_item = { name: v.item, tier: num(v.itemTier) || 1 };
         if (v.remove_item) out.remove_item = v.remove_item;
         if (v.condName && v.cond) out.item_condition = { name: v.condName, condition: v.cond };
-        if (v.spell) out.learn_spell = { name: v.spell, tier: num(v.spellTier), text: v.spellText };
+        if (v.spell) out.learn_spell = { name: v.spell, tier: num(v.spellTier), text: v.spellText, fused_from: list(v.fusedFrom) };
         if (v.scar) out.add_scar = v.scar;
         if (Object.keys(out).length === 1) return ($("gmf-msg").textContent = "Nothing to change yet.");
         gmQueue.sheetOps.push(out);

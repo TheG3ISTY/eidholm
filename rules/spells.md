@@ -18,18 +18,32 @@ A canter can only cast the named spells they know. Spells are learned three ways
 
 - **Taught:** by a teacher, an academy, a guild, a diocese. Usually for coin, service or standing.
 - **Found:** from manuals, etched beads, salvaged arrays, a dead canter's notes.
-- **By doing:** working it out from theory or from watching it cast, then trying it.
+- **By doing:** working it out from theory or from watching it cast, then trying it for real.
 
-Every spell the canter knows goes on their sheet. Until it has been **cast successfully once**, it is **unproven**.
+Taught and found spells go on the sheet **unproven** until they have been cast successfully once.
+
+### Learning by casting
+
+Casting a spell that is not on the sheet yet is a gamble the canter takes before the cant even starts:
+
+- Roll a **straight d8**. **Equal to or lower than the spell's tier, it fails and miscasts**: the Resonance is spent and the backlash for its tier lands.
+- Higher, and the cast goes ahead as normal. If it works, the spell goes on the sheet, **proven**: it has been cast successfully.
+
+| Tier | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| Fails on a d8 of | 1 | 1–2 | 1–3 | 1–4 | 1–5 | 1–6 |
+| Chance to miscast | 12.5% | 25% | 37.5% | 50% | 62.5% | 75% |
+
+That is the point: low spells can be picked up on the street, but anyone who tries a tier-4 spell mid-fight without having been taught it is flipping a coin. Teachers and tomes are worth their price. The d8 is not a d20: lucky breaks can't reroll it, and Luck 13 doesn't save anyone from it.
 
 ### Miscants
 
 | What is being cast | Miscants on a natural |
 |---|---|
 | A **proven** spell (cast successfully before) | 1 |
-| An **unproven** spell (learned, never yet cast successfully) | 1 or 2 |
+| An **unproven** spell (taught or found, never yet cast successfully) | 1 or 2 |
 | A **freeform** cant | 1 or 2 |
-| A **first fusion** at tier 6 | 1, 2 or 3 |
+| A spell **not on the sheet** (learning by casting) | the d8 above, then 1 |
 
 Luck 13 removes only the natural 1, never the rest. Backlash always follows the tier (see Characters).
 
@@ -134,9 +148,9 @@ There are no standard tier-6 spells. Only a canter with **Resonance 13** can cas
 Every tier-6 working is written by its caster, in play. Two ways:
 
 - **Developed:** composed from nothing in the root-language during downtime, about **a week of in-game time**. Anything within the scale below.
-- **Fused:** the fast road. Weave **two tier-5 spells or three tier-4 spells** into one working that does what its parts do, at tier-6 scale (Ashfall + Quake becomes a burning collapse across a whole city quarter). Custom spellweaving at its peak.
-  - Fusion happens **on the spot**: the weaving is the cast, mid-fight if need be, for the usual 39 Resonance.
-  - A first fusion is improvisation at the edge of what a mind can hold: it **miscants on a natural 1, 2 or 3** (Luck 13 removes only the 1). Once it has worked, it is a named working like any other and miscants on a 1.
+- **Fused:** the fast road. Weave **two tier-5 spells or three tier-4 spells** the canter knows into one working that does what its parts do, at tier-6 scale (Ashfall + Quake becomes a burning collapse across a whole city quarter). Custom spellweaving at its peak. Two ways to do it:
+  - **Meditated:** a quiet night, about **8 hours** of downtime. The working goes on the sheet unproven, like a spell that was taught.
+  - **Mid-fight:** the weaving is the cast, right now, for the usual 39 Resonance. That is learning by casting at tier 6: the **d8 fails on 1–6, three times in four**. If it holds, the working goes on the sheet, proven.
 - Either way the result is theirs: named, on their sheet, castable again. The player states in one sentence what it does; the GM checks it against the benchmarks and accepts it, or says where it reaches too far.
 
 ### The scale

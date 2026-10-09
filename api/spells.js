@@ -33,9 +33,14 @@ export function findSpell(list, name) {
 }
 
 // Which natural rolls miscant. Luck 13 takes away only the 1.
-//   proven spell 1 · unproven or freeform 1-2 · a first tier-6 fusion 1-3
-export function miscantOn({ proven = true, freeform = false, fusion = false } = {}) {
-  if (fusion) return 3;
+//   proven spell 1 · unproven or freeform 1-2
+// (A spell not on the sheet is learned by casting: the d8 gate decides, then 1.)
+export function miscantOn({ proven = true, freeform = false } = {}) {
   if (freeform || !proven) return 2;
   return 1;
+}
+
+// Learning by casting: a straight d8 before the cast; equal to or lower than the tier fails.
+export function learningFails(d8, tier) {
+  return d8 <= tier;
 }

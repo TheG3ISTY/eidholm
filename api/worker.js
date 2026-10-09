@@ -26,7 +26,7 @@ import {
   derive, normalize, createSheet, raiseStat, takeCapstone, addMark, takeDamage, heal, stabilize, deathSave,
   statMod, skillBonus, skillRank, equipped, clockLabel, parseElapsed, dawnsBetween, passTime, sheetForGm, findSheet,
 } from "./characters.js";
-import { parseSpellbook, findSpell, miscantOn, START_SPELLS } from "./spells.js";
+import { parseSpellbook, findSpell, miscantOn, learningFails, START_SPELLS } from "./spells.js";
 
 const STATE_FILES = {
   canon: "world/worldbuilding.md",
@@ -1549,6 +1549,29 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
       req.paid = cost;
       markDirty(state);
     }
+    // Learning by casting: the d8 decides before the cant starts. It is not a d20,
+    // so a lucky break never rerolls it: on a reroll the first d8 stands.
+    if (sheet && req.learning && req.spellTier) {
+      if (!req.gate) {
+        const g = rollDice("d8");
+        req.gate = { face: g.total, fail: learningFails(g.total, req.spellTier) };
+        state.messages.push({
+          id: state.nextId++, kind: "roll", ...base, rid: undefined, gateRid: req.rid, rtype: "learn",
+          label: `${req.label}: learning it by casting (d8, fails on ${req.spellTier} or lower)`, outcome: req.gate.fail ? "miscant" : "holds",
+          expr: g.expr, total: g.total, parts: g.parts, nat: null, mode: null, ts: Date.now(),
+        });
+      }
+      if (req.gate.fail) {
+        const br = rollDice(BACKLASH[req.spellTier]);
+        push(br, { rtype: "backlash", label: `${req.label}: backlash` });
+        tell(takeDamage(sheet, br.total, { miscant: true }));
+        if (req.spellTier >= 3) { sheet.scarsOwed += 1; tell([`The miscant leaves ${sheet.name} scarred.`]); }
+        markDirty(state);
+        if (!req.marked) { awardMarks(state, sheet, req, seat); req.marked = true; }
+        req.status = "rolled";
+        return;
+      }
+    }
     const mode = adv.length && !dis.length ? "adv " : dis.length && !adv.length ? "dis " : "";
     const r = rollDice(`${mode}d20${fmtMod(m.total)}`);
     const face = d20Face(r);
@@ -1561,8 +1584,8 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
       outcome = r.total >= req.dc ? "success" : "failure";
     }
     // Which naturals miscant depends on what's cast; Luck 13 only ever takes away the 1.
-    const known = sheet && req.spell && !req.fusion ? findSpell(sheet.spells, req.spell) : null;
-    const threshold = miscantOn({ proven: known ? !!known.proven : true, freeform: req.freeform, fusion: !!req.fusion });
+    const known = sheet && req.spell && !req.fusion && !req.learning ? findSpell(sheet.spells, req.spell) : null;
+    const threshold = miscantOn({ proven: known ? !!known.proven : true, freeform: req.freeform });
     const miscant = !!(sheet && req.spellTier && CANTING_SKILLS.includes(req.skill) && face != null &&
       face <= threshold && !(face === 1 && d?.noFumble));
     if (miscant) outcome = "miscant";
@@ -1577,6 +1600,10 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
     if (sheet && worked && req.fusion && !findSpell(sheet.spells, req.spell)) {
       sheet.spells.push({ name: req.spell, tier: 6, proven: true, custom: true, text: `fused from ${req.fusion.join(" + ")}` });
       tell([`${sheet.name} fuses ${req.fusion.join(" and ")} into a working of their own: ${req.spell}.`]);
+      markDirty(state);
+    } else if (sheet && worked && req.learning && !findSpell(sheet.spells, req.spell)) {
+      sheet.spells.push({ name: req.spell, tier: req.spellTier, proven: true });
+      tell([`${sheet.name} has learned ${req.spell} by casting it.`]);
       markDirty(state);
     }
     if (miscant) {
@@ -1898,8 +1925,8 @@ function buildSystemPrompt(state, sel, party) {
   - Which skill: the weapon's size for melee, Ranged for bows and thrown, Canting or Ranged canting for spells, Heavy armor for blocking with a shield, and Survival, Medicine, Creation, Thievery, Performance or Artifice for those crafts. Leave the skill out when none fits; anyone can try anything on a stat alone.
   - A character without a sheet: give the whole modifier yourself (usually -1 to +5).
   - Spells: a character casts the spells on their sheet (give "spell" with its name; the server knows its tier and whether it is proven). Anything else is a freeform cant (freeform: true plus spell_tier). Unproven spells and freeform cants miscant on a natural 1 or 2; the server handles it. A character can't cast above their tier or without the Resonance for it; the server refuses and tells you. Devices can reach higher tiers (device: true).
-  - Spells are learned by being taught, found, or worked out from theory: when that happens in the story, call update_sheet learn_spell. Teachers want coin, service or standing.
-  - TIER 6 has no list. Only a Resonance 13 canter reaches it, and writes their own: developed over about a week of downtime (learn_spell with tier 6 and one sentence), or fused on the spot from two known tier-5 or three known tier-4 spells (request_rolls with fusion and the new working's name in spell; it miscants on 1-3). Judge every working against the tier-6 benchmarks. It can never undo death, bend a mind of glass, or touch the bank. It can reach the Rim, but nothing that comes back can be read, and you never explain it. Every tier-6 cast is felt across the continent; the powers notice.
+  - Spells are learned by being taught or found (update_sheet learn_spell; they start unproven), or by casting one the character doesn't know yet (request_rolls with learning: true): a straight d8 first, failing and miscasting on the spell's tier or lower, so a tier-4 spell is a coin flip. Make teachers and tomes worth their price: coin, service or standing.
+  - TIER 6 has no list. Only a Resonance 13 canter reaches it, and writes their own: developed over about a week of downtime (learn_spell with tier 6 and one sentence), or fused from two known tier-5 or three known tier-4 spells: meditated overnight (update_sheet learn_spell with fused_from; it starts unproven) or mid-fight (request_rolls with fusion and the new working's name in spell; the d8 fails on 1-6). Judge every working against the tier-6 benchmarks. It can never undo death, bend a mind of glass, or touch the bank. It can reach the Rim, but nothing that comes back can be read, and you never explain it. Every tier-6 cast is felt across the continent; the powers notice.
   - Use update_sheet for everything that changes a sheet: damage you deal and healing, coin gained or paid, items gained, lost or damaged, Resonance spent outside a rolled cant, a dying character stabilised, and scars. The server handles dropping to 0, dying, death saves (it asks for them itself every round) and the rest.
   - Scars are pure story: when a sheet says a scar is OWED, write one that fits how it happened (one short line) with add_scar.
   - Lucky breaks: a player may say they spend one against a roll made against them. Reroll it with roll_dice and lucky_break set to their name; the new result stands. Their own rolls they reroll themselves.
@@ -2034,7 +2061,8 @@ DICE_TOOLS.push({
               spell: { type: "string", description: "For a cant: the spell's name as on the caster's sheet. The server takes its tier from there, and knows whether it is proven." },
               spell_tier: { type: "integer", minimum: 1, maximum: 6, description: "For a freeform cant (or a new tier-6 fusion): its tier. Known spells take their tier from the sheet." },
               freeform: { type: "boolean", description: "A cant improvised from the root-language grammar, not a spell the caster knows. Miscants on a natural 1 or 2." },
-              fusion: { type: "array", items: { type: "string" }, description: "Tier 6 only: the known spells being fused on the spot, two tier-5 or three tier-4. Give the new working's name in 'spell'. Miscants on 1-3; on a success it becomes a named working on the sheet." },
+              learning: { type: "boolean", description: "Casting a spellbook spell the caster does NOT know yet (worked out from theory or watching). A straight d8 first: equal to or lower than the tier miscasts. If the cast works, they learn it." },
+              fusion: { type: "array", items: { type: "string" }, description: "Tier 6 only, mid-fight: the known spells being fused right now (two tier-5 or three tier-4); name the new working in 'spell'. Learning by casting at tier 6: the d8 fails on 1-6. On a success it goes on the sheet. (A fusion meditated overnight is update_sheet learn_spell with fused_from instead.)" },
               device: { type: "boolean", description: "For a cant through a device that lets the caster reach above their own tier." },
               dc: { type: "integer", description: "Difficulty class, for checks and saves" },
               target_ac: { type: "integer", description: "Armor Class of the target, for attacks" },
@@ -2134,7 +2162,11 @@ DICE_TOOLS.push({
         learn_spell: {
           type: "object",
           description: "The character learns a spell: taught, found, or worked out. A spellbook spell needs only its name. A working of their own (a developed tier-6, or a custom spell) needs tier and text. It starts unproven.",
-          properties: { name: { type: "string" }, tier: { type: "integer", minimum: 1, maximum: 6 }, text: { type: "string", description: "For their own working: one sentence of what it does" } },
+          properties: {
+            name: { type: "string" }, tier: { type: "integer", minimum: 1, maximum: 6 },
+            text: { type: "string", description: "For their own working: one sentence of what it does" },
+            fused_from: { type: "array", items: { type: "string" }, description: "A tier-6 fusion meditated overnight: the known spells fused (two tier-5 or three tier-4)" },
+          },
           required: ["name"],
         },
       },
@@ -2166,6 +2198,7 @@ function parseRequests(args, seats, party = [], book = []) {
       spell: r.spell ? clean(String(r.spell), 80) : null,
       freeform: !!r.freeform,
       fusion: Array.isArray(r.fusion) && r.fusion.length ? r.fusion.map((x) => clean(String(x), 80)) : null,
+      learning: !!r.learning,
     };
     const sheet = seat.character ? findSheet(party, seat.character) : null;
     if (sheet && sheet.stats) {
@@ -2185,12 +2218,22 @@ function parseRequests(args, seats, party = [], book = []) {
         if (findSpell(sheet.spells, req.spell)) { problems.push(`${r.label}: ${sheet.name} already has a working called ${req.spell}`); continue; }
         req.spellTier = 6;
         req.freeform = false;
+        req.learning = true;   // fusing mid-fight is learning by casting at tier 6
       } else if (req.spell && !req.freeform) {
         const known = findSpell(sheet.spells, req.spell);
-        if (!known) { problems.push(`${r.label}: ${sheet.name} doesn't know ${req.spell}. Teach it with update_sheet learn_spell, or cast it as freeform`); continue; }
-        req.spell = known.name;
-        req.spellTier = known.tier;
-        if (!req.skill) req.skill = findSpell(book, known.name)?.skill || "canting";
+        if (known) {
+          req.spell = known.name;
+          req.spellTier = known.tier;
+          req.learning = false;
+          if (!req.skill) req.skill = findSpell(book, known.name)?.skill || "canting";
+        } else {
+          const inBook = findSpell(book, req.spell);
+          if (!inBook) { problems.push(`${r.label}: "${req.spell}" isn't in the spellbook and ${sheet.name} doesn't know it. Cast it as freeform, or teach a working of their own with update_sheet learn_spell`); continue; }
+          if (!req.learning) { problems.push(`${r.label}: ${sheet.name} doesn't know ${inBook.name}. To try it anyway, set learning: true (a d8 first, failing on ${inBook.tier} or lower); or teach it with update_sheet learn_spell`); continue; }
+          req.spell = inBook.name;
+          req.spellTier = inBook.tier;
+          if (!req.skill) req.skill = inBook.skill;
+        }
       } else if (req.freeform && !req.spellTier) {
         problems.push(`${r.label}: a freeform cant needs a spell_tier`); continue;
       }
@@ -2261,7 +2304,17 @@ function parseSheetOp(args, party, book = []) {
     const name = clean(String(args.learn_spell.name), 80);
     const fromBook = findSpell(book, name);
     if (findSpell(c.spells, name)) return { error: `${c.name} already knows ${name}.` };
-    if (fromBook) op.learn_spell = { name: fromBook.name, tier: fromBook.tier, proven: false };
+    const fused = Array.isArray(args.learn_spell.fused_from) ? args.learn_spell.fused_from.map((x) => clean(String(x), 80)).filter(Boolean) : [];
+    if (fused.length) {
+      if (c.capstone !== "resonance") return { error: "Only a Resonance 13 canter can fuse a tier-6 working." };
+      const parts = fused.map((n) => findSpell(c.spells, n));
+      const missing = fused.filter((n, i) => !parts[i]);
+      if (missing.length) return { error: `${c.name} doesn't know ${missing.join(", ")}.` };
+      const tiers = parts.map((x) => x.tier);
+      const ok = (tiers.length === 2 && tiers.every((t) => t === 5)) || (tiers.length === 3 && tiers.every((t) => t === 4));
+      if (!ok) return { error: "A fusion takes two tier-5 spells or three tier-4 spells." };
+      op.learn_spell = { name, tier: 6, proven: false, custom: true, text: clean(String(args.learn_spell.text || ""), 240) || `fused from ${parts.map((x) => x.name).join(" + ")}` };
+    } else if (fromBook) op.learn_spell = { name: fromBook.name, tier: fromBook.tier, proven: false };
     else {
       const tier = Math.trunc(num(args.learn_spell.tier));
       const text = clean(String(args.learn_spell.text || ""), 240);
