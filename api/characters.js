@@ -497,7 +497,7 @@ export function sheetForGm(sheet) {
     `- Stats: ${stats}${sheet.capstone ? `; capstone ${CAPSTONES[sheet.capstone][0]}: ${CAPSTONES[sheet.capstone][1]}` : ""}`,
     `- Skills: ${skills}`,
     `- Carrying: ${items}`,
-    (sheet.debts || []).length ? `- Debts: ${sheet.debts.map((x) => `${fmtNum(x.amount)} cv to ${x.to}${x.terms ? ` (${x.terms})` : ""}`).join("; ")}` : "",
+    (sheet.debts || []).length ? `- Debts: ${sheet.debts.map((x) => `${fmtNum(x.amount)} cv to ${x.to}${x.terms ? ` (${x.terms})` : ""}${x.missed ? `; failed collections: ${x.missed}` : ""}${x.collectorKilled ? "; a collector was killed" : ""}`).join("; ")}` : "",
     `- Spells known: ${(sheet.spells || []).map((x) => `${x.name} (T${x.tier}${x.custom ? `, own working: ${x.text || ""}` : ""})`).join("; ") || "none (freeform only)"}`,
     `- Lucky breaks left today: ${Math.max(0, d.luckyBreaks - sheet.luckUsed)}${d.critOn === 19 ? "; crits on 19-20" : ""}`,
     statValue(sheet, "luck") <= 3 ? "- Bad luck: once per session, you may turn one of their successes into a complication (a cost, never a failure)." : "",

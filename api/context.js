@@ -293,7 +293,7 @@ export function personLine(p) {
 
 // What the GM reads about a person it needs in full.
 export function personFull(p) {
-  const skip = new Set(["name", "status", "first_seen_session", "last_seen_session", "pillar"]);
+  const skip = new Set(["name", "status", "first_seen_session", "last_seen_session", "pillar", "meet_level", "meet_trigger"]);
   return `- ${p.pillar ? "[fixed figure] " : ""}${p.name}: ` +
     Object.entries(p).filter(([k]) => !skip.has(k)).map(([k, v]) => `${k.replace(/_/g, " ")}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join("; ");
 }

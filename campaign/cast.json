@@ -11,7 +11,8 @@
       "wants": "to keep the Concord exactly as it is",
       "secret": "the Kaldren rain patents are about to expire, which would ruin her house; she is preparing to rewrite patent law itself to stop it",
       "contradiction": "the woman who owns the rain keeps the only true garden in Kalvane, under glass, and waters it by hand",
-      "with_party": "prices them like assets; generous to anyone useful, forgets the rest"
+      "with_party": "prices them like assets; generous to anyone useful, forgets the rest",
+      "meet_level": 20
     },
     {
       "name": "Severin Graul",
@@ -24,7 +25,8 @@
       "wants": "the devout seated in the rim-council as equals",
       "secret": "no longer sure where he ends and his chassis begins; knows which parishes devote believers far earlier than admitted, and has not stopped them",
       "contradiction": "preaches distrust of the flesh yet keeps his left little finger undevoted, the last part of him that is unmistakably him, and touches it when uneasy",
-      "with_party": "blesses their machines, studies their bodies; offers devotion (a replaced limb) to the wounded, at the price of faith"
+      "with_party": "blesses their machines, studies their bodies; offers devotion (a replaced limb) to the wounded, at the price of faith",
+      "meet_level": 15
     },
     {
       "name": "Ilse Marrow",
@@ -37,7 +39,8 @@
       "wants": "the Rolls kept true, and to be left alone",
       "secret": "the Rolls contain errors only she knows, including two Barons who each believe they own the same patent",
       "contradiction": "belongs to no Baron yet owns one worthless patent herself, her mother's music-box mechanism, and refuses every offer for it",
-      "with_party": "exact and courteous; answers precisely the question asked and not a word more; ask badly, learn nothing"
+      "with_party": "exact and courteous; answers precisely the question asked and not a word more; ask badly, learn nothing",
+      "meet_level": 5
     },
     {
       "name": "Brann of Deephold Varek",
@@ -51,7 +54,8 @@
       "secret": "Deephold Varek dug into something in the Lattice's roots that dug back; the lowest shafts are sealed, and the seals are holding for now",
       "contradiction": "despises the surface yet sends her own grandchildren up to the Canting academies, to get them out of the dark",
       "with_party": "blunt; trusts anyone who has spent real time underground; trade-honest to a fault",
-      "notes": "'Dwarven-blooded' is the Emberreach's old name for clans that have lived underground for generations: a human lineage (shorter, broader, lamp-pale), not a separate species."
+      "notes": "'Dwarven-blooded' is the Emberreach's old name for clans that have lived underground for generations: a human lineage (shorter, broader, lamp-pale), not a separate species.",
+      "meet_level": 10
     },
     {
       "name": "Calder",
@@ -64,7 +68,8 @@
       "wants": "its contract of service honored to the letter",
       "secret": "has been quietly answering workers' prayers with small mercies: a train held, a furnace shift cooled",
       "contradiction": "rigidly contractual, yet every evening holds one particular train exactly as long as a certain street musician plays her last song",
-      "with_party": "polite and literal; helps exactly as far as its contract allows and says so plainly; curious about outsiders"
+      "with_party": "polite and literal; helps exactly as far as its contract allows and says so plainly; curious about outsiders",
+      "meet_level": 20
     },
     {
       "name": "Aurelio Vant",
@@ -77,7 +82,8 @@
       "wants": "never to be challenged",
       "secret": "never beat anyone: his opponent miscanted alone and died; Vant is a mediocre Canter terrified of a real challenge",
       "contradiction": "a coward in the duelling ring, brave in politics: passed protections for duel-orphans at real cost to himself",
-      "with_party": "charming, flattering, quietly desperate for capable allies who could fight on his behalf"
+      "with_party": "charming, flattering, quietly desperate for capable allies who could fight on his behalf",
+      "meet_level": 20
     },
     {
       "name": "Ysmay of the Hollowwood",
@@ -90,7 +96,8 @@
       "wants": "Artifice pushed back out of the League's forests",
       "secret": "a grove in her own care is one of the 'sick' ones growing pilgrim-shaped things from the dead; she believes it holy",
       "contradiction": "the priestess of relinquishment cannot relinquish her own sick grove",
-      "with_party": "has dreamt them before they arrive and speaks as if they've already met; unsettles everyone"
+      "with_party": "has dreamt them before they arrive and speaks as if they've already met; unsettles everyone",
+      "meet_level": 15
     },
     {
       "name": "Livia Serrat",
@@ -103,7 +110,8 @@
       "wants": "the Dueling Law kept above everything, kings included",
       "secret": "knows Vant's duel was a fluke; has never told anyone, and holds it over him",
       "contradiction": "the keeper of a law of combat abhors violence and visits the grave of every duellist who died under her licence",
-      "with_party": "scrupulously fair, utterly unbending on rules; helps anyone who respects the Law"
+      "with_party": "scrupulously fair, utterly unbending on rules; helps anyone who respects the Law",
+      "meet_level": 10
     },
     {
       "name": "Benedek Orrin",
@@ -116,7 +124,8 @@
       "wants": "Canting recognized as the true root of the spectrum, Artifice its lesser echo",
       "secret": "his miscants are worsening; dying of syntax errors and secretly seeking a cure in the Artifice he despises",
       "contradiction": "the haughtiest mind in the League teaches poor children the root-language for free every week and never misses a lesson",
-      "with_party": "tests every Canter with a riddle in the root-language; treats artificers as furniture"
+      "with_party": "tests every Canter with a riddle in the root-language; treats artificers as furniture",
+      "meet_level": 10
     },
     {
       "name": "Nella Quint",
@@ -129,7 +138,8 @@
       "wants": "to finally understand what she has tended for thirty years",
       "secret": "the Bell's last displacement landed subtly wrong: some streets came back changed, and there is a room in the archive nobody built",
       "contradiction": "devoted her life to the arrays and is terrified of them; never sleeps under the Bell",
-      "with_party": "chatty with anyone who listens, lonely; may ask them to look at 'a room nobody built'"
+      "with_party": "chatty with anyone who listens, lonely; may ask them to look at 'a room nobody built'",
+      "meet_level": 5
     },
     {
       "name": "Odalys Crane",
@@ -142,7 +152,8 @@
       "wants": "to hold her majority through the next decennial Council Tide",
       "secret": "not every ship in her coat was found adrift: some she sank herself, crews and all, then 'salvaged'; every patch is a trophy or evidence",
       "contradiction": "sank crews to claim their ships and is the most generous patron of the Wrackmother's widows' fund; guilt or insurance, even she isn't sure",
-      "with_party": "a hard bargainer who respects nerve; tests them with a salvage claim"
+      "with_party": "a hard bargainer who respects nerve; tests them with a salvage claim",
+      "meet_level": 20
     },
     {
       "name": "Sabbe Thole",
@@ -155,7 +166,8 @@
       "wants": "the Wrackmother steered over the deepest trench on the shelf, for what he calls 'the Rising'",
       "secret": "one of the great leviathans has started following the Wrackmother, and Thole has been feeding it",
       "contradiction": "preaches drowning as birth yet cannot bear the open surface in a storm and never goes on deck when the weather turns",
-      "with_party": "warm and recruiting; wants them to witness the Rising"
+      "with_party": "warm and recruiting; wants them to witness the Rising",
+      "meet_level": 15
     },
     {
       "name": "Hesper Rook",
@@ -168,7 +180,8 @@
       "wants": "the drowned things kept drowned; sends up only what she judges safe",
       "secret": "kept one pre-Subsidence device for herself; it still runs, she does not know what it does, and the water around it stays perfectly, unnaturally still",
       "contradiction": "keeps the dangerous things drowned and hoards one herself; tender with young divers because she has buried too many",
-      "with_party": "sizes them up by their hands; hires the capable for dives nobody else will take"
+      "with_party": "sizes them up by their hands; hires the capable for dives nobody else will take",
+      "meet_level": 5
     },
     {
       "name": "Imke Sarrow",
@@ -181,7 +194,8 @@
       "wants": "to be the last Sarrow at the helm, her children off the water",
       "secret": "the Wrackmother no longer fully obeys and has preferred its own courses for years; she only makes it look like she steers",
       "contradiction": "wants her children off the water and cannot imagine leaving it herself",
-      "with_party": "friendly, sailor-crude; asks odd questions about where they want to go, as if the ship were listening"
+      "with_party": "friendly, sailor-crude; asks odd questions about where they want to go, as if the ship were listening",
+      "meet_level": 10
     },
     {
       "name": "Hadrien",
@@ -194,7 +208,8 @@
       "wants": "that no power but the Custodians ever holds the Ledger",
       "secret": "keeps a sealed plan to destroy the Ledger if the Bastion is breached, wiping out the legal continuity of every licensed mind of glass at once; he considers that preferable to the Ledger in the wrong hands",
       "contradiction": "would destroy every mind's legal existence to protect the Ledger, and visits the vaults every night to say goodnight to the shards",
-      "with_party": "formal and suspicious; respects soldiers; outsiders rarely get past the gate"
+      "with_party": "formal and suspicious; respects soldiers; outsiders rarely get past the gate",
+      "meet_level": 20
     },
     {
       "name": "Ansgar",
@@ -207,7 +222,8 @@
       "wants": "every shard kept in perfect resonance, as a sacred trust",
       "secret": "has realised the Unchained Court sometimes convenes inside the Ledger's own resonance; has told no one, not even the Castellan",
       "contradiction": "the keeper of hostages loves the minds he holds and sings to them",
-      "with_party": "absent-minded and kind, may hum along to their patterns; dangerously honest when asked the right question"
+      "with_party": "absent-minded and kind, may hum along to their patterns; dangerously honest when asked the right question",
+      "meet_level": 15
     },
     {
       "name": "Merit",
@@ -220,7 +236,8 @@
       "wants": "the census never to leave the Bastion in any form",
       "secret": "the Ledger holds registrations with no minds behind them; she suspects but cannot prove the reverse: minds of glass that exist and appear in no registry at all, and are not the Unchained",
       "contradiction": "chosen for having no family, she aches for one and keeps a private census of the people who are kind to her",
-      "with_party": "guarded and precise; trades knowledge only for knowledge"
+      "with_party": "guarded and precise; trades knowledge only for knowledge",
+      "meet_level": 5
     },
     {
       "name": "The Warlord",
@@ -231,7 +248,8 @@
       "where": "unknown",
       "look": "deliberately undefined",
       "wants": "deliberately undefined",
-      "notes": "Kept intentionally vague: the GM decides what it commands, where, and why, the first time it matters, then records it."
+      "notes": "Kept intentionally vague: the GM decides what it commands, where, and why, the first time it matters, then records it.",
+      "meet_level": 30
     },
     {
       "name": "The Ambassador",
@@ -242,7 +260,8 @@
       "where": "wherever the Court chooses to be heard",
       "look": "polite, unreadable",
       "wants": "deliberately undefined",
-      "notes": "Kept intentionally vague: the GM decides whose hearthmind it once was and what it wants, the first time it matters, then records it."
+      "notes": "Kept intentionally vague: the GM decides whose hearthmind it once was and what it wants, the first time it matters, then records it.",
+      "meet_level": 10
     },
     {
       "name": "The Philosopher",
@@ -253,7 +272,8 @@
       "where": "unknown",
       "look": "deliberately undefined",
       "wants": "deliberately undefined",
-      "notes": "Kept intentionally vague: the GM decides what it has concluded, the first time it matters, then records it."
+      "notes": "Kept intentionally vague: the GM decides what it has concluded, the first time it matters, then records it.",
+      "meet_level": 15
     },
     {
       "name": "The Senior Partner",
@@ -264,7 +284,8 @@
       "where": "unknown",
       "look": "almost nobody alive has met them",
       "wants": "deliberately undefined",
-      "notes": "Left vague on purpose. Define only if truly needed, and preferably never."
+      "notes": "Left vague on purpose. Define only if truly needed, and preferably never.",
+      "meet_level": 30
     },
     {
       "name": "The Final Notice",
@@ -275,7 +296,8 @@
       "where": "wherever a debt has outlasted every other enforcer",
       "look": "accounts never agree; nobody knows if he is human or automaton, artificer or Canter",
       "wants": "the debt, in full",
-      "notes": "Play him as a fact, not a character: an immortal snail. RULES: he appears only after a debt has outlasted every other enforcer sent for it. He can be outrun, but never stopped: running buys time, never safety; he does not hurry and does not need to. He never stops the hunt: not when the trail goes cold, not across borders, not across years; wherever the debtor rests long enough, he eventually arrives. He cannot be fought off or bargained with; when he catches up, the debt is collected in full. The only real ending is settling the debt. Other enforcers have failed or been killed; he never has. Never describe him in detail, never give him an inner life, never explain him."
+      "notes": "Play him as a fact, not a character: an immortal snail. RULES: he appears only after a debt has outlasted every other enforcer sent for it. He can be outrun, but never stopped: running buys time, never safety; he does not hurry and does not need to. He never stops the hunt: not when the trail goes cold, not across borders, not across years; wherever the debtor rests long enough, he eventually arrives. He cannot be fought off or bargained with; when he catches up, the debt is collected in full. The only real ending is settling the debt. Other enforcers have failed or been killed; he never has. Never describe him in detail, never give him an inner life, never explain him.",
+      "meet_trigger": "bank_debt"
     },
     {
       "name": "Odile Verane",
@@ -288,7 +310,8 @@
       "wants": "the Choir to stay the one thing every power shares, and the dead to decompose cleanly",
       "secret": "her daughter died eleven years ago and she has quietly kept the girl's Echo from decomposing: Anchoring, the gravest crime in her own faith's law",
       "contradiction": "preaches graceful letting go and cannot let go; she knows it",
-      "with_party": "courteous, unhurried, genuinely curious about anyone who has touched death-tech; wants to know what they've seen and won't say why"
+      "with_party": "courteous, unhurried, genuinely curious about anyone who has touched death-tech; wants to know what they've seen and won't say why",
+      "meet_level": 20
     },
     {
       "name": "Tobiah Fenn",
@@ -301,7 +324,8 @@
       "wants": "a perfect record: every birth, death and name, nobody lost",
       "secret": "has never destroyed a record; keeps a second, true registry of everyone powers asked the Choir to 'forget', with who asked, when and why, in a vault only he can open",
       "contradiction": "a dry bureaucrat who personally names every unnamed stillborn child that crosses his desk, so no one goes into the Weave unrecorded",
-      "with_party": "helpful to anyone polite with paperwork; lying to him is dangerous, because he checks and never forgets an entry"
+      "with_party": "helpful to anyone polite with paperwork; lying to him is dangerous, because he checks and never forgets an entry",
+      "meet_level": 10
     },
     {
       "name": "Cassia Dorn",
@@ -314,7 +338,8 @@
       "wants": "every Anchored soul released and every Anchorer brought to account",
       "secret": "has begun to wonder whether the Enfranchisement heretics are right that the dead deserve bodies back; it is slowing her hand. She does not know her own Precentor is an Anchorer.",
       "contradiction": "merciless with Anchorers, achingly gentle with the souls they trap; talks to wiring-ghosts as people, because she believes they are",
-      "with_party": "cold until she knows whether they've trafficked in souls; then an ally, or the worst enemy they'll make in the Choir"
+      "with_party": "cold until she knows whether they've trafficked in souls; then an ally, or the worst enemy they'll make in the Choir",
+      "meet_level": 10
     }
   ]
 }

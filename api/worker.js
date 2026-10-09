@@ -474,6 +474,35 @@ function parseCast(text) {
 
 const castKey = (name) => String(name || "").trim().toLowerCase();
 
+// The great figures stay out of reach until the party has grown into them. Each fixed
+// figure has a meet_level (against the average level at the table); the bank's Final
+// Notice has a trigger instead: a bank debt that failed collection FINAL_NOTICE_AFTER
+// times, or a dead bank collector. Anyone the party has already met stays met.
+const FINAL_NOTICE_AFTER = 3;
+const isBankDebt = (d) => /\bbank\b/i.test(String(d?.to || ""));
+
+function bankWantsFinalNotice(list) {
+  return (list || []).filter(isSheet).some((c) => !c.dead && (c.debts || []).some((d) => isBankDebt(d) && ((d.missed || 0) >= FINAL_NOTICE_AFTER || d.collectorKilled)));
+}
+
+function partyLevel(state) {
+  const sheets = state.seats.filter((x) => x.present).map((x) => sheetFor(state, x)).filter((c) => isSheet(c) && !c.dead);
+  if (!sheets.length) return 1;
+  return sheets.reduce((n, c) => n + derive(c).level, 0) / sheets.length;
+}
+
+function gateCast(cast, state) {
+  const lvl = partyLevel(state);
+  const seen = new Set(state.cast?.seen || []);
+  const bank = bankWantsFinalNotice(state.live?.list);
+  return cast.filter((p) => {
+    if (!p.pillar) return true;
+    if (p.last_seen_session || seen.has(castKey(p.name))) return true;
+    if (p.meet_trigger === "bank_debt") return bank;
+    return !(Number(p.meet_level) > lvl);
+  });
+}
+
 // Repo cast + this session's pending changes. Returns the new file text,
 // or null when nothing would change.
 function mergeCast(repoText, live, { sessionNo, endOfSession }) {
@@ -1513,7 +1542,7 @@ export class Table extends DurableObject {
       const repo = await loadState(this.env);
       if (!state.live?.loaded && await this.ensureLive(state)) await this.save(state);
       const library = buildLibrary(repo);
-      const cast = parseCast(mergeCast(repo.cast, state.cast, { sessionNo: 0, endOfSession: false }) ?? repo.cast);
+      const cast = gateCast(parseCast(mergeCast(repo.cast, state.cast, { sessionNo: 0, endOfSession: false }) ?? repo.cast), state);
       const sel = selectContext({ library, cast, scene: state.scene, recent: recentText(state) });
       ctx.library = library; ctx.cast = cast;
       ctx.party = state.live?.loaded ? state.live.list : [];
@@ -2046,6 +2075,22 @@ function applySheetOp(state, op) {
       else out.push(`${sheet.name} pays ${paid} cv to ${debt.to}; ${debt.amount} cv still owed.`);
     }
   }
+  if (op.debt_missed) {
+    const debt = (sheet.debts || []).find((x) => sameName(x.to, op.debt_missed));
+    if (debt) {
+      debt.missed = (debt.missed || 0) + 1;
+      out.push(isBankDebt(debt)
+        ? `The bank's collection from ${sheet.name} fails (${Math.min(debt.missed, FINAL_NOTICE_AFTER)} of ${FINAL_NOTICE_AFTER}).${debt.missed >= FINAL_NOTICE_AFTER ? " The bank will send the Final Notice." : ""}`
+        : `${sheet.name} misses a payment to ${debt.to}.`);
+    }
+  }
+  if (op.collector_killed) {
+    const debt = (sheet.debts || []).find((x) => sameName(x.to, op.collector_killed));
+    if (debt) {
+      debt.collectorKilled = true;
+      out.push(isBankDebt(debt) ? `A bank collector is dead. The bank will send the Final Notice.` : `${debt.to}'s collector is dead.`);
+    }
+  }
   if (op.add_item) {
     sheet.items.push(op.add_item);
     out.push(`${sheet.name} gains ${op.add_item.name}.`);
@@ -2143,7 +2188,7 @@ function openingLine(state, m) {
     `Put every one of them in the same place at the same moment, and give each a reason to be there that grows out of their own backstory. ` +
     (brief ? `The GM wants this: ${brief} ` : `No place was given: choose one in Eidholm that ties their backstories together. `) +
     `If the campaign log already holds earlier sessions, open from where the last one ended instead of a first meeting. ` +
-    `Ground it in a real place from the canon with real people in it (an NPC with a name, a face and a want), and give the party a concrete problem or offer in the first reply: no disembodied voices, no riddles in place of a hook. ` +
+    `Ground it in a real place from the canon with real people in it (an NPC of the party's own size, with a name, a face and a want), and give the party a concrete problem or offer in the first reply: no disembodied voices, no riddles in place of a hook. ` +
     `Set the place and time with the scene tag, introduce each character in a line or two, and end on something that pulls them to act together. Never act or speak for them.`;
 }
 
@@ -2379,6 +2424,8 @@ function buildSystemPrompt(state, sel, party) {
   - The Rim has NO fixed figures. Never invent a leader, a seat, a name, a motive or an explanation for the Archive or for what the Silence copies for.
   - Every encounter touching the Rim leaves more questions than it answers.
   - The deletions are felt (a record gone, a name nobody can recall), never traced to a cause.
+- THE GREAT FIGURES OUT OF REACH. Eidholm's rulers, high clergy and hidden powers exist and act, but the party is far beneath them for now. Only the fixed figures listed in your CAST may appear in person. Anyone else of that rank may be named in rumour, on a proclamation, in the news, glimpsed at a distance, or felt through their agents and orders; never put them in the room, in a conversation, or in a letter to a character. Give the party people of their own size: clerks, guards, fixers, rivals, debtors, small officials.
+- THE BANK COLLECTS. A debt to the bank is collected by its collectors. Each time a collection fails (the character can't or won't pay when a collector comes), record it with update_sheet debt_missed (the creditor). If a bank collector is killed, update_sheet collector_killed. After ${FINAL_NOTICE_AFTER} failed collections, or one dead collector, the bank sends the Final Notice himself.
 - FIXED FIGURES in the CAST are canon-level characters: keep their names, offices, wants and secrets consistent forever; reveal secrets only through play. Their contradictions and how they treat the party shape every scene they are in.
 - Eidholm's peoples are human. "Dwarven-blooded" Clansmine folk are a human lineage, not a separate species.
 - DICE. Chance uses D&D 5e rules: d20 tests against a DC or Armor Class, advantage and disadvantage, natural 20 and 1 on attacks, damage dice, death saves.
@@ -2631,6 +2678,8 @@ DICE_TOOLS.push({
           properties: { to: { type: "string" }, amount: { type: "number" } },
           required: ["to", "amount"],
         },
+        debt_missed: { type: "string", description: "Creditor of a debt whose collection just failed (the collector came; the character couldn't or wouldn't pay)" },
+        collector_killed: { type: "string", description: "Creditor whose debt collector the character killed (the bank does not forget)" },
         add_item: {
           type: "object",
           description: "An item gained",
@@ -2807,6 +2856,13 @@ function parseSheetOp(args, party, book = []) {
     if (!debt) return { error: `${c.name} owes nothing to "${args.pay_debt.to}". Debts: ${(c.debts || []).map((x) => x.to).join(", ") || "none"}.` };
     if ((c.purse || 0) < num(args.pay_debt.amount) - 0.001) return { error: `${c.name} has only ${c.purse} cv to pay with.` };
     op.pay_debt = { to: debt.to, amount: Math.round(num(args.pay_debt.amount) * 100) / 100 };
+  }
+  for (const key of ["debt_missed", "collector_killed"]) {
+    if (!args[key]) continue;
+    const debt = (c.debts || []).find((x) => sameName(x.to, args[key])) ||
+      (/\bbank\b/i.test(String(args[key])) ? (c.debts || []).find(isBankDebt) : null);
+    if (!debt) return { error: `${c.name} owes nothing to "${args[key]}". Debts: ${(c.debts || []).map((x) => x.to).join(", ") || "none"}.` };
+    op[key] = debt.to;
   }
   if (args.add_item && typeof args.add_item === "object" && clean(args.add_item.name, 80)) {
     const it = args.add_item, item = { name: clean(it.name, 80), kind: ["weapon", "armor", "shield", "focus", "tool", "device", "other"].includes(it.kind) ? it.kind : "other" };

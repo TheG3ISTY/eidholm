@@ -67,6 +67,18 @@ Twenty-five canon-level NPCs are kept in `campaign/cast.json` as **pillars**: th
 - **The bank:** the Senior Partner (a title only), the Final Notice (the chief enforcer: a fact, not a character; can be outrun, never stopped, never stops)
 - **The Choir Eternal:** Precentor Odile Verane, Registrar-General Tobiah Fenn, Inquisitor Cassia Dorn
 
+**Meeting them.** Each fixed figure has a `meet_level` in `cast.json`. Until the average level of the characters at the table reaches it, the GM doesn't see that figure among its people and may only use them at a distance: rumour, proclamations, the news, a glimpse, their agents and orders. Once met, a figure stays available.
+
+| Level | Figures |
+|---|---|
+| 5 | Hesper Rook, Merit, Ilse Marrow, Nella Quint |
+| 10 | Tobiah Fenn, Livia Serrat, Benedek Orrin, Brann of Deephold Varek, Imke Sarrow, Cassia Dorn, the Ambassador |
+| 15 | Severin Graul, Ysmay of the Hollowwood, Sabbe Thole, Ansgar, the Philosopher |
+| 20 | Ottilie Kaldren, Aurelio Vant, Odalys Crane, Hadrien, Odile Verane, Calder |
+| 30 | the Warlord, the Senior Partner |
+
+**The Final Notice** has no level. He comes when a character's debt to the bank has failed collection 3 times, or a bank collector is killed (the GM records both on the sheet).
+
 **The Rim has no fixed figures, by design.** The GM never invents a leader, seat or explanation for the Archive; encounters leave more questions than answers; deletions are felt, never traced.
 
 ### Economy and equipment
