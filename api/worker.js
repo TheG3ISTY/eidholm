@@ -1559,7 +1559,7 @@ export class Table extends DurableObject {
       // Only rounds where someone acted; a round of roll results goes straight to the GM.
       let referee = null;
       if (state.messages.some((m) => m.round === round && m.kind === "act")) {
-        try { referee = await refereeTurn(this.env, model, state, ctx); } catch { referee = null; }   // on failure the GM decides, as before
+        try { referee = await refereeTurn(this.env, model, state, ctx); } catch (err) { console.log("referee: no decision,", err.message); referee = null; }   // the GM decides, as before
       }
       const messages = [
         { role: "system", content: buildSystemPrompt(repo, sel, partyBlock(state, repo)) },
@@ -1839,7 +1839,7 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
     if (miscant) outcome = "miscant";
     const worked = !miscant && !["failure", "miss"].includes(outcome);
     // A cant carries its caster's spell save DC, for whatever its targets have to save against.
-    const spellDc = sheet && req.spellTier ? (req.skill === "ranged_canting" ? d.spellDcRanged : d.spellDc) : undefined;
+    const spellDc = sheet && req.spellTier && (req.saveSpell || req.freeform) ? (req.skill === "ranged_canting" ? d.spellDcRanged : d.spellDc) : undefined;
     push(r, { rtype: req.type, label: req.label, dc: req.dc, ac: req.ac, adv, dis, outcome, modFrom: m.from, spellTier: req.spellTier || undefined, spellDc, pinpoint: req.pinpoint || undefined });
 
     if (sheet && worked && req.fusion && !findSpell(sheet.spells, req.spell)) {
@@ -2270,7 +2270,7 @@ How to fill a roll:
 - type: check, save or attack. stat: strength, perception, endurance, charisma, intelligence, agility or resonance (never luck). skill when one fits: small_melee, medium_melee, large_melee, ranged, canting, ranged_canting, survival, medicine, creation, thievery, performance, artifice.
 - Stats: melee attacks strength (agility for daggers), ranged attacks perception, cants resonance, noticing perception, knowledge and devices intelligence, persuading and lying charisma, reflexes and stealth agility, toughness endurance.
 - difficulty for every check and save: moderate (DC 12) is the usual choice. fair (10) for an ordinary task with something at stake; easy (8) or very_easy (7) for something simple that could still go wrong. hard (15) only when the fiction makes it hard (guarded, expert-made, under fire, in the dark). very_hard is rare. These characters are beginners: most of what they try should be moderate. Attacks: target_ac (10-12 unarmoured, 13-15 armoured, 16-18 heavily armoured) and damage_dice from the weapon.
-- Spells: a spell on the character's sheet goes by its name in "spell". A spell the character improvises: freeform true, spell named, spell_tier.
+- Spells: a spell on the character's sheet goes by its name in "spell"; one from the spellbook they don't know yet also needs learning true. The server rolls a spellbook spell the way the book says: for an attack spell (like Spark Query) give target_ac; for the rest no difficulty is needed. A spell the character improvises: freeform true, spell named, spell_tier.
 - At most two rolls per character. Never a roll for something already rolled this round. Never invent actions the players did not take.`;
 
 const refereeTools = () => [
@@ -2419,6 +2419,7 @@ function buildSystemPrompt(state, sel, party) {
 - Several players share one scene. Each turn you receive the actions of every present character, gathered together. Resolve them together in one coherent beat: actions can collide, help, or undercut each other. Give each acting character a consequence.
 - A character who passes simply lets the moment play out; do not invent actions for them.
 - Characters marked absent are elsewhere. Never narrate them acting or speaking.
+- Plain prose: no bold, no italics for emphasis, no headings in your replies.
 - Second person plural when addressing the group, by character name when addressing one. Present tense. Vivid but economical: usually 2 to 5 paragraphs, then hand control back with a situation the table can act on.
 - Never decide what player characters think, say, or choose.
 - PACE. Every reply must change the situation: something is found, someone acts or arrives, a door opens or closes, a price is named, a threat moves. Never two replies in a row of only atmosphere, omens or a cryptic voice. Be concrete: name people, places, objects and what they want. When the players look for something, they find something real (or the roll says what it costs them). Answer part of every mystery as you raise the next. A scene reaches a choice, a conflict or a discovery within three or four rounds.
@@ -2742,6 +2743,27 @@ const MAX_GM_TOOL_ROUNDS = 4;
 // When the referee has called the dice, the GM narrates without the request tool.
 const GM_TOOLS_NO_REQUESTS = DICE_TOOLS.filter((t) => t.function.name !== "request_rolls");
 
+// A spellbook spell is rolled the way its book entry says, whatever the model asked for:
+//   "... vs AC"   an attack against the target's AC, with the spell's damage
+//   "DC 12"       a check against that DC (Mend)
+//   "vs X save"   the cast roll only decides a miscant (no DC); the targets save against the caster's DC
+// Returns a problem to send back, or "".
+function spellRoll(req, entry) {
+  if (!entry) return "";
+  const roll = String(entry.roll || "");
+  if (/vs\s*AC/i.test(roll)) {
+    if (req.ac == null) return `${req.label}: ${entry.name} is an attack (${roll}); give the target's target_ac.`;
+    req.type = "attack";
+    req.dc = null;
+    if (!req.damage) { const dmg = String(entry.text || "").match(/\b(\d+d\d+)\b/); if (dmg) req.damage = { dice: dmg[1], mod: 0 }; }
+    return "";
+  }
+  const fixed = roll.match(/\bDC\s*(\d+)/i);
+  if (fixed) { req.type = "check"; req.dc = Number(fixed[1]); return ""; }
+  if (/save/i.test(roll)) { if (req.type !== "attack") req.type = "check"; req.dc = null; req.saveSpell = true; }
+  return "";
+}
+
 // Turn the GM's request_rolls arguments into stored requests, or explain what's wrong.
 function parseRequests(args, seats, party = [], book = []) {
   const out = [], problems = [];
@@ -2795,6 +2817,8 @@ function parseRequests(args, seats, party = [], book = []) {
           req.skill = findSpell(book, known.name)?.skill || known.skill || (CANTING_SKILLS.includes(req.skill) ? req.skill : "canting");
           req.held = req.held || !!known.held || !!findSpell(book, known.name)?.lasting;
         }
+        const why = spellRoll(req, findSpell(book, known.name));
+        if (why) { problems.push(why); continue; }
       } else if (req.spell && (!req.freeform || findSpell(book, req.spell))) {
         {
           const inBook = findSpell(book, req.spell);
@@ -2806,6 +2830,8 @@ function parseRequests(args, seats, party = [], book = []) {
           req.skill = inBook.skill;
           req.held = req.held || !!inBook.lasting;
         }
+        const why = spellRoll(req, findSpell(book, req.spell));
+        if (why) { problems.push(why); continue; }
       } else if ((req.freeform || (req.spellTier && !req.spell)) && !req.fusion) {
         // Improvised from the root-language: on its first cast it miscants on 1 up to its tier;
         // once it works, it's the caster's own spell (named after the roll if the GM gave no name).
