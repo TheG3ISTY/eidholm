@@ -1,9 +1,9 @@
 {
   "world_clock": "Day 1, Cycle of Ash",
   "location": null,
-  "party": [
-    {
-      "name": "Freya"
-    }
-  ]
+  "party": [],
+  "clock": {
+    "minutes": 360,
+    "label": "Day 1, 06:00"
+  }
 }
