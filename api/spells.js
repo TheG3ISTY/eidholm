@@ -42,7 +42,7 @@ export function findSpell(list, name) {
 // Which natural rolls miscant. Luck 13 takes away only the 1.
 //   a spell on the sheet (taught, found, or cast successfully once): 1
 //   a freeform cant's first cast: 1 up to its tier
-// (A spellbook spell not on the sheet is learned by casting: the d8 gate decides, then 1.)
+// (A spellbook spell not on the sheet is learned by casting: the d8 alone is the cast, no d20.)
 export function miscantOn({ freeform = false, tier = 1 } = {}) {
   return freeform ? Math.max(1, tier) : 1;
 }

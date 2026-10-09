@@ -42,8 +42,9 @@ High spells can be bought with coin alone, the way high gear can: it is meant to
 
 Casting a spell that is not on the sheet yet is a gamble the canter takes before the cant even starts:
 
-- Roll a **straight d8**. **Equal to or lower than the spell's tier, it fails and miscasts**: the Resonance is spent and the backlash for its tier lands.
-- Higher, and the cast goes ahead as normal. If it works, the spell is **learned** and goes on the sheet.
+- Roll a **straight d8**. That one die is the whole cast: **no d20**.
+- **Equal to or lower than the spell's tier, it fails and miscasts**: the Resonance is spent and the backlash for its tier lands.
+- **Higher, and the spell works** and is **learned**: it goes on the sheet. A damage spell still rolls its damage; a save spell's targets still save against the caster's DC.
 
 | Tier | 1 | 2 | 3 | 4 | 5 | 6 |
 |---|---|---|---|---|---|---|
@@ -58,7 +59,7 @@ That is the point: low spells can be picked up on the street, but anyone who tri
 |---|---|
 | A **learned** spell (on the sheet: taught, found, or cast successfully once) | 1 |
 | A **freeform** cant, first cast | 1 up to its tier (1–2 at tier 2, 1–3 at tier 3, …) |
-| A spellbook spell **not on the sheet** (learning by casting) | the d8 above, then 1 |
+| A spellbook spell **not on the sheet** (learning by casting) | the d8 above (no d20) |
 
 A freeform cant that works goes on the sheet as the caster's own spell, **learned**: from then on it miscants only on a 1. A spellbook spell is never "improvised": casting one you don't know is always the d8.
 

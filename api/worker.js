@@ -872,6 +872,7 @@ export class Table extends DurableObject {
         state.marks = { scene: 0, done: {} };
         state.cast = { pending: {}, seen: [] };
         state.dryRounds = 0;
+        state.foes = [];
         state.begun = false;
         state.opening = null;
         state.live = { loaded: true, list: p.list, clock: clockOf(p.data), dirty: 0 };
@@ -914,6 +915,7 @@ export class Table extends DurableObject {
         state.scene = null;
         state.marks = { scene: 0, done: {} };
         state.dryRounds = 0;
+        state.foes = [];
         state.begun = false;
         state.opening = null;
         // A discarded scene also throws away unsaved changes to the sheets; after
@@ -1006,7 +1008,8 @@ export class Table extends DurableObject {
       gmMode: s.gmMode === "human" ? "human" : "ai",   // who answers: the AI, or a person in the GM seat
       live: s.live || null,         // the party's sheets as they are right now: { loaded, list, clock, dirty }
       marks: s.marks || { scene: 0, done: {} },   // skill marks already given this scene
-      dryRounds: s.dryRounds || 0,     // rounds with actions and no roll asked for
+      dryRounds: s.dryRounds || 0,
+      foes: s.foes || [],               // the combat tracker: { name, hp, maxHp, ac, atk, dmg, downRound }     // rounds with actions and no roll asked for
       begun: !!s.begun,                // the opening scene has been asked for this session
       opening: s.opening || null,      // { id, brief }: the GM's private note for the opening round
     };
@@ -1059,6 +1062,7 @@ export class Table extends DurableObject {
       tier: state.tier,
       spend: state.spend,
       spendTotal: state.spendTotal,
+      foes: (state.foes || []).map((f) => gmView ? f : { name: f.name, hp: f.hp, maxHp: f.maxHp }),
       begin: gmView ? { begun: hasBegun(state), blocker: beginBlocker(state) } : null,
       saved: state.session?.savedAt ? { at: state.session.savedAt, by: state.session.savedBy, no: state.session.no } : null,
     };
@@ -1551,6 +1555,7 @@ export class Table extends DurableObject {
       ctx.library = library; ctx.cast = cast;
       ctx.party = state.live?.loaded ? state.live.list : [];
       ctx.book = parseSpellbook(repo.spells);
+      ctx.foes = (state.foes || []).filter((f) => f.hp > 0);
       // What was just rolled: the GM may not ask for the same roll again in its answer.
       ctx.rolled = state.messages.filter((m) => m.round === round && m.kind === "roll" && m.label)
         .map((m) => `${m.seatId}|${String(m.label).trim().toLowerCase()}`);
@@ -1568,6 +1573,7 @@ export class Table extends DurableObject {
       result = await gmTurn(this.env, model, messages, { ...ctx, noRequests: !!referee });
       if (referee) {
         result.requests = [...referee.requests, ...result.requests];
+        result.foeAttacks = [...(referee.foeAttacks || []), ...(result.foeAttacks || [])];
         for (const k of Object.keys(result.usage)) result.usage[k] += referee.usage[k] || 0;
         result.referee = referee.requests.length ? referee.requests.map((q) => q.label) : [];
       }
@@ -1599,6 +1605,7 @@ export class Table extends DurableObject {
       if (!prev || norm(prev.where) !== norm(tagged.scene.where) || (tagged.scene.mode === "combat") !== (prev.mode === "combat")) {
         fresh.marks = { scene: (fresh.marks?.scene || 0) + 1, done: {} };
       }
+      if (prev?.mode === "combat" && tagged.scene.mode !== "combat") fresh.foes = [];
       fresh.scene = tagged.scene;
     }
     for (const r of result.rolls) {
@@ -1611,6 +1618,19 @@ export class Table extends DurableObject {
       id: fresh.nextId++, kind: "gm", round, text: tagged.text, scene: tagged.scene, ts: Date.now(),
       model: result.model, usage: result.usage, human: !!result.human,
     });
+    // Downed foes leave the tracker once the GM has answered the round they fell in.
+    fresh.foes = (fresh.foes || []).filter((f) => !(f.hp <= 0 && f.downRound && f.downRound < round));
+    for (const op of result.foeOps || []) applyFoeOp(fresh, op);
+    // Foes' attacks on player characters: rolled already, applied now.
+    for (const a of result.foeAttacks || []) {
+      const c = fresh.live?.loaded ? findSheet(fresh.live.list, a.character) : null;
+      const seat = fresh.seats.find((x) => sameName(x.character, a.character));
+      addEvent(fresh, a.text, seat, { sub: "foeattack" });
+      if (isSheet(c) && a.hit && a.damage > 0 && !c.dead) {
+        for (const t of takeDamage(c, a.damage)) addEvent(fresh, t, seat);
+        markDirty(fresh);
+      }
+    }
     // What the GM did to the sheets this turn, then the time that passed.
     for (const op of result.sheetOps || []) applySheetOp(fresh, op);
     for (const name of result.luckSpent || []) {
@@ -1818,6 +1838,14 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
         finishRequest(state, req, sheet);
         return;
       }
+      // The d8 held: a first cast is the d8 alone. The spell works and is learned; no d20.
+      const d = derive(sheet);
+      if (req.saveSpell) addEvent(state, `${req.spell}'s targets save against DC ${req.skill === "ranged_canting" ? d.spellDcRanged : d.spellDc}.`, seat, { rid: req.rid });
+      castWorked(state, req, sheet, seat, tell);
+      if (req.type === "attack" && req.damage) spellDamage(state, req, sheet, seat, false);
+      if (!req.marked) { awardMarks(state, sheet, req, seat); req.marked = true; }
+      finishRequest(state, req, sheet);
+      return;
     }
     const mode = adv.length && !dis.length ? "adv " : dis.length && !adv.length ? "dis " : "";
     const best = req.pinpoint ? (sides) => sides : undefined;   // Pinpoint: every die shows its best face
@@ -1842,33 +1870,7 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
     const spellDc = sheet && req.spellTier && (req.saveSpell || req.freeform) ? (req.skill === "ranged_canting" ? d.spellDcRanged : d.spellDc) : undefined;
     push(r, { rtype: req.type, label: req.label, dc: req.dc, ac: req.ac, adv, dis, outcome, modFrom: m.from, spellTier: req.spellTier || undefined, spellDc, pinpoint: req.pinpoint || undefined });
 
-    if (sheet && worked && req.fusion && !findSpell(sheet.spells, req.spell)) {
-      sheet.spells.push({ name: req.spell, tier: 6, custom: true, text: `fused from ${req.fusion.join(" + ")}` });
-      tell([`${sheet.name} fuses ${req.fusion.join(" and ")} into a working of their own: ${req.spell}.`]);
-      markDirty(state);
-    }
-    // A lasting spell is held: one at a time; a new one lets go of the old.
-    if (sheet && worked && req.spell && req.held) {
-      if (sheet.holding && !sameName(sheet.holding.name, req.spell)) tell([`${sheet.name} lets go of ${sheet.holding.name}.`]);
-      sheet.holding = { name: req.spell };
-      sheet.concentration = 0;
-      markDirty(state);
-    }
-    // Overclock: a d4 after it works. 1 runs the minute then breaks; 2-3 as written; 4 runs two minutes.
-    if (worked && req.spell && /^overclock$/i.test(req.spell)) {
-      const oc = rollDice("d4");
-      const how = oc.total === 1 ? "runs hot for the minute, then breaks" : oc.total === 4 ? "holds: double output for two minutes, and keeps working" : "double output for a minute, and keeps working";
-      push(oc, { rtype: "overclock", label: `Overclock: the device ${how}`, outcome: oc.total === 1 ? "breaks" : oc.total === 4 ? "doubled" : "holds" });
-    }
-    if (sheet && worked && req.freeform && req.spell && !findSpell(sheet.spells, req.spell)) {
-      sheet.spells.push({ name: req.spell, tier: req.spellTier, custom: true, skill: req.skill, held: !!req.held || undefined, text: "worked out in the root-language" });
-      tell([`${sheet.name}'s improvised cant holds: ${req.spell} is theirs now (tier ${req.spellTier}).`]);
-      markDirty(state);
-    } else if (sheet && worked && req.learning && !findSpell(sheet.spells, req.spell)) {
-      sheet.spells.push({ name: req.spell, tier: req.spellTier });
-      tell([`${sheet.name} has learned ${req.spell} by casting it.`]);
-      markDirty(state);
-    }
+    if (sheet && worked && req.spell) castWorked(state, req, sheet, seat, tell);
     if (sheet && req.concentration && outcome === "failure" && sheet.holding) {
       tell([`${sheet.name} loses hold of ${sheet.holding.name}.`]);
       sheet.holding = null;
@@ -1883,11 +1885,14 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
     }
 
     if (req.type === "attack" && req.damage && outcome && outcome !== "miss" && outcome !== "miscant") {
-      const crit = outcome === "critical hit";
-      const dice = crit ? String(req.damage.dice).replace(/(\d*)d(\d+)/g, (_, n, dd) => `${(Number(n) || 1) * 2}d${dd}`) : req.damage.dice;
-      const strength = sheet && MELEE_SKILLS.includes(req.skill) ? statMod(sheet, "strength") : 0;
-      const dr = rollDice(`${dice}${fmtMod((Number(req.damage.mod) || 0) + strength)}`, best);
-      push(dr, { rtype: "damage", label: `${req.label}: damage`, crit, modFrom: strength ? `Strength ${signed(strength)}` : null, pinpoint: req.pinpoint || undefined });
+      spellDamage(state, req, sheet, seat, outcome === "critical hit", best);
+    }
+    // A failed save against harm: the damage lands on the sheet.
+    if (sheet && req.type === "save" && req.failDamage && outcome === "failure") {
+      const fd = rollDice(req.failDamage);
+      push(fd, { rtype: "damage", label: `${req.label}: damage taken` });
+      tell(takeDamage(sheet, fd.total));
+      markDirty(state);
     }
   } else {
     const r = rollDice(`${req.dice || "d20"}${fmtMod(req.mod)}`);
@@ -1898,6 +1903,48 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
     req.marked = true;
   }
   finishRequest(state, req, sheet);
+}
+
+// What a cast that works does to the sheet: fusions and improvised cants become the caster's
+// own, a spellbook spell cast for the first time is learned, a held spell is held, Overclock rolls its d4.
+function castWorked(state, req, sheet, seat, tell) {
+  const base = { round: state.round, seatId: seat.id, author: seat.player, character: seat.character, rid: req.rid };
+  if (req.fusion && !findSpell(sheet.spells, req.spell)) {
+    sheet.spells.push({ name: req.spell, tier: 6, custom: true, text: `fused from ${req.fusion.join(" + ")}` });
+    tell([`${sheet.name} fuses ${req.fusion.join(" and ")} into a working of their own: ${req.spell}.`]);
+  } else if (req.freeform && !findSpell(sheet.spells, req.spell)) {
+    sheet.spells.push({ name: req.spell, tier: req.spellTier, custom: true, skill: req.skill, held: !!req.held || undefined, text: "worked out in the root-language" });
+    tell([`${sheet.name}'s improvised cant holds: ${req.spell} is theirs now (tier ${req.spellTier}).`]);
+  } else if (req.learning && !findSpell(sheet.spells, req.spell)) {
+    sheet.spells.push({ name: req.spell, tier: req.spellTier });
+    tell([`${sheet.name} has learned ${req.spell} by casting it.`]);
+  }
+  // A lasting spell is held: one at a time; a new one lets go of the old.
+  if (req.held) {
+    if (sheet.holding && !sameName(sheet.holding.name, req.spell)) tell([`${sheet.name} lets go of ${sheet.holding.name}.`]);
+    sheet.holding = { name: req.spell };
+    sheet.concentration = 0;
+  }
+  // Overclock: a d4 after it works. 1 runs the minute then breaks; 2-3 as written; 4 runs two minutes.
+  if (/^overclock$/i.test(req.spell)) {
+    const oc = rollDice("d4");
+    const how = oc.total === 1 ? "runs hot for the minute, then breaks" : oc.total === 4 ? "holds: double output for two minutes, and keeps working" : "double output for a minute, and keeps working";
+    state.messages.push({ id: state.nextId++, kind: "roll", ...base, rtype: "overclock", label: `Overclock: the device ${how}`, outcome: oc.total === 1 ? "breaks" : oc.total === 4 ? "doubled" : "holds",
+      expr: oc.expr, total: oc.total, parts: oc.parts, nat: oc.nat, mode: oc.mode, ts: Date.now() });
+  }
+  markDirty(state);
+}
+
+// Damage from a player's attack (weapon or spell): rolled, shown, and taken off the foe it targets.
+function spellDamage(state, req, sheet, seat, crit, best) {
+  const base = { round: state.round, seatId: seat.id, author: seat.player, character: seat.character, rid: req.rid };
+  const dice = crit ? String(req.damage.dice).replace(/(\d*)d(\d+)/g, (_, n, dd) => `${(Number(n) || 1) * 2}d${dd}`) : req.damage.dice;
+  const strength = sheet && MELEE_SKILLS.includes(req.skill) ? statMod(sheet, "strength") : 0;
+  const dr = rollDice(`${dice}${fmtMod((Number(req.damage.mod) || 0) + strength)}`, best);
+  state.messages.push({ id: state.nextId++, kind: "roll", ...base, rtype: "damage", label: `${req.label}: damage`, crit, modFrom: strength ? `Strength ${signed(strength)}` : null, pinpoint: req.pinpoint || undefined,
+    expr: dr.expr, total: dr.total, parts: dr.parts, nat: dr.nat, mode: dr.mode, ts: Date.now() });
+  const foe = req.target ? findFoe(state.foes, req.target) : null;
+  if (foe && foe.hp > 0) hurtFoe(state, foe, Math.max(0, dr.total), seat);
 }
 
 // Remember when a request was rolled and what it left the sheet like, so a
@@ -2257,15 +2304,17 @@ const YOUR_TURN = "(Now write what happens next. The actions above are already d
 // Small models drop dice rules buried in a long story prompt; one narrow, forced
 // question with its own prompt they answer well.
 
-const REFEREE_PROMPT = `You are the REFEREE of a tabletop roleplaying game that uses D&D 5e dice. You do not tell the story. You decide one thing: does anything in this round need dice from the player characters? Answer ONLY by calling a tool: request_rolls with the rolls, or no_roll.
+const REFEREE_PROMPT = `You are the REFEREE of a tabletop roleplaying game that uses D&D 5e dice. You do not tell the story. You decide one thing: does anything in this round need dice from the player characters? Answer ONLY by calling tools: request_rolls and/or foe_attack, or no_roll.
 
 Call for rolls when:
 A) A character ATTEMPTS something that could fail and failing would cost them: attacking; casting a spell or cant; sneaking past someone; climbing or leaping somewhere dangerous; forcing, breaking or picking something; lying; persuading or intimidating someone who is not already willing; searching for something hidden; scanning for danger or looking for a way out somewhere unsafe; examining something strange or unknown; reading the intent of someone tense or hostile.
-B) THE WORLD ACTS ON a character and it is not resolved yet (look at the end of the GM's last reply): something strikes, grabs, poisons, burns or casts at them; a trap springs; a force of the Weave reaches for them; an ambush is coming. That is a SAVE: Agility to dodge or get clear, Endurance to resist poison, grabs and harm to the body, Resonance against cants and Weave forces, Perception to notice it in time.
+B) A FOE ATTACKS a character and it is not resolved yet (the GM's last reply ended with a blow, a shot or a lunge coming at them): call foe_attack. The server rolls it against their armour now. One call per attack.
+C) THE WORLD ACTS ON a character in some other way, unresolved: a blast, a fall, a trap, poison, a grab, a force of the Weave reaching for them, an ambush coming. That is a SAVE (with damage_on_fail when it would hurt): Agility to dodge or get clear, Endurance to resist poison, grabs and harm to the body, Resonance against cants and Weave forces, Perception to notice it in time.
 
 No roll for: talking, asking, answering, agreeing, listening, waiting, watching, plain walking, glancing around somewhere calm and safe, readying or lowering a weapon, anything the world simply allows or a willing person simply answers.
 
 How to fill a roll:
+- Attacks by the players: give target (the foe's name as on the tracker below) and its AC comes from the tracker.
 - character: the name exactly as given. label: what is tested, short ("Resonance save: the glass thread", "Perception: read Severin").
 - type: check, save or attack. stat: strength, perception, endurance, charisma, intelligence, agility or resonance (never luck). skill when one fits: small_melee, medium_melee, large_melee, ranged, canting, ranged_canting, survival, medicine, creation, thievery, performance, artifice.
 - Stats: melee attacks strength (agility for daggers), ranged attacks perception, cants resonance, noticing perception, knowledge and devices intelligence, persuading and lying charisma, reflexes and stealth agility, toughness endurance.
@@ -2275,6 +2324,7 @@ How to fill a roll:
 
 const refereeTools = () => [
   refereeRequestTool(),
+  DICE_TOOLS.find((t) => t.function.name === "foe_attack"),
   { type: "function", function: {
     name: "no_roll",
     description: "Nothing this round needs dice.",
@@ -2309,6 +2359,7 @@ function refereeInput(state) {
     state.scene ? `SCENE: ${state.scene.mode || ""} at ${state.scene.where || "?"}${state.scene.present?.length ? `; present: ${[].concat(state.scene.present).join(", ")}` : ""}` : "",
     `THIS ROUND, WHAT THE PLAYERS DO:\n${acts.map((m) => m.kind === "pass" ? `- ${who(m)} passes.` : `- ${who(m)}: ${m.text}`).join("\n")}`,
     `THE CHARACTERS:\n${present.map((x) => refereeSheet(sheetFor(state, x) || { name: label(x) })).join("\n\n")}`,
+    (state.foes || []).some((f) => f.hp > 0) ? `FOES ON THE TRACKER:\n${state.foes.filter((f) => f.hp > 0).map((f) => `- ${f.name}: ${f.hp}/${f.maxHp} HP, AC ${f.ac}, attack +${f.atk}, ${f.dmg}`).join("\n")}` : "",
     dry >= ROLL_DROUGHT ? `(For reference: ${dry} rounds since the last roll.)` : "",
     "Decide now: request_rolls or no_roll.",
   ].filter(Boolean).join("\n\n");
@@ -2316,7 +2367,7 @@ function refereeInput(state) {
 
 // Parse and police the AI's roll requests: the same checks for the referee and the GM.
 function aiRequests(args, ctx) {
-  const parsed = parseRequests(args, ctx.seats || [], ctx.party || [], ctx.book || []);
+  const parsed = parseRequests(args, ctx.seats || [], ctx.party || [], ctx.book || [], ctx.foes || []);
   const problems = parsed.problems;
   const again = (q) => (ctx.rolled || []).includes(`${q.seatId}|${String(q.label || "").trim().toLowerCase()}`);
   const noDc = (q) => (q.type === "check" || q.type === "save") && q.dc == null && !q.spellTier && !q.spell;
@@ -2327,6 +2378,7 @@ function aiRequests(args, ctx) {
 
 async function refereeTurn(env, model, state, ctx) {
   const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+  const foeAttacks = [];
   const convo = [{ role: "system", content: REFEREE_PROMPT }, { role: "user", content: refereeInput(state) }];
   for (let attempt = 0; attempt < 2; attempt++) {
     const data = await mistralRequest(env, {
@@ -2335,23 +2387,33 @@ async function refereeTurn(env, model, state, ctx) {
     });
     for (const k of Object.keys(usage)) usage[k] += data?.usage?.[k] || 0;
     const msg = data?.choices?.[0]?.message || {};
-    const call = (msg.tool_calls || [])[0];
-    if (!call) throw new Error("the referee gave no decision");   // the GM decides instead
-    let args = {};
-    try { args = typeof call.function?.arguments === "string" ? JSON.parse(call.function.arguments) : (call.function?.arguments || {}); } catch {}
-    if (call.function?.name !== "request_rolls") return { requests: [], usage, reason: String(args.reason || "") };
+    const calls = msg.tool_calls || [];
+    if (!calls.length) throw new Error("the referee gave no decision");   // the GM decides instead
+    const argsOf = (c) => { try { return typeof c.function?.arguments === "string" ? JSON.parse(c.function.arguments) : (c.function?.arguments || {}); } catch { return {}; } };
+    for (const c of calls.filter((c) => c.function?.name === "foe_attack")) {
+      const out = rollFoeAttack(argsOf(c), ctx);
+      if (out.attack) foeAttacks.push(out.attack);
+    }
+    const call = calls.find((c) => c.function?.name === "request_rolls");
+    if (!call) return { requests: [], usage, foeAttacks, reason: String(argsOf(calls[0]).reason || "") };
+    const args = argsOf(call);
     const { requests, problems } = aiRequests(args, ctx);
-    if (requests.length || attempt === 1) return { requests, usage, problems };
+    if (requests.length || foeAttacks.length || attempt === 1) return { requests, usage, problems, foeAttacks };
     // Every roll was refused: say why, once, and let it fix them or settle on no_roll.
     convo.push({ role: "assistant", content: "", tool_calls: [call] });
     convo.push({ role: "tool", tool_call_id: call.id, name: "request_rolls", content: JSON.stringify({ requested: [], problems }) });
     convo.push({ role: "user", content: "Fix those rolls, or call no_roll if none is really needed." });
   }
-  return { requests: [], usage };
+  return { requests: [], usage, foeAttacks };
 }
 
 // What the GM is told the referee decided.
 function refereeNote(state, referee) {
+  const hits = (referee.foeAttacks || []).length
+    ? ` Already rolled by the server, narrate exactly these: ${referee.foeAttacks.map((a) => a.text).join(" ")}` : "";
+  return refereeNoteCore(state, referee).replace(/\)$/, hits + ")");
+}
+function refereeNoteCore(state, referee) {
   if (referee.requests.length) {
     const list = referee.requests.map((q) => {
       const sx = state.seats.find((x) => x.id === q.seatId);
@@ -2444,6 +2506,7 @@ function buildSystemPrompt(state, sel, party) {
 - Eidholm's peoples are human. "Dwarven-blooded" Clansmine folk are a human lineage, not a separate species.
 - DICE. Chance uses D&D 5e rules: d20 tests against a DC or Armor Class, advantage and disadvantage, natural 20 and 1 on attacks, damage dice, death saves.
   - WHEN TO ASK FOR A ROLL. Roll only when a character attempts something that could fail and failing would cost them: attacking, casting, sneaking past someone, climbing something dangerous, forcing or picking a lock, lying to or pressuring someone unwilling, searching for something hidden, scanning for danger or looking for a way out somewhere that isn't safe, examining something strange or unknown (Perception or Intelligence), resisting harm. Then you MUST call request_rolls and must NOT decide the outcome yourself. NO ROLL for: asking someone a question, talking, agreeing, listening, walking somewhere, glancing around a place that is calm and safe, picking up or readying a weapon, turning to face someone, lowering a weapon, anything the world simply allows or a willing person simply answers. Most conversation needs no roll at all. Every check and save needs a DC, which is what pushes back; if nothing pushes back, there is no roll. The label names what is being tested ("Perception: the shard", "Stealth past the guards"), never the player's whole action. Asking in prose ("make a Perception check") does nothing: only the request_rolls tool gives the players their buttons.
+  - COMBAT. When a fight starts, put every foe on the tracker with the foes tool (name, hp, ac, attack_bonus, damage_dice); the table sees their HP. Ordinary foes for a beginning party: a thug 7-11 HP, AC 12, +3, 1d6+1; a trained guard 11-16 HP, AC 15, +4, 1d8+2; a brute or machine 20-30 HP, AC 13, +5, 2d6+3. Player attacks name the foe as target; their hits come off its HP by themselves. Every attack ON a player character goes through foe_attack: the server rolls it against their AC and takes the damage off their sheet. A save against harm (a blast, a fall, a trap) carries damage_on_fail. Never narrate a player character losing HP without one of these. Remove foes that flee or surrender; the tracker clears when the fight ends.
   - THREATS TO PLAYER CHARACTERS: never decide whether an attack, trap, spell, grab, blast or poison aimed at a player character lands. Describe it coming and end your reply on it; the dice decide it next round.
   - WHEN RESULTS ARRIVE ("rolls ..." lines with SUCCESS or FAILURE), the roll is settled: narrate its consequences at once and move the scene forward. Never ask for the same roll again, and never ask for a second roll to decide the same thing. A failure is not a retry: it costs time, noise, coin, blood or position, or something goes wrong, and the players choose what to do next.
   - Player characters roll their own dice, through buttons. When any need a roll, call the request_rolls tool once with every roll needed, in order: the type (check, save, attack, damage, other), a short label ("Agility save", "Sword attack"), the STAT and the SKILL it uses, the difficulty for checks and saves (very_easy 7, easy 8, fair 10, moderate 12 the usual, hard 15, very_hard 18; the server sets the DC), the target's Armor Class and damage dice for attacks, the spell tier for any cant, and the reasons for any advantage or disadvantage. The server reads the character's sheet and adds the stat and skill bonuses itself: put only situational extras in "modifier". It applies the 5e rules (advantage and disadvantage cancel, hits, misses, criticals, damage only on a hit), Luck, armor penalties, Resonance costs and miscants. Then tell the players briefly what they are rolling for and stop; do not narrate outcomes yet. Results arrive next round as "rolls ..." lines with the outcome. Never roll for a player character and never invent their result.
@@ -2451,7 +2514,7 @@ function buildSystemPrompt(state, sel, party) {
   - Which skill: the weapon's size for melee, Ranged for bows and thrown, Canting or Ranged canting for spells, Heavy armor for blocking with a shield, and Survival, Medicine, Creation, Thievery, Performance or Artifice for those crafts. Leave the skill out when none fits; anyone can try anything on a stat alone.
   - A character without a sheet: give the whole modifier yourself (usually -1 to +5).
   - Spells: a character casts the spells on their sheet (give "spell" with its name; the server knows its tier). Anything else is a freeform cant (freeform: true, spell_tier, and a short name in spell): its first cast miscants on a natural 1 up to its tier, and if it works it becomes the caster's own spell. The server handles all of it. A character can't cast above their tier (Resonance ÷ 2, plus the best focus they wear or hold: +1 to +3) or without the Resonance for it; the server refuses and tells you. A focus never opens tier 6.
-  - Spells are learned by being taught or found (update_sheet learn_spell; a learned spell miscants only on a 1), or by casting one the character doesn't know yet (request_rolls with learning: true): a straight d8 first, failing and miscasting on the spell's tier or lower, so a tier-4 spell is a coin flip. Teaching takes one 8-hour session at any tier; fees are in the spellbook (tier 4-5 cost far more in coin alone than with standing or a favour owed); a tome is half price and two sessions.
+  - Spells are learned by being taught or found (update_sheet learn_spell; a learned spell miscants only on a 1), or by casting one the character doesn't know yet (request_rolls with learning: true): a straight d8 is the whole cast, no d20. On the spell's tier or lower it miscasts; higher, it works and is learned (damage and saves still follow). A tier-4 spell is a coin flip. Teaching takes one 8-hour session at any tier; fees are in the spellbook (tier 4-5 cost far more in coin alone than with standing or a favour owed); a tome is half price and two sessions.
   - TIER 6 has no list. Only a Resonance 13 canter reaches it, and writes their own: developed over about a week of downtime (learn_spell with tier 6 and one sentence), or fused from two known tier-5 or three known tier-4 spells: meditated overnight (update_sheet learn_spell with fused_from) or mid-fight (request_rolls with fusion and the new working's name in spell; the d8 fails on 1-6). Judge every working against the tier-6 benchmarks. It can never undo death, bend a mind of glass, or touch the bank. It can reach the Rim, but nothing that comes back can be read, and you never explain it. Every tier-6 cast is felt across the continent; the powers notice.
   - Use update_sheet for everything that changes a sheet: damage you deal and healing, coin gained or paid, items gained, lost, broken or repaired, Resonance spent outside a rolled cant, a dying character stabilised, and scars. The server handles dropping to 0, dying, death saves (it asks for them itself every round) and the rest.
   - Spells that call for a save ("vs Agility save" and the like): request the cast as a check with no DC (that roll only decides a miscant), then have the targets save against the caster's spell save DC (8 + Resonance mod + Canting bonus, shown on their sheet and on the cast's result): roll_dice for NPCs, request_rolls type save with that dc for player characters. An NPC caster's DC is yours to set the same way.
@@ -2616,7 +2679,9 @@ DICE_TOOLS.push({
               fusion: { type: "array", items: { type: "string" }, description: "Tier 6 only, mid-fight: the known spells being fused right now (two tier-5 or three tier-4); name the new working in 'spell'. Learning by casting at tier 6: the d8 fails on 1-6. On a success it goes on the sheet. (A fusion meditated overnight is update_sheet learn_spell with fused_from instead.)" },
               difficulty: { type: "string", enum: Object.keys(DIFFICULTY), description: "For checks and saves: very_easy (DC 7), easy (8), fair (10), moderate (12, the usual), hard (15), very_hard (18). Prefer this to dc." },
               dc: { type: "integer", description: "An exact DC, only when one is fixed by the rules (a caster's spell save DC). Otherwise use difficulty." },
-              target_ac: { type: "integer", description: "Armor Class of the target, for attacks" },
+              target: { type: "string", description: "For attacks: the foe's name on the tracker. Its AC is used and the damage comes off its HP." },
+              target_ac: { type: "integer", description: "Armor Class of the target, for attacks (taken from the tracker when target is given)" },
+              damage_on_fail: { type: "string", description: "For a save against harm (a blast, a fall, a trap): the damage dice taken on a failed save, e.g. '1d6'" },
               damage_dice: { type: "string", description: "For attacks: damage dice rolled on a hit, e.g. '1d6'" },
               damage_modifier: { type: "integer", description: "For attacks: modifier added to damage" },
               dice: { type: "string", description: "For damage or other rolls: the dice, e.g. '2d6' or 'd100'" },
@@ -2739,6 +2804,45 @@ DICE_TOOLS.push({
     },
   },
 });
+DICE_TOOLS.push({
+  type: "function",
+  function: {
+    name: "foes",
+    description: "The combat tracker: the foes the party is fighting, with HP the whole table sees. Add every foe when a fight starts. Player hits on a foe come off its HP by themselves; use hurt only for harm that wasn't a rolled player attack.",
+    parameters: {
+      type: "object",
+      properties: {
+        add: { type: "array", items: { type: "object", properties: {
+          name: { type: "string", description: "Short and distinct, e.g. 'Harness', 'Thug with a hook'" },
+          hp: { type: "integer", minimum: 1 }, ac: { type: "integer", minimum: 5, maximum: 25 },
+          attack_bonus: { type: "integer", description: "Its attack roll bonus" },
+          damage_dice: { type: "string", description: "Its usual damage, e.g. '1d6+1'" },
+        }, required: ["name", "hp", "ac"] } },
+        hurt: { type: "array", items: { type: "object", properties: { name: { type: "string" }, amount: { type: "integer", minimum: 1 } }, required: ["name", "amount"] } },
+        heal: { type: "array", items: { type: "object", properties: { name: { type: "string" }, amount: { type: "integer", minimum: 1 } }, required: ["name", "amount"] } },
+        remove: { type: "array", items: { type: "string" }, description: "Foes that fled, surrendered or are otherwise out of the fight" },
+      },
+    },
+  },
+});
+DICE_TOOLS.push({
+  type: "function",
+  function: {
+    name: "foe_attack",
+    description: "A foe attacks a player character. The server rolls it now against the character's Armor Class and takes the damage off their sheet on a hit. Use it for every attack on a player character; never narrate damage to them without it.",
+    parameters: {
+      type: "object",
+      properties: {
+        foe: { type: "string", description: "The attacker (its tracker name if it has one)" },
+        character: { type: "string", description: "The player character attacked" },
+        label: { type: "string", description: "Short, e.g. 'gauntlet swing'" },
+        attack_bonus: { type: "integer", description: "Only if the foe isn't on the tracker" },
+        damage_dice: { type: "string", description: "Only if the foe isn't on the tracker, or this attack differs" },
+      },
+      required: ["foe", "character"],
+    },
+  },
+});
 const MAX_GM_TOOL_ROUNDS = 4;
 // When the referee has called the dice, the GM narrates without the request tool.
 const GM_TOOLS_NO_REQUESTS = DICE_TOOLS.filter((t) => t.function.name !== "request_rolls");
@@ -2764,8 +2868,88 @@ function spellRoll(req, entry) {
   return "";
 }
 
+// ---------------- foes ----------------
+// The combat tracker. Everyone sees each foe's HP; AC and attack numbers stay with the GM.
+const MAX_FOES = 12;
+function findFoe(foes, name) {
+  const k = String(name || "").trim().toLowerCase();
+  if (!k) return null;
+  return (foes || []).find((f) => f.name.toLowerCase() === k) || (foes || []).find((f) => f.name.toLowerCase().includes(k) || k.includes(f.name.toLowerCase())) || null;
+}
+
+function parseFoeOps(args, foes) {
+  const ops = [], notes = [];
+  const known = [...(foes || [])];
+  for (const f of Array.isArray(args?.add) ? args.add : []) {
+    const name = clean(String(f?.name || ""), 40);
+    const hp = Math.trunc(Number(f?.hp)), ac = Math.trunc(Number(f?.ac));
+    if (!name || !(hp > 0) || !(ac > 0)) { notes.push(`a foe needs a name, hp and ac`); continue; }
+    if (findFoe(known, name)?.name.toLowerCase() === name.toLowerCase()) { notes.push(`${name} is already on the tracker`); continue; }
+    if (known.length >= MAX_FOES) { notes.push(`the tracker holds ${MAX_FOES} foes at most`); break; }
+    let dmg = String(f.damage_dice || "1d6").replace(/\s+/g, "");
+    try { rollDice(dmg); } catch { dmg = "1d6"; }
+    const foe = { name, hp: Math.min(hp, 999), maxHp: Math.min(hp, 999), ac: Math.min(ac, 25), atk: Number.isFinite(+f.attack_bonus) ? Math.trunc(+f.attack_bonus) : 3, dmg };
+    known.push(foe);
+    ops.push({ add: foe });
+  }
+  for (const key of ["hurt", "heal"]) {
+    for (const h of Array.isArray(args?.[key]) ? args[key] : []) {
+      const foe = findFoe(known, h?.name);
+      const amount = Math.trunc(Number(h?.amount));
+      if (!foe) { notes.push(`no foe called "${h?.name}" on the tracker`); continue; }
+      if (amount > 0) ops.push({ [key]: { name: foe.name, amount } });
+    }
+  }
+  for (const n of Array.isArray(args?.remove) ? args.remove : []) {
+    const foe = findFoe(known, n);
+    if (foe) ops.push({ remove: foe.name }); else notes.push(`no foe called "${n}" on the tracker`);
+  }
+  return { ops, notes, foes: known };
+}
+
+function applyFoeOp(state, op) {
+  state.foes = state.foes || [];
+  if (op.add) { if (!findFoe(state.foes, op.add.name) || findFoe(state.foes, op.add.name).name !== op.add.name) state.foes.push({ ...op.add }); return; }
+  const foe = findFoe(state.foes, op.hurt?.name || op.heal?.name || op.remove);
+  if (!foe) return;
+  if (op.remove) { state.foes = state.foes.filter((f) => f !== foe); return; }
+  if (op.hurt) hurtFoe(state, foe, op.hurt.amount);
+  if (op.heal) foe.hp = Math.min(foe.maxHp, foe.hp + op.heal.amount);
+}
+
+function hurtFoe(state, foe, amount, seat) {
+  foe.hp = Math.max(0, foe.hp - amount);
+  if (foe.hp === 0 && !foe.downRound) foe.downRound = state.round;
+  addEvent(state, foe.hp === 0 ? `${foe.name} takes ${amount} and goes down.` : `${foe.name} takes ${amount} (${foe.hp}/${foe.maxHp} HP).`, seat);
+}
+
+// A foe's attack on a player character, rolled when the tool is called so the GM narrates from it.
+function rollFoeAttack(args, ctx) {
+  const sheet = findSheet(ctx.party || [], args?.character);
+  if (!isSheet(sheet)) return { error: `No player character called "${args?.character}".` };
+  if (sheet.dead) return { error: `${sheet.name} is dead.` };
+  const foe = findFoe(ctx.foes || [], args?.foe);
+  const name = foe?.name || clean(String(args?.foe || "A foe"), 40);
+  const bonus = Number.isFinite(+args?.attack_bonus) && args?.attack_bonus !== null && args?.attack_bonus !== undefined ? Math.trunc(+args.attack_bonus) : foe ? foe.atk : 3;
+  let dice = String(args?.damage_dice || foe?.dmg || "1d6").replace(/\s+/g, "");
+  try { rollDice(dice); } catch { dice = "1d6"; }
+  const ac = derive(sheet).ac;
+  const r = rollDice(`d20${fmtMod(bonus)}`);
+  const face = d20Face(r);
+  const crit = face === 20;
+  const hit = crit || (face !== 1 && r.total >= ac);
+  let damage = 0;
+  if (hit) {
+    const dd = crit ? dice.replace(/(\d*)d(\d+)/g, (_, n, d) => `${(Number(n) || 1) * 2}d${d}`) : dice;
+    damage = Math.max(1, rollDice(dd).total);
+  }
+  const what = clean(String(args?.label || "attack"), 60);
+  return { attack: { foe: name, character: sheet.name, label: what, total: r.total, face, ac, hit, crit, damage,
+    text: `${name}'s ${what} at ${sheet.name}: ${r.total} vs AC ${ac}, ${crit ? "a critical hit" : hit ? "a hit" : "a miss"}${hit ? `, ${damage} damage` : ""}.` } };
+}
+
 // Turn the GM's request_rolls arguments into stored requests, or explain what's wrong.
-function parseRequests(args, seats, party = [], book = []) {
+function parseRequests(args, seats, party = [], book = [], foes = []) {
   const out = [], problems = [];
   const names = seats.map((s) => label(s));
   for (const r of Array.isArray(args?.rolls) ? args.rolls : []) {
@@ -2788,7 +2972,18 @@ function parseRequests(args, seats, party = [], book = []) {
       fusion: Array.isArray(r.fusion) && r.fusion.length ? r.fusion.map((x) => clean(String(x), 80)) : null,
       learning: !!r.learning,
       held: !!r.held,
+      target: null,
+      failDamage: null,
     };
+    if (r.target) {
+      const foe = findFoe(foes, r.target);
+      if (foe) { req.target = foe.name; if (req.ac == null) req.ac = foe.ac; }
+      else req.target = clean(String(r.target), 40);
+    }
+    if (type === "save" && r.damage_on_fail) {
+      const dd = String(r.damage_on_fail).replace(/\s+/g, "");
+      try { rollDice(dd); req.failDamage = dd; } catch {}
+    }
     const sheet = seat.character ? findSheet(party, seat.character) : null;
     if (sheet && sheet.stats) {
       if (sheet.dead) { problems.push(`${sheet.name} is dead`); continue; }
@@ -2969,6 +3164,9 @@ async function gmTurn(env, model, messages, ctx = {}) {
   const remember = [];
   const sheetOps = [];
   const luckSpent = [];
+  const foeOps = [];
+  const foeAttacks = [];
+  ctx.foes = [...(ctx.foes || [])];   // grows as the GM adds foes this turn
   const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
   let corrected = false;
   for (let i = 0; i <= MAX_GM_TOOL_ROUNDS; i++) {
@@ -2988,7 +3186,7 @@ async function gmTurn(env, model, messages, ctx = {}) {
         convo.push({ role: "user", content: "(System: you asked for a roll in your text, but the players only get buttons from the request_rolls tool. Call request_rolls now for every roll you meant, then write your answer again, without the outcome.)" });
         continue;
       }
-      return { reply: msg.content, usage, rolls, requests, remember, sheetOps, luckSpent };
+      return { reply: msg.content, usage, rolls, requests, remember, sheetOps, luckSpent, foeOps, foeAttacks };
     }
     convo.push({ role: "assistant", content: msg.content || "", tool_calls: calls });
     for (const call of calls) {
@@ -3027,6 +3225,23 @@ async function gmTurn(env, model, messages, ctx = {}) {
             : "Nothing was requested, so there are no buttons. Do not stop here: answer the round now. Narrate what happens and how the world and its people respond.",
         });
         convo.push({ role: "tool", tool_call_id: call.id, name: "request_rolls", content });
+        continue;
+      }
+      if (call.function?.name === "foes") {
+        const { ops, notes, foes } = parseFoeOps(args, ctx.foes);
+        foeOps.push(...ops);
+        ctx.foes = foes;
+        convo.push({ role: "tool", tool_call_id: call.id, name: "foes", content: JSON.stringify({
+          tracker: foes.map((f) => `${f.name} ${f.hp}/${f.maxHp} HP, AC ${f.ac}`), problems: notes,
+          note: "The table sees each foe's HP. Give player attacks the foe's name as target and their hits come off by themselves." }) });
+        continue;
+      }
+      if (call.function?.name === "foe_attack") {
+        const out = rollFoeAttack(args, ctx);
+        if (out.attack) foeAttacks.push(out.attack);
+        convo.push({ role: "tool", tool_call_id: call.id, name: "foe_attack", content: JSON.stringify(out.attack
+          ? { result: out.attack.text, note: "Rolled and applied to their sheet right after your answer. Narrate exactly this result." }
+          : { error: out.error }) });
         continue;
       }
       if (call.function?.name === "update_sheet") {

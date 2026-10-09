@@ -102,6 +102,16 @@
   .conn { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); display: inline-block; }
   .conn.live { background: var(--glass); }
 
+  /* foes strip */
+  .foes { display: flex; gap: 10px; padding: 6px 16px; overflow-x: auto; border-bottom: 1px solid var(--line); background: rgba(40,16,12,0.55); }
+  .foe { flex: 0 0 auto; min-width: 140px; font-family: var(--mono); font-size: 12px; }
+  .foe .fn { color: var(--ink); display: flex; justify-content: space-between; gap: 8px; }
+  .foe .fn small { color: var(--ink-dim); }
+  .foe .bar { height: 5px; background: var(--line); border-radius: 1px; margin-top: 3px; overflow: hidden; }
+  .foe .bar i { display: block; height: 100%; background: var(--danger); }
+  .foe.down { opacity: 0.45; }
+  .chip .hp { color: var(--glass); }
+  .chip .hp.low { color: var(--danger); }
   /* roster strip */
   .roster {
     display: flex; gap: 8px; padding: 8px 16px; overflow-x: auto;
@@ -439,6 +449,7 @@
   </header>
 
   <div class="roster" id="roster" aria-label="Who is at the table"></div>
+  <div class="foes" id="foes" aria-label="Foes in the fight" hidden></div>
 
   <div class="stage">
     <aside id="rail" aria-label="Your rolls">
@@ -822,6 +833,13 @@
       ? `Saved ${new Date(table.saved.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${table.saved.by ? " by " + table.saved.by : ""}`
       : "";
 
+    // foes in the fight: everyone sees their HP
+    {
+      const fb = $("foes"), foes = table.foes || [];
+      fb.hidden = !foes.length;
+      fb.innerHTML = foes.map((f) => `<div class="foe${f.hp <= 0 ? " down" : ""}"><div class="fn"><span>${escapeHtml(f.name)}</span><small>${f.hp <= 0 ? "down" : `${f.hp}/${f.maxHp} HP`}</small></div>` +
+        `<div class="bar"><i style="width:${Math.max(0, Math.min(100, Math.round(100 * f.hp / (f.maxHp || 1))))}%"></i></div></div>`).join("");
+    }
     // roster
     const roster = $("roster");
     roster.innerHTML = "";
@@ -837,7 +855,9 @@
       const st = !s.present ? ["absent", ""] : answered.get(s.id) === "act" ? ["acted", "acted"]
         : answered.get(s.id) === "roll" ? ["rolled", "acted"]
         : answered.get(s.id) === "pass" ? ["passed", "passed"] : ["waiting", ""];
-      chip.innerHTML = `<span class="name">${escapeHtml(seatLabel(s))}</span><span class="status ${st[1]}">${st[0]}</span>`;
+      const sh = s.character ? sheetByName(s.character) : null;
+      const hpTxt = sh && sh.d ? (sh.dead ? "dead" : sh.dying ? "dying" : `HP ${sh.hp}/${sh.d.maxHp}`) : "";
+      chip.innerHTML = `<span class="name">${escapeHtml(seatLabel(s))}</span>${hpTxt ? `<span class="hp${sh.dying || sh.dead || sh.hp <= sh.d.maxHp / 2 ? " low" : ""}">${hpTxt}</span>` : ""}<span class="status ${st[1]}">${st[0]}</span>`;
       if (s.id === mySeat) {
         const sv = document.createElement("button");
         sv.type = "button"; sv.className = "save";
