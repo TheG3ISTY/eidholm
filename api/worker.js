@@ -982,8 +982,11 @@ export class Table extends DurableObject {
         if (own && !own.dead) throw new Error(`You already play ${own.name}.`);
         const book = await this.spellbook();
         const sheet = createSheet(msg.sheet, s.player, book.filter((x) => x.tier === 1), START_SPELLS);
-        if (findSheet(live.list, sheet.name)) throw new Error(`There is already a character called "${sheet.name}".`);
-        live.list.push(sheet);
+        // A bare entry made by name only (no stats yet) gets filled in, not refused.
+        const clash = findSheet(live.list, sheet.name);
+        if (clash && isSheet(clash)) throw new Error(`There is already a character called "${sheet.name}".`);
+        if (clash) live.list[live.list.indexOf(clash)] = { ...clash, ...sheet, name: clash.name };
+        else live.list.push(sheet);
         markDirty(state);
         s.character = sheet.name;
         addEvent(state, `${s.player} brings a new character to the table: ${sheet.name}.`, s);
