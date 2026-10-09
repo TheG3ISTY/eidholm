@@ -7,7 +7,7 @@
       "player": "TheG3ISTY",
       "backstory": "I grew up talking more to our family's hearthmind than to anyone with a pulse. One morning its license changed hands and it was gone without a word. I'd like to know whether it chose to go.",
       "stats": {
-        "strength": 6,
+        "strength": 7,
         "perception": 5,
         "endurance": 6,
         "charisma": 5,
@@ -112,8 +112,8 @@
     }
   ],
   "clock": {
-    "minutes": 563,
-    "max": 563,
-    "label": "Day 1, 09:23"
+    "minutes": 566,
+    "max": 566,
+    "label": "Day 1, 09:26"
   }
 }
