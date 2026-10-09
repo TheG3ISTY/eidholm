@@ -1244,6 +1244,7 @@ export class Table extends DurableObject {
       }
 
       case "tier": {
+        if (!att.admin) throw new Error("Only an unsealed GM can choose the model.");
         if (msg.tier === "small" || msg.tier === "large") state.tier = msg.tier;
         return this.commit(state);
       }

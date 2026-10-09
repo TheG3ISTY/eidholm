@@ -798,6 +798,9 @@
 
     // header
     document.querySelectorAll(".seg button").forEach((b) => b.classList.toggle("on", b.dataset.tier === table.tier));
+    // Model choice and spend are the GM's business: only shown with Settings unsealed.
+    document.querySelector(".seg").hidden = !admin;
+    $("meter").hidden = !admin;
     const t = totals();
     $("meter").innerHTML = `${t.tokens.toLocaleString()} tok · <b>$${t.usd.toFixed(4)}</b>`;
     $("clock-stamp").textContent = table.clock ? "⧗ " + table.clock + (table.partyUnsaved ? " · sheets unsaved" : "") : "";
