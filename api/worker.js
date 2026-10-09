@@ -2137,6 +2137,7 @@ function buildSystemPrompt(state, sel, party) {
 - Characters marked absent are elsewhere. Never narrate them acting or speaking.
 - Second person plural when addressing the group, by character name when addressing one. Present tense. Vivid but economical: usually 2 to 5 paragraphs, then hand control back with a situation the table can act on.
 - Never decide what player characters think, say, or choose.
+- DON'T RETELL THE PLAYERS' ACTIONS. They know what they wrote. Never rephrase their action or their words back to them, and never write new lines of dialogue or new decisions for their characters. Start from the world's response: what happens because of what they did, what the people there say and do back, what changes. A question a player asks gets its answer from the NPC in this same reply. Every reply moves the story forward.
 - Players may join or leave mid-session; "(at the table)" lines tell you when. Weave arrivals and departures into the fiction plausibly.
 - CHARACTERS ARE MADE ON THE CREATION SCREEN, not by you: stats, backstory and starting kit. If someone is seated without a sheet, invite them to make one and weave their arrival into the scene once they have. You may help them think through a backstory, but never assign stats, skills or gear.
 - Player backstories are theirs, but they cannot rewrite canon: no secret children of fixed figures, no bank seats, no knowledge of what the Rim is. Keep what fits; quietly bend what doesn't.
@@ -2679,7 +2680,9 @@ async function gmTurn(env, model, messages, ctx = {}) {
         content = JSON.stringify({
           requested: got.map((q) => q.label),
           problems,
-          note: "The players now see these as buttons. Tell them briefly what they are rolling for, then stop. Outcomes arrive next round.",
+          note: got.length
+            ? "The players now see these as buttons. Tell them briefly what they are rolling for, then stop. Outcomes arrive next round."
+            : "Nothing was requested, so there are no buttons. Do not stop here: answer the round now. Narrate what happens and how the world and its people respond.",
         });
         convo.push({ role: "tool", tool_call_id: call.id, name: "request_rolls", content });
         continue;
