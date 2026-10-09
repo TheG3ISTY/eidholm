@@ -34,6 +34,7 @@ const STATE_FILES = {
   characters: "rules/characters.md",
   spells: "rules/spells.md",
   economy: "rules/economy.md",
+  backstories: "world/backstories.md",
   cast: "campaign/cast.json",
   party: "characters/party.json",
   log: "campaign/log.md",
@@ -770,6 +771,8 @@ export class Table extends DurableObject {
         state.session = null;
         state.scene = null;
         state.marks = { scene: 0, done: {} };
+        state.begun = false;
+        state.opening = null;
         // A discarded scene also throws away unsaved changes to the sheets; after
         // End session (everything committed) they're re-read so repo edits show up.
         if (msg.upToId === undefined || (msg.clearSeen && !state.live?.dirty)) state.live = null;
@@ -813,7 +816,7 @@ export class Table extends DurableObject {
     pair[1].serializeAttachment({ admin: false, ip: clientIp(request) });
     const state = await this.load();
     if (!state.live?.loaded && await this.ensureLive(state)) await this.save(state);
-    pair[1].send(JSON.stringify({ ...RULES_CATALOGUE, spells1: (await this.spellbook()).filter((x) => x.tier === 1), startSpells: START_SPELLS }));
+    pair[1].send(JSON.stringify({ ...RULES_CATALOGUE, spells1: (await this.spellbook()).filter((x) => x.tier === 1), startSpells: START_SPELLS, backstories: await this.backstories() }));
     pair[1].send(JSON.stringify(this.snapshot(state, pair[1])));
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -860,6 +863,8 @@ export class Table extends DurableObject {
       gmMode: s.gmMode === "human" ? "human" : "ai",   // who answers: the AI, or a person in the GM seat
       live: s.live || null,         // the party's sheets as they are right now: { loaded, list, clock, dirty }
       marks: s.marks || { scene: 0, done: {} },   // skill marks already given this scene
+      begun: !!s.begun,                // the opening scene has been asked for this session
+      opening: s.opening || null,      // { id, brief }: the GM's private note for the opening round
     };
   }
 
@@ -910,6 +915,7 @@ export class Table extends DurableObject {
       tier: state.tier,
       spend: state.spend,
       spendTotal: state.spendTotal,
+      begin: gmView ? { begun: hasBegun(state), blocker: beginBlocker(state) } : null,
       saved: state.session?.savedAt ? { at: state.session.savedAt, by: state.session.savedBy, no: state.session.no } : null,
     };
   }
@@ -923,6 +929,10 @@ export class Table extends DurableObject {
   async commit(state) {
     await this.save(state);
     this.broadcast(state);
+  }
+
+  async backstories() {
+    try { return parseBackstories((await loadState(this.env)).backstories); } catch { return []; }
   }
 
   async spellbook() {
@@ -1322,6 +1332,20 @@ export class Table extends DurableObject {
         if (state.gmMode === "human") throw new Error("A person is the GM tonight: they answer when they're ready.");
         if (isResolving(state)) return;
         if (!answersFor(state).length) throw new Error("Nothing to resolve yet. Someone has to act or roll first.");
+        return this.resolve(state);
+      }
+
+      case "begin": {
+        // The opening scene: the GM's button once everyone seated has a character.
+        if (!(att.admin || att.gmRole)) throw new Error("Only the GM can begin the story.");
+        if (state.gmMode === "human") throw new Error("A person is the GM tonight: open the scene yourself from the GM desk.");
+        const why = beginBlocker(state);
+        if (why) throw new Error(why);
+        const id = state.nextId++;
+        const names = state.seats.filter((x) => x.present).map((x) => sheetFor(state, x).name);
+        state.messages.push({ id, kind: "event", sub: "opening", round: state.round, text: `The story begins: ${names.join(", ")}.`, ts: Date.now() });
+        state.begun = true;
+        state.opening = { id, brief: clean(msg.brief, 600, true) || "" };
         return this.resolve(state);
       }
 
@@ -1941,6 +1965,17 @@ function addSpend(state, tier, u) {
     bucket[tier].out += u.completion_tokens || 0;
   }
 }
+// Backstory presets for the creation screen: "## Title" and the paragraph under it.
+function parseBackstories(md) {
+  const out = [];
+  for (const part of stripDev(String(md || "")).replace(/\r/g, "").split(/^##\s+/m).slice(1)) {
+    const [head, ...body] = part.split("\n");
+    const text = body.join("\n").trim().replace(/\s*\n\s*/g, " ");
+    if (head.trim() && text) out.push({ title: head.trim().slice(0, 80), text: text.slice(0, 4000) });
+  }
+  return out;
+}
+
 function signed(n) { return n >= 0 ? `+${n}` : `${n}`; }
 
 // Sent once per connection: the fixed lists the creation screen and sheets need.
@@ -1951,6 +1986,32 @@ const RULES_CATALOGUE = {
 
 function pendingFor(state) {
   return state.messages.filter((m) => m.round === state.round && isPending(m));
+}
+
+function hasBegun(state) {
+  return !!state.begun || state.messages.some((m) => m.kind === "gm");
+}
+
+// Why the opening scene can't start yet, or "" when it can.
+function beginBlocker(state) {
+  if (hasBegun(state)) return "The story has already begun.";
+  if (isResolving(state)) return "The GM is answering already.";
+  const present = state.seats.filter((x) => x.present);
+  if (!present.length) return "Nobody is seated yet.";
+  const missing = present.filter((x) => { const c = sheetFor(state, x); return !c || c.dead; }).map(label);
+  if (missing.length) return `Still making characters: ${missing.join(", ")}.`;
+  return "";
+}
+
+// The GM's instruction for the opening round. The brief is the GM's own and never shown to players.
+function openingLine(state, m) {
+  const brief = state.opening?.id === m.id ? state.opening.brief : "";
+  const who = state.seats.filter((x) => x.present).map((x) => { const c = sheetFor(state, x); return c ? `${c.name} (played by ${x.player})` : null; }).filter(Boolean);
+  return `- (from the table's GM, not a player) OPEN THE STORY NOW. ${who.length} ${who.length === 1 ? "character is" : "characters are"} at the table: ${who.join(", ")}. ` +
+    `Put every one of them in the same place at the same moment, and give each a reason to be there that grows out of their own backstory. ` +
+    (brief ? `The GM wants this: ${brief} ` : `No place was given: choose one in Eidholm that ties their backstories together. `) +
+    `If the campaign log already holds earlier sessions, open from where the last one ended instead of a first meeting. ` +
+    `Set the place and time with the scene tag, introduce each character in a line or two, and end on something that pulls them to act together. Never act or speak for them.`;
 }
 
 function isResolving(state) {
@@ -1975,10 +2036,10 @@ function buildConversation(state) {
     const acts = state.messages.filter((m) => m.round === r && (isAnswer(m) || m.kind === "flag" || (m.kind === "event" && m.sub !== "asks")));
     const gm = state.messages.find((m) => m.round === r && m.kind === "gm");
     const gmDice = state.messages.filter((m) => m.round === r && m.kind === "gmroll");
-    if (!acts.some(isAnswer) && !gm) continue;
+    if (!acts.some(isAnswer) && !gm && !acts.some((m) => m.sub === "opening")) continue;
 
     const lines = acts.map((m) => {
-      if (m.kind === "event") return `- (at the table) ${m.text}`;
+      if (m.kind === "event") return m.sub === "opening" ? openingLine(state, m) : `- (at the table) ${m.text}`;
       const who = m.character ? `${m.character} (played by ${m.author})` : m.author;
       if (m.kind === "roll") return `- ${who} rolls ${rollLine(m)}`;
       if (m.kind === "flag") return `- (table) ${m.author} asks you to remember ${m.text}. Flag them with remember_npc.`;

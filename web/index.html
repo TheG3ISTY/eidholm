@@ -1022,11 +1022,13 @@
     if ($("codex").classList.contains("open") && codexTab === "party" && !(admin && admin.canWriteRepo)) renderPartyTab();
     if ($("codex").classList.contains("open") && codexTab === "settings" && !admin && gmCreds) {
       renderGmPanel();
+      renderBegin();
       if (table.gmRole) $("codex-status").textContent = "Logged in as GM";
     }
     if ($("codex").classList.contains("open") && codexTab === "settings" && admin) {
       renderSettingsSeats();
       renderGmMode();
+      renderBegin();
       if ($("reveal-toggle")) $("reveal-toggle").checked = !!table.revealGmRolls;
     }
   }
@@ -1438,6 +1440,8 @@
         ? `<h3 class="set-h">You're the GM</h3>
            <p class="muted">You can take the GM seat and run the table from the GM desk. Editing or deleting sheets, seats and sessions stays with Settings.</p>
            <div id="gm-panel"></div>
+           <h3 class="set-h">Begin the story</h3>
+           <div id="set-begin"></div>
            <p><button type="button" class="ghost" id="gm-logout">Log out as GM</button></p>`
         : `<h3 class="set-h">Game Master login</h3>
            <p class="muted">For whoever runs tonight's game: the GM seat and desk, the GM's dice and the NPCs' secrets.</p>
@@ -1483,6 +1487,7 @@
         renderSettings();
       });
       renderGmPanel();
+      renderBegin();
       if (!gmCreds) $("gm-user").focus();
       return;
     }
@@ -1490,6 +1495,8 @@
     body.innerHTML = `<h3 class="set-h">Who runs the game</h3>
       <p class="muted">The AI GM answers every round by itself. A human GM sits in the GM seat at the head of the table and answers when ready, with the same tools; no AI calls are made.</p>
       <div class="row-btns" id="gm-mode"></div>
+      <h3 class="set-h">Begin the story</h3>
+      <div id="set-begin"></div>
       <h3 class="set-h">The GM's dice</h3>
       <p class="muted">You always see every roll the GM makes while Settings are unsealed. Players only see "the GM rolls behind the screen", unless you show them.</p>
       <label class="switch"><input type="checkbox" id="reveal-toggle" ${table && table.revealGmRolls ? "checked" : ""}> Show GM rolls to the party</label>
@@ -1505,6 +1512,7 @@
       <div class="set-foot"><button type="button" class="ghost" id="admin-seal">Seal settings</button></div>`;
     $("admin-seal").addEventListener("click", () => { sealSettings(); renderSettings(); });
     renderGmMode();
+    renderBegin();
     $("reveal-toggle").addEventListener("change", (e) => send({ t: "reveal", on: e.target.checked }));
     renderSettingsSeats();
     renderSettingsParty(force);
@@ -1582,6 +1590,30 @@
       : '<p class="warn">The AI runs the game right now. The owner switches to a human GM in Settings.</p>';
     if ($("gm-sit2")) $("gm-sit2").addEventListener("click", () => send({ t: "sitGm", on: !table.youAreGm }));
     if (!table.gmRole && $("codex-status")) $("codex-status").textContent = "Logging in as GM…";
+  }
+
+  // The opening scene: lights up once everyone seated has a character.
+  function renderBegin() {
+    const box = $("set-begin");
+    if (!box || !table) return;
+    const b = table.begin;
+    let state, note;
+    if (!b) { state = "wait"; note = "Checking the table…"; }
+    else if (table.gmMode === "human") { state = "human"; note = "A person is the GM: open the scene yourself from the GM desk."; }
+    else if (b.begun) { state = "done"; note = "The story has begun. Ending or discarding the session makes this available again."; }
+    else if (b.blocker) { state = "wait"; note = b.blocker; }
+    else { state = "ready"; note = "Everyone seated has a character. The AI opens with all of them in one scene."; }
+    if (box.dataset.state === state && box.dataset.note === note) return;   // keep what the GM is typing
+    const kept = $("begin-brief") ? $("begin-brief").value : "";
+    box.dataset.state = state; box.dataset.note = note;
+    box.innerHTML = `<p class="muted">${escapeHtml(note)}</p>` + (state === "ready" || state === "wait" ? `
+      <textarea class="field" id="begin-brief" rows="3" maxlength="600" placeholder="Optional: where and why they meet. Leave it empty and the AI picks a place that ties their backstories together. Players never see this."></textarea>
+      <p><button type="button" class="btn" id="begin-go" ${state === "ready" ? "" : "disabled"}>Begin the story</button></p>` : "");
+    if ($("begin-brief")) $("begin-brief").value = kept;
+    if ($("begin-go")) $("begin-go").addEventListener("click", () => {
+      $("begin-go").disabled = true;
+      send({ t: "begin", brief: $("begin-brief").value });
+    });
   }
 
   function renderGmMode() {
@@ -2219,6 +2251,10 @@
       <div class="cr-stats" id="cr-stats"></div>
       <div class="cr-derived" id="cr-derived"></div>
       <div class="lbl">Backstory <small>yours to write; the world will hold you to it, but it can't rewrite the canon</small></div>
+      ${(rules.backstories || []).length ? `<select class="field" id="cr-preset" aria-label="Backstory preset">
+        <option value="">Pick a preset…</option>
+        ${rules.backstories.map((b, i) => `<option value="${i}">${escapeHtml(b.title)}</option>`).join("")}
+        <option value="own">Write my own</option></select>` : ""}
       <textarea class="field" id="cr-back" rows="5" maxlength="4000" placeholder="Where you come from, who you served, what you believe, what you owe."></textarea>
       <div class="lbl">Starting kit · ${rules.purse} cv, clothes, a pack, and ${rules.picks} of these</div>
       <div class="cr-kit" id="cr-kit"></div>
@@ -2227,6 +2263,16 @@
       <div class="ebar"><span class="emsg" id="cr-msg"></span><button type="button" class="ghost" id="cr-cancel">Cancel</button><button type="button" class="btn" id="cr-go">Create</button></div>
     </div>`;
     document.body.appendChild(ov);
+    // A preset fills the field; it stays editable. Typed text is only replaced after asking.
+    let lastPreset = "";
+    if ($("cr-preset")) $("cr-preset").addEventListener("change", (e) => {
+      const v = e.target.value, area = $("cr-back");
+      const next = v === "own" ? "" : v === "" ? area.value : rules.backstories[+v].text;
+      const edited = area.value.trim() && area.value !== lastPreset;
+      if (edited && next !== area.value && !confirm("Replace what you've written with this preset?")) { e.target.value = ""; return; }
+      area.value = next; lastPreset = next;
+      if (v === "own") area.focus();
+    });
 
     const draw = () => {
       const bal = -keys.reduce((n, k) => n + cost(st[k]), 0);

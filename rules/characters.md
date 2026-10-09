@@ -199,6 +199,8 @@ Shields are **held, never worn.** A shield needs a hand, a direction, and a mome
 
 **Players write their own backstory**: where they come from, who they served, what they believe. Nothing on the sheet comes from it; the GM reads it and plays the world accordingly.
 
+- Players who'd rather not write one can **start from a preset** (the dropdown on the creation screen, from `world/backstories.md`) and edit it as much or as little as they like.
+
 - A backstory can tie into any faction or faith, but it **cannot rewrite canon**: no secret child of a pillar, no inherited bank seat, no knowing what the Rim is. The GM keeps what fits and quietly bends what doesn't.
 
 ## Starting kit
