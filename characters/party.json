@@ -29,6 +29,10 @@
         "small_melee": {
           "rank": 1,
           "marks": 0
+        },
+        "artifice": {
+          "rank": 1,
+          "marks": 0
         }
       },
       "items": [
@@ -102,7 +106,7 @@
       "purse": 500,
       "scars": [],
       "created": "2026-10-09",
-      "hp": 23,
+      "hp": 26,
       "pool": 24,
       "luckUsed": 0,
       "enduranceUsed": false,
@@ -112,8 +116,8 @@
     }
   ],
   "clock": {
-    "minutes": 360,
-    "max": 360,
-    "label": "Day 1, 06:00"
+    "minutes": 405,
+    "max": 405,
+    "label": "Day 1, 06:45"
   }
 }
