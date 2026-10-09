@@ -112,8 +112,8 @@
     }
   ],
   "clock": {
-    "minutes": 380,
-    "max": 380,
-    "label": "Day 1, 06:20"
+    "minutes": 360,
+    "max": 360,
+    "label": "Day 1, 06:00"
   }
 }
