@@ -11,28 +11,44 @@
         "perception": 5,
         "endurance": 6,
         "charisma": 5,
-        "intelligence": 6,
+        "intelligence": 7,
         "agility": 5,
         "luck": 1,
-        "resonance": 6
+        "resonance": 7
       },
       "capstone": null,
       "skills": {
         "canting": {
           "rank": 1,
-          "marks": 0
+          "marks": 1
         },
         "survival": {
           "rank": 1,
-          "marks": 0
+          "marks": 1
         },
         "small_melee": {
           "rank": 1,
-          "marks": 0
+          "marks": 1
         },
         "artifice": {
           "rank": 1,
           "marks": 1
+        },
+        "ranged_canting": {
+          "rank": 1,
+          "marks": 0
+        },
+        "performance": {
+          "rank": 1,
+          "marks": 0
+        },
+        "unarmored": {
+          "rank": 1,
+          "marks": 0
+        },
+        "large_melee": {
+          "rank": 1,
+          "marks": 0
         }
       },
       "items": [
@@ -100,19 +116,27 @@
         {
           "name": "Spark Query",
           "tier": 1
+        },
+        {
+          "name": "Glimmer",
+          "tier": 1
         }
       ],
       "debts": [],
       "purse": 3500,
       "scars": [],
       "created": "2026-10-09",
-      "hp": 26,
-      "pool": 24,
+      "hp": 32,
+      "pool": 22,
       "luckUsed": 0,
       "enduranceUsed": false,
       "dying": "",
       "dead": false,
-      "scarsOwed": 0
+      "scarsOwed": 0,
+      "holding": {
+        "name": "Glimmer"
+      },
+      "concentration": 0
     }
   ],
   "clock": {
