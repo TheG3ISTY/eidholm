@@ -510,6 +510,9 @@
   try { seatKeys = JSON.parse(store.get("localStorage", "eidholm.keys") || "{}") || {}; } catch { seatKeys = {}; }
   let claiming = "";
   let gmEntry = false;   // the GM came in through the seat screen without taking a player seat
+  // The GM login (runs the table; less than Settings). Per tab, like Settings.
+  let gmCreds = null;
+  try { gmCreds = JSON.parse(store.get("sessionStorage", "eidholm.gm") || "null"); } catch { gmCreds = null; }
   let notes = [];        // local-only slash command output: { ts, label, html }
   let errors = [];       // local-only error lines: { ts, text }
   let ws = null, wsWanted = false, retry = 0;
@@ -641,6 +644,7 @@
       retry = 0; $("conn").classList.add("live");
       // An unsealed GM proves it again on every (re)connection to see GM dice.
       if (admin) ws.send(JSON.stringify({ t: "admin", user: admin.user, pass: admin.pass }));
+      if (gmCreds) ws.send(JSON.stringify({ t: "gmLogin", user: gmCreds.user, pass: gmCreds.pass }));
     };
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch { return; }
@@ -651,6 +655,10 @@
         table = m; route();
       }
       else if (m.t === "rules") rules = m;
+      else if (m.t === "gmLogin") {
+        if (!m.ok) { gmCreds = null; store.del("sessionStorage", "eidholm.gm"); }
+        if (codexTab === "settings" && $("codex").classList.contains("open")) renderSettings();
+      }
       else if (m.t === "joined") {
         if (m.key) { seatKeys[m.seatId] = m.key; store.set("localStorage", "eidholm.keys", JSON.stringify(seatKeys)); }
         claiming = "";
@@ -1003,6 +1011,10 @@
 
     if ($("codex").classList.contains("open") && codexTab === "table") renderTableTab();
     if ($("codex").classList.contains("open") && codexTab === "party" && !(admin && admin.canWriteRepo)) renderPartyTab();
+    if ($("codex").classList.contains("open") && codexTab === "settings" && !admin && gmCreds) {
+      renderGmPanel();
+      if (table.gmRole) $("codex-status").textContent = "Logged in as GM";
+    }
     if ($("codex").classList.contains("open") && codexTab === "settings" && admin) {
       renderSettingsSeats();
       renderGmMode();
@@ -1386,8 +1398,21 @@
     const body = $("codex-body");
     body.className = "codex-body";
     if (!admin) {
-      $("codex-status").textContent = "Sealed";
-      body.innerHTML = `<p class="muted">Game Master settings. Players don't need this.</p>
+      $("codex-status").textContent = gmCreds ? "Logged in as GM" : "Sealed";
+      const gmPart = gmCreds
+        ? `<h3 class="set-h">You're the GM</h3>
+           <p class="muted">You can take the GM seat and run the table from the GM desk. Editing or deleting sheets, seats and sessions stays with Settings.</p>
+           <div id="gm-panel"></div>
+           <p><button type="button" class="ghost" id="gm-logout">Log out as GM</button></p>`
+        : `<h3 class="set-h">Game Master login</h3>
+           <p class="muted">For whoever runs tonight's game: the GM seat and desk, the GM's dice and the NPCs' secrets.</p>
+           <form id="gm-form-login" class="stack" autocomplete="off">
+             <input id="gm-user" class="field" placeholder="GM username" autocomplete="off" required>
+             <input id="gm-pass" class="field" type="password" placeholder="GM password" autocomplete="off" required>
+             <button class="btn" type="submit">Log in as GM</button>
+           </form>
+           <div class="gate-msg" id="gm-msg"></div>`;
+      body.innerHTML = gmPart + `<h3 class="set-h">Settings</h3><p class="muted">The owner's controls. Players don't need this.</p>
         <form id="admin-form" class="stack" autocomplete="off">
           <input id="admin-user" class="field" placeholder="Username" autocomplete="username" required>
           <input id="admin-pass" class="field" type="password" placeholder="Password" autocomplete="current-password" required>
@@ -1409,7 +1434,20 @@
           if (err.message !== "locked") $("admin-msg").textContent = err.message;
         }
       });
-      $("admin-user").focus();
+      if ($("gm-form-login")) $("gm-form-login").addEventListener("submit", (e) => {
+        e.preventDefault();
+        gmCreds = { user: $("gm-user").value, pass: $("gm-pass").value };
+        store.set("sessionStorage", "eidholm.gm", JSON.stringify(gmCreds));
+        $("gm-msg").textContent = "Checking…";
+        send({ t: "gmLogin", user: gmCreds.user, pass: gmCreds.pass });
+      });
+      if ($("gm-logout")) $("gm-logout").addEventListener("click", () => {
+        send({ t: "gmLogin", off: true });
+        gmCreds = null; store.del("sessionStorage", "eidholm.gm");
+        renderSettings();
+      });
+      renderGmPanel();
+      if (!gmCreds) $("gm-user").focus();
       return;
     }
     $("codex-status").textContent = "Unsealed · every action is checked by the server";
@@ -1495,6 +1533,19 @@
         if (err.message !== "locked") { $("end-msg").textContent = err.message; e.target.disabled = false; }
       }
     });
+  }
+
+  // What the GM login sees: who runs the game (read only) and the GM seat.
+  function renderGmPanel() {
+    const box = $("gm-panel");
+    if (!box || !table) return;
+    const human = table.gmMode === "human";
+    box.innerHTML = human
+      ? `<button type="button" class="ghost" id="gm-sit2">${table.youAreGm ? "Leave the GM seat" : "Take the GM seat on this device"}</button>
+         <span class="muted small">${table.youAreGm ? "" : table.gmPresent ? "Someone is in the GM seat." : "Nobody is in the GM seat."}</span>`
+      : '<p class="warn">The AI runs the game right now. The owner switches to a human GM in Settings.</p>';
+    if ($("gm-sit2")) $("gm-sit2").addEventListener("click", () => send({ t: "sitGm", on: !table.youAreGm }));
+    if (!table.gmRole && $("codex-status")) $("codex-status").textContent = "Logging in as GM…";
   }
 
   function renderGmMode() {
@@ -1768,6 +1819,11 @@
   // Players get the public half from /api/cast; an unsealed GM gets everything.
   async function loadCast() {
     if (admin) return (await adminCall("cast")).cast;
+    if (gmCreds) {
+      const r = await fetch(API + "/api/gm/cast", { method: "POST", headers: { "X-Game-Password": password, "X-GM-User": encodeURIComponent(gmCreds.user), "X-GM-Password": encodeURIComponent(gmCreds.pass) } });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) return d.cast;
+    }
     const r = await fetch(API + "/api/cast", { method: "POST", headers: { "X-Game-Password": password } });
     if (r.status === 401) { lock("The word has changed."); throw new Error("locked"); }
     const data = await r.json().catch(() => ({}));
@@ -1798,7 +1854,7 @@
       for (const c of people) {
         const pub = [["role", c.role], ["faction", c.faction], ["where", c.where], ["look", c.look], ["attitude", c.attitude], ["ledger", c.ledger]]
           .filter(([, v]) => v);
-        const gm = admin ? [["wants", c.wants], ["secret", c.secret], ["contradiction", c.contradiction], ["with the party", c.with_party], ["notes", c.notes], ["why remembered", c.reason]].filter(([, v]) => v) : [];
+        const gm = (admin || (table && table.gmRole)) ? [["wants", c.wants], ["secret", c.secret], ["contradiction", c.contradiction], ["with the party", c.with_party], ["notes", c.notes], ["why remembered", c.reason]].filter(([, v]) => v) : [];
         const kv = (rows) => '<dl class="kv">' + rows.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("") + "</dl>";
         body.insertAdjacentHTML("beforeend",
           `<div class="card${st !== "active" ? " faded" : ""}"><h3>${escapeHtml(c.name)}</h3>` +

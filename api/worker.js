@@ -10,6 +10,7 @@
 //
 // Secrets: GAME_PASSWORD, MISTRAL_API_KEY (or LLM_API_KEY), GITHUB_TOKEN (read-only)
 // Settings secrets: ADMIN_USERNAME, ADMIN_PASSWORD, GITHUB_WRITE_TOKEN (contents read+write)
+// GM login secrets: GM_USERNAME, GM_PASSWORD (runs the table; less than Settings)
 // Vars:    MODEL, MODEL_LARGE, GITHUB_REPO, GITHUB_BRANCH
 // Optional: LLM_URL + LLM_API_KEY for any OpenAI-style chat API instead of Mistral
 // Optional dev overrides: MISTRAL_URL, GITHUB_API
@@ -113,6 +114,20 @@ export default {
         if (admin.locked) return lockedOut(admin.retryAfter);
         if (!admin.ok) return json({ error: "The settings stay sealed." }, 403);
         return handleAdmin(url.pathname.slice("/api/admin/".length), request, env);
+      }
+      // The GM login: only what running the table needs (the cast, with secrets).
+      if (url.pathname === "/api/gm/cast") {
+        const gm = await guarded(bouncer, "gm", async () => {
+          const user = headerText(request, "X-GM-User"), pass = headerText(request, "X-GM-Password");
+          const [gu, gp, au, ap] = await Promise.all([
+            passwordMatches(user, env.GM_USERNAME), passwordMatches(pass, env.GM_PASSWORD),
+            passwordMatches(user, env.ADMIN_USERNAME), passwordMatches(pass, env.ADMIN_PASSWORD),
+          ]);
+          return (gu && gp) || (au && ap);
+        });
+        if (gm.locked) return lockedOut(gm.retryAfter);
+        if (!gm.ok) return json({ error: "That GM login doesn't open." }, 403);
+        return json({ cast: await castView(env, true) });
       }
       if (url.pathname === "/api/cast") {
         try {
@@ -847,7 +862,8 @@ export class Table extends DurableObject {
   // is an unsealed GM or the party toggle is on. Hidden numbers never leave.
   snapshot(state, ws) {
     const att = (ws && ws.deserializeAttachment()) || {};
-    const canSee = !!att.admin || !!state.revealGmRolls;
+    const gmView = !!att.admin || !!att.gmRole;   // the owner, or someone logged in as GM
+    const canSee = gmView || !!state.revealGmRolls;
     const gmHere = this.ctx.getWebSockets().some((w) => { try { return !!w.deserializeAttachment()?.gmSeat; } catch { return false; } });
     return {
       t: "state",
@@ -855,11 +871,12 @@ export class Table extends DurableObject {
       gmMode: state.gmMode,
       gmPresent: gmHere,
       youAreGm: !!att.gmSeat,
-      scene: att.admin ? state.scene : null,
+      scene: gmView ? state.scene : null,
       complete: roundComplete(state),
       messages: state.messages.slice(-SNAPSHOT_MESSAGES).map((m) => viewMessage(m, canSee)),
       revealGmRolls: !!state.revealGmRolls,
       admin: !!att.admin,
+      gmRole: gmView,
       requests: state.requests
         .filter((r) => r.round === state.round && r.status === "pending" && stillOwed(state, r))
         .map((r) => {
@@ -924,7 +941,7 @@ export class Table extends DurableObject {
       throw new Error(s.key ? "That seat belongs to another device. The GM can free it in Settings." : "Sit down first: pick this seat on the seat screen.");
     };
     const gmOnly = () => {
-      if (!att.admin || !att.gmSeat) throw new Error("Only the GM, in the GM seat, can do that.");
+      if (!(att.admin || att.gmRole) || !att.gmSeat) throw new Error("Only the GM, in the GM seat, can do that.");
       if (state.gmMode !== "human") throw new Error("The AI is the GM right now. Switch to a human GM in Settings first.");
     };
 
@@ -960,7 +977,7 @@ export class Table extends DurableObject {
       }
 
       case "gmMode": {
-        if (!att.admin) throw new Error("Only an unsealed GM can change who runs the game.");
+        if (!att.admin) throw new Error("Only the owner, with Settings unsealed, can change who runs the game.");
         const mode = msg.mode === "human" ? "human" : "ai";
         if (mode === state.gmMode) return send(ws, this.snapshot(state, ws));
         state.gmMode = mode;
@@ -974,7 +991,7 @@ export class Table extends DurableObject {
       }
 
       case "sitGm": {
-        if (!att.admin) throw new Error("Only an unsealed GM can take the GM seat.");
+        if (!att.admin && !att.gmRole) throw new Error("Log in as GM (or unseal Settings) to take the GM seat.");
         if (msg.on && state.gmMode !== "human") throw new Error("Switch to a human GM in Settings first.");
         ws.serializeAttachment({ ...att, gmSeat: !!msg.on });
         addEvent(state, msg.on ? "The GM sits down at the head of the table." : "The GM steps away from the head of the table.");
@@ -1163,7 +1180,7 @@ export class Table extends DurableObject {
 
       case "setClock": {
         const att = ws.deserializeAttachment() || {};
-        if (!att.admin) throw new Error("Only an unsealed GM can set the clock.");
+        if (!att.admin && !att.gmRole) throw new Error("Only the GM can set the clock.");
         const live = await this.ensureLive(state);
         if (!live) throw new Error("The party file can't be read right now.");
         const day = Math.trunc(Number(msg.day));
@@ -1179,10 +1196,31 @@ export class Table extends DurableObject {
         return this.commit(state);
       }
 
+      case "gmLogin": {
+        // The GM login: runs the table, nothing more. Its own credentials, its own bouncer gate.
+        if (msg.off) {
+          ws.serializeAttachment({ ...att, gmRole: false, gmSeat: att.admin ? att.gmSeat : false });
+          return this.commit(state);
+        }
+        const bouncer = this.env.BOUNCER.get(this.env.BOUNCER.idFromName(att.ip || "unknown"));
+        const res = await guarded(bouncer, "gm", async () => {
+          const [u, p] = await Promise.all([
+            passwordMatches(String(msg.user || ""), this.env.GM_USERNAME),
+            passwordMatches(String(msg.pass || ""), this.env.GM_PASSWORD),
+          ]);
+          return u && p;
+        });
+        if (!res.ok) { send(ws, { t: "gmLogin", ok: false }); throw new Error(res.locked ? "Too many wrong attempts. The GM login stays shut for now." : "That GM login doesn't open."); }
+        ws.serializeAttachment({ ...att, gmRole: true });
+        send(ws, { t: "gmLogin", ok: true });
+        send(ws, this.snapshot(state, ws));
+        return;
+      }
+
       case "admin": {
         const att = ws.deserializeAttachment() || {};
         if (msg.off) {
-          ws.serializeAttachment({ ...att, admin: false, gmSeat: false });
+          ws.serializeAttachment({ ...att, admin: false, gmSeat: att.gmRole ? att.gmSeat : false });
         } else {
           const bouncer = this.env.BOUNCER.get(this.env.BOUNCER.idFromName(att.ip || "unknown"));
           const res = await guarded(bouncer, "admin", async () => {

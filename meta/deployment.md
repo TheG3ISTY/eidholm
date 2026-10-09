@@ -124,6 +124,15 @@ Players joining, leaving or stepping away mid-session are recorded as lines in t
 
 **Discard scene** (also in Settings) throws the scene away without saving, for test runs, including any sheet changes since the last save. Players can no longer clear the scene themselves.
 
+## The GM login
+
+A third login, below Settings, for whoever runs a session as human GM. Add two more secrets in Cloudflare (**Settings → Variables and Secrets**, type *Secret*):
+
+- `GM_USERNAME`
+- `GM_PASSWORD`
+
+It opens the GM seat and desk, the GM's hidden dice, DCs and ACs, the NPCs' secrets (People tab) and the clock. It cannot switch between AI and human GM, edit or delete sheets directly, free or remove seats, end or discard sessions, or see the model switch and spend; those stay with Settings. Wrong guesses are counted by the bouncer separately from the other two locks. Without these two secrets, the GM login simply never opens; the owner can still take the GM seat from Settings.
+
 ## The model, and running without one
 
 The GM model is any provider with an OpenAI-style chat completions API (Mistral is one). By default it calls Mistral with the `MISTRAL_API_KEY` secret. To use another provider, set two more:
