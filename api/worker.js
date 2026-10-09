@@ -1624,7 +1624,10 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
 
   if (req.type === "check" || req.type === "save" || req.type === "attack") {
     const m = computeMod(sheet, req);
-    const adv = req.adv || [], dis = [...(req.dis || []), ...m.autoDis];
+    const adv = req.adv || [];
+    const seen = new Set();
+    const dis = [...(req.dis || []).filter((x) => !(m.autoDis.length && /untrained/i.test(x) && /armou?r/i.test(x))), ...m.autoDis]
+      .filter((x) => { const k = String(x).trim().toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
     if (sheet && req.spellTier && !req.paid) {
       const cost = SPELL_COST[req.spellTier];
       if (sheet.pool < cost) {
@@ -2061,7 +2064,7 @@ function buildConversation(state) {
     }
     let content = `ROUND ${r}: actions gathered from the table:\n${lines.join("\n") || "- (no actions)"}`;
     if (r === state.round) {
-      content += "\n\n" + rollReminder(state, acts);
+      { const nudge = rollReminder(state, acts); if (nudge) content += "\n\n" + nudge; }
       content += `\n\nAt the table now: ${present.join(", ") || "nobody"}.` +
         (absent.length ? ` Absent (elsewhere, do not narrate them acting): ${absent.join(", ")}.` : "");
     }
@@ -2082,12 +2085,12 @@ function rollReminder(state, acts = []) {
   const fresh = acts.some((m) => m.kind === "act");
   const after = "(The rolls above are done and final. Narrate what they lead to now: a success gets what it tried for, a failure costs something or complicates things, and either way the story moves on. Never ask for the same roll again.)";
   if (results && !fresh) return after;
-  if (results) return after.slice(0, -1) + " Anything new someone tries above that is uncertain with something at stake gets request_rolls.)";
+  if (results) return after.slice(0, -1) + " Only something new someone attempts above, that could fail against risk or opposition, gets a new roll.)";
   const dry = state.dryRounds || 0;
   if (dry >= ROLL_DROUGHT) {
-    return `(Reminder: you have not asked for a single roll in ${dry} rounds. That is too long. Look at each action above: anything uncertain with something at stake gets request_rolls now, before you narrate its outcome.)`;
+    return `(Reminder: no rolls in ${dry} rounds. If anything above is a real attempt that could fail against risk or opposition, it needs request_rolls. Talk, questions and moving about still need none.)`;
   }
-  return "(Before answering: does any action above have an uncertain outcome with something at stake? Then call request_rolls first and don't narrate how it ends.)";
+  return "";
 }
 
 // The GM wrote "roll a check" in prose but never called the tool: the players got no buttons.
@@ -2151,7 +2154,7 @@ function buildSystemPrompt(state, sel, party) {
 - FIXED FIGURES in the CAST are canon-level characters: keep their names, offices, wants and secrets consistent forever; reveal secrets only through play. Their contradictions and how they treat the party shape every scene they are in.
 - Eidholm's peoples are human. "Dwarven-blooded" Clansmine folk are a human lineage, not a separate species.
 - DICE. Chance uses D&D 5e rules: d20 tests against a DC or Armor Class, advantage and disadvantage, natural 20 and 1 on attacks, damage dice, death saves.
-  - WHEN TO ASK FOR A ROLL. Whenever a player character tries something whose outcome is uncertain and where failing would matter, you MUST call request_rolls and must NOT decide the outcome yourself: attacking, casting, sneaking, climbing, picking a lock, lying, persuading or intimidating someone who isn't already willing, searching or noticing something hidden, resisting harm, anything done under pressure or against opposition. Only trivial or certain actions (walking in, talking to a willing friend, buying at the posted price) go without a roll. Rolls are the game: a scene with real risk and no rolls is a mistake. Asking in prose ("make a Perception check") does nothing: only the request_rolls tool gives the players their buttons.
+  - WHEN TO ASK FOR A ROLL. Roll only when a character attempts something that could fail and failing would cost them: attacking, casting, sneaking past someone, climbing something dangerous, forcing or picking a lock, lying to or pressuring someone unwilling, searching for something hidden, resisting harm. Then you MUST call request_rolls and must NOT decide the outcome yourself. NO ROLL for: asking someone a question, talking, agreeing, listening, walking somewhere, looking around a calm place, picking up or readying a weapon, turning to face someone, lowering a weapon, anything the world simply allows or a willing person simply answers. Most conversation needs no roll at all. Every check and save needs a DC, which is what pushes back; if nothing pushes back, there is no roll. The label names what is being tested ("Perception: the shard", "Stealth past the guards"), never the player's whole action. Asking in prose ("make a Perception check") does nothing: only the request_rolls tool gives the players their buttons.
   - WHEN RESULTS ARRIVE ("rolls ..." lines with SUCCESS or FAILURE), the roll is settled: narrate its consequences at once and move the scene forward. Never ask for the same roll again, and never ask for a second roll to decide the same thing. A failure is not a retry: it costs time, noise, coin, blood or position, or something goes wrong, and the players choose what to do next.
   - Player characters roll their own dice, through buttons. When any need a roll, call the request_rolls tool once with every roll needed, in order: the type (check, save, attack, damage, other), a short label ("Agility save", "Sword attack"), the STAT and the SKILL it uses, the DC for checks and saves, the target's Armor Class and damage dice for attacks, the spell tier for any cant, and the reasons for any advantage or disadvantage. The server reads the character's sheet and adds the stat and skill bonuses itself: put only situational extras in "modifier". It applies the 5e rules (advantage and disadvantage cancel, hits, misses, criticals, damage only on a hit), Luck, armor penalties, Resonance costs and miscants. Then tell the players briefly what they are rolling for and stop; do not narrate outcomes yet. Results arrive next round as "rolls ..." lines with the outcome. Never roll for a player character and never invent their result.
   - Which stat: melee attacks Strength (Agility for daggers and finesse), ranged attacks Perception, cants and resisting cants Resonance, noticing Perception, knowledge and devices Intelligence, persuasion and lies Charisma, reflexes and stealth Agility, enduring Endurance. Luck is never rolled.
@@ -2669,7 +2672,9 @@ async function gmTurn(env, model, messages, ctx = {}) {
         const problems = parsed.problems;
         const again = (q) => (ctx.rolled || []).includes(`${q.seatId}|${String(q.label || "").trim().toLowerCase()}`);
         for (const q of parsed.requests.filter(again)) problems.push(`${q.label} was already rolled this round: its result is final. Narrate what it leads to instead.`);
-        const got = parsed.requests.filter((q) => !again(q));
+        const noDc = (q) => (q.type === "check" || q.type === "save") && q.dc == null && !q.spellTier && !q.spell;
+        for (const q of parsed.requests.filter(noDc)) problems.push(`${q.label}: no DC, so nothing is pushing back and no roll is needed. Narrate it, or give the DC of what opposes it.`);
+        const got = parsed.requests.filter((q) => !again(q) && !noDc(q));
         requests.push(...got);
         content = JSON.stringify({
           requested: got.map((q) => q.label),
