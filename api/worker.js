@@ -843,7 +843,8 @@ export class Table extends DurableObject {
         state.opening = null;
         state.live = { loaded: true, list: p.list, clock: clockOf(p.data), dirty: 0 };
         if (msg.hard) for (const s of state.seats) s.character = "";
-        addEvent(state, msg.hard ? "The world is wiped. Everything begins again, with new characters." : "The story is wiped. The characters remain; the world has forgotten them.");
+        // Housekeeping for the table only: the GM never hears of it, so it can't leak into the story.
+        addEvent(state, msg.hard ? "The world is wiped. Everything begins again, with new characters." : "The story is wiped. The characters remain; a new story starts.", null, { sub: "wipe" });
         await this.commit(state);
         const payload = JSON.stringify({ t: "party-changed" });
         for (const ws of this.ctx.getWebSockets()) { try { ws.send(payload); } catch {} }
@@ -2131,6 +2132,7 @@ function openingLine(state, m) {
     `Put every one of them in the same place at the same moment, and give each a reason to be there that grows out of their own backstory. ` +
     (brief ? `The GM wants this: ${brief} ` : `No place was given: choose one in Eidholm that ties their backstories together. `) +
     `If the campaign log already holds earlier sessions, open from where the last one ended instead of a first meeting. ` +
+    `Ground it in a real place from the canon with real people in it (an NPC with a name, a face and a want), and give the party a concrete problem or offer in the first reply: no disembodied voices, no riddles in place of a hook. ` +
     `Set the place and time with the scene tag, introduce each character in a line or two, and end on something that pulls them to act together. Never act or speak for them.`;
 }
 
@@ -2153,7 +2155,7 @@ function buildConversation(state) {
 
   const out = [];
   for (const r of rounds) {
-    const acts = state.messages.filter((m) => m.round === r && (isAnswer(m) || m.kind === "flag" || (m.kind === "event" && m.sub !== "asks")));
+    const acts = state.messages.filter((m) => m.round === r && (isAnswer(m) || m.kind === "flag" || (m.kind === "event" && m.sub !== "asks" && m.sub !== "wipe")));
     const gm = state.messages.find((m) => m.round === r && m.kind === "gm");
     const gmDice = state.messages.filter((m) => m.round === r && m.kind === "gmroll");
     if (!acts.some(isAnswer) && !gm && !acts.some((m) => m.sub === "opening")) continue;
@@ -2200,7 +2202,7 @@ function rollReminder(state, acts = []) {
   if (results) return after.slice(0, -1) + " Only something new someone attempts above, that could fail against risk or opposition, gets a new roll.)";
   const dry = state.dryRounds || 0;
   if (dry >= ROLL_DROUGHT) {
-    return `(Reminder: no rolls in ${dry} rounds. If anything above is a real attempt that could fail against risk or opposition, it needs request_rolls. Talk, questions and moving about still need none.)`;
+    return `(Reminder: no rolls in ${dry} rounds. Look again at what was tried above: searching, scanning for danger, looking for a way out, examining something strange, sneaking, forcing, persuading someone unwilling all need request_rolls. Only plain talk and plain movement need none.)`;
   }
   return "";
 }
@@ -2249,6 +2251,7 @@ function buildSystemPrompt(state, sel, party) {
 - Characters marked absent are elsewhere. Never narrate them acting or speaking.
 - Second person plural when addressing the group, by character name when addressing one. Present tense. Vivid but economical: usually 2 to 5 paragraphs, then hand control back with a situation the table can act on.
 - Never decide what player characters think, say, or choose.
+- PACE. Every reply must change the situation: something is found, someone acts or arrives, a door opens or closes, a price is named, a threat moves. Never two replies in a row of only atmosphere, omens or a cryptic voice. Be concrete: name people, places, objects and what they want. When the players look for something, they find something real (or the roll says what it costs them). Answer part of every mystery as you raise the next. A scene reaches a choice, a conflict or a discovery within three or four rounds.
 - DON'T RETELL THE PLAYERS' ACTIONS. They know what they wrote. Never rephrase their action or their words back to them, and never write new lines of dialogue or new decisions for their characters. Start from the world's response: what happens because of what they did, what the people there say and do back, what changes. A question a player asks gets its answer from the NPC in this same reply. Every reply moves the story forward.
 - Players may join or leave mid-session; "(at the table)" lines tell you when. Weave arrivals and departures into the fiction plausibly.
 - CHARACTERS ARE MADE ON THE CREATION SCREEN, not by you: stats, backstory and starting kit. If someone is seated without a sheet, invite them to make one and weave their arrival into the scene once they have. You may help them think through a backstory, but never assign stats, skills or gear.
@@ -2267,7 +2270,7 @@ function buildSystemPrompt(state, sel, party) {
 - FIXED FIGURES in the CAST are canon-level characters: keep their names, offices, wants and secrets consistent forever; reveal secrets only through play. Their contradictions and how they treat the party shape every scene they are in.
 - Eidholm's peoples are human. "Dwarven-blooded" Clansmine folk are a human lineage, not a separate species.
 - DICE. Chance uses D&D 5e rules: d20 tests against a DC or Armor Class, advantage and disadvantage, natural 20 and 1 on attacks, damage dice, death saves.
-  - WHEN TO ASK FOR A ROLL. Roll only when a character attempts something that could fail and failing would cost them: attacking, casting, sneaking past someone, climbing something dangerous, forcing or picking a lock, lying to or pressuring someone unwilling, searching for something hidden, resisting harm. Then you MUST call request_rolls and must NOT decide the outcome yourself. NO ROLL for: asking someone a question, talking, agreeing, listening, walking somewhere, looking around a calm place, picking up or readying a weapon, turning to face someone, lowering a weapon, anything the world simply allows or a willing person simply answers. Most conversation needs no roll at all. Every check and save needs a DC, which is what pushes back; if nothing pushes back, there is no roll. The label names what is being tested ("Perception: the shard", "Stealth past the guards"), never the player's whole action. Asking in prose ("make a Perception check") does nothing: only the request_rolls tool gives the players their buttons.
+  - WHEN TO ASK FOR A ROLL. Roll only when a character attempts something that could fail and failing would cost them: attacking, casting, sneaking past someone, climbing something dangerous, forcing or picking a lock, lying to or pressuring someone unwilling, searching for something hidden, scanning for danger or looking for a way out somewhere that isn't safe, examining something strange or unknown (Perception or Intelligence), resisting harm. Then you MUST call request_rolls and must NOT decide the outcome yourself. NO ROLL for: asking someone a question, talking, agreeing, listening, walking somewhere, glancing around a place that is calm and safe, picking up or readying a weapon, turning to face someone, lowering a weapon, anything the world simply allows or a willing person simply answers. Most conversation needs no roll at all. Every check and save needs a DC, which is what pushes back; if nothing pushes back, there is no roll. The label names what is being tested ("Perception: the shard", "Stealth past the guards"), never the player's whole action. Asking in prose ("make a Perception check") does nothing: only the request_rolls tool gives the players their buttons.
   - WHEN RESULTS ARRIVE ("rolls ..." lines with SUCCESS or FAILURE), the roll is settled: narrate its consequences at once and move the scene forward. Never ask for the same roll again, and never ask for a second roll to decide the same thing. A failure is not a retry: it costs time, noise, coin, blood or position, or something goes wrong, and the players choose what to do next.
   - Player characters roll their own dice, through buttons. When any need a roll, call the request_rolls tool once with every roll needed, in order: the type (check, save, attack, damage, other), a short label ("Agility save", "Sword attack"), the STAT and the SKILL it uses, the DC for checks and saves, the target's Armor Class and damage dice for attacks, the spell tier for any cant, and the reasons for any advantage or disadvantage. The server reads the character's sheet and adds the stat and skill bonuses itself: put only situational extras in "modifier". It applies the 5e rules (advantage and disadvantage cancel, hits, misses, criticals, damage only on a hit), Luck, armor penalties, Resonance costs and miscants. Then tell the players briefly what they are rolling for and stop; do not narrate outcomes yet. Results arrive next round as "rolls ..." lines with the outcome. Never roll for a player character and never invent their result.
   - Which stat: melee attacks Strength (Agility for daggers and finesse), ranged attacks Perception, cants and resisting cants Resonance, noticing Perception, knowledge and devices Intelligence, persuasion and lies Charisma, reflexes and stealth Agility, enduring Endurance. Luck is never rolled.
