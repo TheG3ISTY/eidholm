@@ -79,7 +79,7 @@ Until all three exist, Settings stays sealed (and without `GITHUB_WRITE_TOKEN`, 
 
 ## The shared table (Durable Object)
 
-The live session (seats, presence, actions, GM replies, spend) is stored in a Durable Object called `Table`, declared in `wrangler.toml`. It deploys automatically with the Worker; nothing to set up in the dashboard. Only the GM can clear the scene, by ending the session (saved) or discarding it, both in Settings. The spend meter in the header (Settings unsealed only) is all-time: ending or discarding a scene never resets it. Hover it for this session's share.
+The live session (seats, presence, actions, GM replies, spend) is stored in a Durable Object called `Table`, declared in `wrangler.toml`. It deploys automatically with the Worker; nothing to set up in the dashboard. Only the GM can clear the scene, by ending the session (saved) or discarding it, both in Settings. The spend meter in the header (Settings unsealed only) is all-time: ending or discarding a scene never resets it. Hover it for this session's share. When the model answers busy or unavailable (429, 500, 502, 503, 504) or can't be reached, the Worker waits and tries twice more (about 2 s, then 5 s) before the table sees an error; failed tries cost nothing. A 401 (bad key) is never retried.
 
 Browsers connect over a WebSocket. Because browsers can't send custom headers on a WebSocket, the client first trades the password for a signed ticket at `POST /api/ticket` (valid 60 s), then opens `/api/ws?ticket=...`. A forged or expired ticket is rejected before reaching the table.
 

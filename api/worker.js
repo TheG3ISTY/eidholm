@@ -2249,18 +2249,35 @@ function recentText(state) {
   return [lastGm?.text || "", ...now.map((m) => m.kind === "roll" ? (m.label || "") : m.text)].join("\n");
 }
 
+// A busy or briefly-down provider gets two more tries before the table sees an error.
+// A bad key or a bad request is never retried: waiting won't fix it.
+const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
+const RETRY_DELAYS_MS = [2000, 5000];
+
 async function mistralRequest(env, body) {
   // Any provider with an OpenAI-style chat completions API: set LLM_URL and LLM_API_KEY.
-  const res = await fetch(env.LLM_URL || env.MISTRAL_URL || "https://api.mistral.ai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.LLM_API_KEY || env.MISTRAL_API_KEY}` },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const detail = (await res.text()).slice(0, 200);
-    throw new Error(`The model returned ${res.status}${detail ? ` (${detail})` : ""}`);
+  for (let attempt = 0; ; attempt++) {
+    let res, failure;
+    try {
+      res = await fetch(env.LLM_URL || env.MISTRAL_URL || "https://api.mistral.ai/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.LLM_API_KEY || env.MISTRAL_API_KEY}` },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      failure = new Error(`The model could not be reached (${err.message})`);
+    }
+    if (res?.ok) return res.json();
+    if (res && !failure) {
+      const detail = (await res.text()).slice(0, 200);
+      failure = new Error(`The model returned ${res.status}${detail ? ` (${detail})` : ""}`);
+      if (!RETRY_STATUS.has(res.status)) throw failure;
+    }
+    if (attempt >= RETRY_DELAYS_MS.length) throw new Error(`${failure.message}, after ${attempt + 1} tries`);
+    const after = Number(res?.headers?.get("retry-after"));
+    const wait = Number.isFinite(after) && after > 0 ? Math.min(after * 1000, 8000) : RETRY_DELAYS_MS[attempt];
+    await new Promise((r) => setTimeout(r, wait));
   }
-  return res.json();
 }
 
 // Plain call, no tools (used for the end-of-session summary).
