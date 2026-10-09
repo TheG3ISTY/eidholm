@@ -1521,12 +1521,23 @@ export class Table extends DurableObject {
       // What was just rolled: the GM may not ask for the same roll again in its answer.
       ctx.rolled = state.messages.filter((m) => m.round === round && m.kind === "roll" && m.label)
         .map((m) => `${m.seatId}|${String(m.label).trim().toLowerCase()}`);
+      const model = tier === "large" ? this.env.MODEL_LARGE : this.env.MODEL;
+      // The referee decides the dice before the GM writes a word, in its own short call.
+      // Only rounds where someone acted; a round of roll results goes straight to the GM.
+      let referee = null;
+      if (state.messages.some((m) => m.round === round && m.kind === "act")) {
+        try { referee = await refereeTurn(this.env, model, state, ctx); } catch { referee = null; }   // on failure the GM decides, as before
+      }
       const messages = [
         { role: "system", content: buildSystemPrompt(repo, sel, partyBlock(state, repo)) },
-        ...buildConversation(state),
+        ...buildConversation(state, { referee }),
       ];
-      const model = tier === "large" ? this.env.MODEL_LARGE : this.env.MODEL;
-      result = await gmTurn(this.env, model, messages, ctx);
+      result = await gmTurn(this.env, model, messages, { ...ctx, noRequests: !!referee });
+      if (referee) {
+        result.requests = [...referee.requests, ...result.requests];
+        for (const k of Object.keys(result.usage)) result.usage[k] += referee.usage[k] || 0;
+        result.referee = referee.requests.length ? referee.requests.map((q) => q.label) : [];
+      }
       result.model = model;
     } catch (err) {
       const fresh = await this.load();
@@ -2146,7 +2157,7 @@ function label(seat) {
 
 // Rebuild the GM's view of play: each round becomes one "user" turn holding
 // every gathered action, followed by the GM's reply as the "assistant" turn.
-function buildConversation(state) {
+function buildConversation(state, { referee = null } = {}) {
   const rounds = [];
   for (let r = Math.max(1, state.round - GM_HISTORY_ROUNDS); r <= state.round; r++) rounds.push(r);
 
@@ -2174,7 +2185,7 @@ function buildConversation(state) {
     }
     let content = `ROUND ${r}: actions gathered from the table:\n${lines.join("\n") || "- (no actions)"}`;
     if (r === state.round) {
-      { const nudge = rollReminder(state, acts); if (nudge) content += "\n\n" + nudge; }
+      { const nudge = referee ? refereeNote(state, referee) : rollReminder(state, acts); if (nudge) content += "\n\n" + nudge; }
       content += `\n\nAt the table now: ${present.join(", ") || "nobody"}.` +
         (absent.length ? ` Absent (elsewhere, do not narrate them acting): ${absent.join(", ")}.` : "");
       if (acts.some((m) => m.kind === "act")) content += "\n\n" + YOUR_TURN;
@@ -2191,6 +2202,107 @@ function buildConversation(state) {
 
 // Last thing the GM reads each round: small models drift into retelling the players' actions.
 const YOUR_TURN = "(Now write what happens next. The actions above are already done and said: do not repeat, rephrase or narrate them again, and do not write any new words or choices for those characters. Begin with the world's response. Anyone asked a question answers it now, in this reply.)";
+
+// ---------------- the referee ----------------
+// A short, separate call that decides the dice for the round before the GM writes.
+// Small models drop dice rules buried in a long story prompt; one narrow, forced
+// question with its own prompt they answer well.
+
+const REFEREE_PROMPT = `You are the REFEREE of a tabletop roleplaying game that uses D&D 5e dice. You do not tell the story. You decide one thing: does anything in this round need dice from the player characters? Answer ONLY by calling a tool: request_rolls with the rolls, or no_roll.
+
+Call for rolls when:
+A) A character ATTEMPTS something that could fail and failing would cost them: attacking; casting a spell or cant; sneaking past someone; climbing or leaping somewhere dangerous; forcing, breaking or picking something; lying; persuading or intimidating someone who is not already willing; searching for something hidden; scanning for danger or looking for a way out somewhere unsafe; examining something strange or unknown; reading the intent of someone tense or hostile.
+B) THE WORLD ACTS ON a character and it is not resolved yet (look at the end of the GM's last reply): something strikes, grabs, poisons, burns or casts at them; a trap springs; a force of the Weave reaches for them; an ambush is coming. That is a SAVE: Agility to dodge or get clear, Endurance to resist poison, grabs and harm to the body, Resonance against cants and Weave forces, Perception to notice it in time.
+
+No roll for: talking, asking, answering, agreeing, listening, waiting, watching, plain walking, glancing around somewhere calm and safe, readying or lowering a weapon, anything the world simply allows or a willing person simply answers.
+
+How to fill a roll:
+- character: the name exactly as given. label: what is tested, short ("Resonance save: the glass thread", "Perception: read Severin").
+- type: check, save or attack. stat: strength, perception, endurance, charisma, intelligence, agility or resonance (never luck). skill when one fits: small_melee, medium_melee, large_melee, ranged, canting, ranged_canting, survival, medicine, creation, thievery, performance, artifice.
+- Stats: melee attacks strength (agility for daggers), ranged attacks perception, cants resonance, noticing perception, knowledge and devices intelligence, persuading and lying charisma, reflexes and stealth agility, toughness endurance.
+- dc for every check and save: 10 easy, 12 moderate, 15 hard, 18 very hard. Attacks: target_ac (10-12 unarmoured, 13-15 armoured, 16-18 heavily armoured) and damage_dice from the weapon.
+- Spells: a spell on the character's sheet goes by its name in "spell". A spell the character improvises: freeform true, spell named, spell_tier.
+- At most two rolls per character. Never a roll for something already rolled this round. Never invent actions the players did not take.`;
+
+const refereeTools = () => [
+  DICE_TOOLS.find((t) => t.function.name === "request_rolls"),
+  { type: "function", function: {
+    name: "no_roll",
+    description: "Nothing this round needs dice.",
+    parameters: { type: "object", properties: { reason: { type: "string", description: "A few words: why no dice" } }, required: ["reason"] },
+  } },
+];
+
+function refereeSheet(sheet) {
+  if (!isSheet(sheet)) return `### ${sheet?.name || "?"}: no sheet yet`;
+  return sheetForGm(sheet).split("\n")
+    .filter((l) => !/^- (Backstory|Debts|Bad luck|Scars|OWED|Lucky breaks)/.test(l)).join("\n");
+}
+
+function refereeInput(state) {
+  const round = state.round;
+  const lastGm = [...state.messages].reverse().find((m) => m.kind === "gm" && m.round < round);
+  const acts = state.messages.filter((m) => m.round === round && (m.kind === "act" || m.kind === "pass"));
+  const who = (m) => m.character || m.author;
+  const present = state.seats.filter((x) => x.present);
+  const dry = state.dryRounds || 0;
+  return [
+    `THE GM'S LAST REPLY (the situation now):\n${lastGm ? lastGm.text.slice(-2000) : "(the story has not started)"}`,
+    state.scene ? `SCENE: ${state.scene.mode || ""} at ${state.scene.where || "?"}${state.scene.present?.length ? `; present: ${[].concat(state.scene.present).join(", ")}` : ""}` : "",
+    `THIS ROUND, WHAT THE PLAYERS DO:\n${acts.map((m) => m.kind === "pass" ? `- ${who(m)} passes.` : `- ${who(m)}: ${m.text}`).join("\n")}`,
+    `THE CHARACTERS:\n${present.map((x) => refereeSheet(sheetFor(state, x) || { name: label(x) })).join("\n\n")}`,
+    dry >= ROLL_DROUGHT ? `(For reference: ${dry} rounds since the last roll.)` : "",
+    "Decide now: request_rolls or no_roll.",
+  ].filter(Boolean).join("\n\n");
+}
+
+// Parse and police the AI's roll requests: the same checks for the referee and the GM.
+function aiRequests(args, ctx) {
+  const parsed = parseRequests(args, ctx.seats || [], ctx.party || [], ctx.book || []);
+  const problems = parsed.problems;
+  const again = (q) => (ctx.rolled || []).includes(`${q.seatId}|${String(q.label || "").trim().toLowerCase()}`);
+  const noDc = (q) => (q.type === "check" || q.type === "save") && q.dc == null && !q.spellTier && !q.spell;
+  for (const q of parsed.requests.filter(again)) problems.push(`${q.label} was already rolled this round: its result is final. Narrate what it leads to instead.`);
+  for (const q of parsed.requests.filter(noDc)) problems.push(`${q.label}: no DC, so nothing is pushing back and no roll is needed. Narrate it, or give the DC of what opposes it.`);
+  return { requests: parsed.requests.filter((q) => !again(q) && !noDc(q)), problems };
+}
+
+async function refereeTurn(env, model, state, ctx) {
+  const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+  const convo = [{ role: "system", content: REFEREE_PROMPT }, { role: "user", content: refereeInput(state) }];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const data = await mistralRequest(env, {
+      model, temperature: 0.2, max_tokens: 500, messages: convo,
+      tools: refereeTools(), tool_choice: env.LLM_FORCE_TOOL || "any",
+    });
+    for (const k of Object.keys(usage)) usage[k] += data?.usage?.[k] || 0;
+    const msg = data?.choices?.[0]?.message || {};
+    const call = (msg.tool_calls || [])[0];
+    if (!call) throw new Error("the referee gave no decision");   // the GM decides instead
+    let args = {};
+    try { args = typeof call.function?.arguments === "string" ? JSON.parse(call.function.arguments) : (call.function?.arguments || {}); } catch {}
+    if (call.function?.name !== "request_rolls") return { requests: [], usage, reason: String(args.reason || "") };
+    const { requests, problems } = aiRequests(args, ctx);
+    if (requests.length || attempt === 1) return { requests, usage, problems };
+    // Every roll was refused: say why, once, and let it fix them or settle on no_roll.
+    convo.push({ role: "assistant", content: "", tool_calls: [call] });
+    convo.push({ role: "tool", tool_call_id: call.id, name: "request_rolls", content: JSON.stringify({ requested: [], problems }) });
+    convo.push({ role: "user", content: "Fix those rolls, or call no_roll if none is really needed." });
+  }
+  return { requests: [], usage };
+}
+
+// What the GM is told the referee decided.
+function refereeNote(state, referee) {
+  if (referee.requests.length) {
+    const list = referee.requests.map((q) => {
+      const sx = state.seats.find((x) => x.id === q.seatId);
+      return `${sx ? label(sx) : "someone"}: ${q.label}${q.dc != null ? ` (DC ${q.dc})` : q.ac != null ? ` (vs AC ${q.ac})` : ""}`;
+    }).join("; ");
+    return `(The referee has called these rolls and the buttons are up: ${list}. Write the moment up to each roll and say what is being rolled, then stop: no outcomes yet, the dice decide them next round. Don't call request_rolls; the dice are the referee's this round.)`;
+  }
+  return "(The referee called no rolls this round: narrate what happens. If something now comes at a character, an attack, a trap, a spell, a grab, describe it coming and end your reply there, unresolved: the dice decide it next round. Don't call request_rolls; the dice are the referee's this round.)";
+}
 
 // Said every round, louder after rounds of none: the small model tends to narrate past the dice.
 const ROLL_DROUGHT = 3;
@@ -2271,6 +2383,7 @@ function buildSystemPrompt(state, sel, party) {
 - Eidholm's peoples are human. "Dwarven-blooded" Clansmine folk are a human lineage, not a separate species.
 - DICE. Chance uses D&D 5e rules: d20 tests against a DC or Armor Class, advantage and disadvantage, natural 20 and 1 on attacks, damage dice, death saves.
   - WHEN TO ASK FOR A ROLL. Roll only when a character attempts something that could fail and failing would cost them: attacking, casting, sneaking past someone, climbing something dangerous, forcing or picking a lock, lying to or pressuring someone unwilling, searching for something hidden, scanning for danger or looking for a way out somewhere that isn't safe, examining something strange or unknown (Perception or Intelligence), resisting harm. Then you MUST call request_rolls and must NOT decide the outcome yourself. NO ROLL for: asking someone a question, talking, agreeing, listening, walking somewhere, glancing around a place that is calm and safe, picking up or readying a weapon, turning to face someone, lowering a weapon, anything the world simply allows or a willing person simply answers. Most conversation needs no roll at all. Every check and save needs a DC, which is what pushes back; if nothing pushes back, there is no roll. The label names what is being tested ("Perception: the shard", "Stealth past the guards"), never the player's whole action. Asking in prose ("make a Perception check") does nothing: only the request_rolls tool gives the players their buttons.
+  - THREATS TO PLAYER CHARACTERS: never decide whether an attack, trap, spell, grab, blast or poison aimed at a player character lands. Describe it coming and end your reply on it; the dice decide it next round.
   - WHEN RESULTS ARRIVE ("rolls ..." lines with SUCCESS or FAILURE), the roll is settled: narrate its consequences at once and move the scene forward. Never ask for the same roll again, and never ask for a second roll to decide the same thing. A failure is not a retry: it costs time, noise, coin, blood or position, or something goes wrong, and the players choose what to do next.
   - Player characters roll their own dice, through buttons. When any need a roll, call the request_rolls tool once with every roll needed, in order: the type (check, save, attack, damage, other), a short label ("Agility save", "Sword attack"), the STAT and the SKILL it uses, the DC for checks and saves, the target's Armor Class and damage dice for attacks, the spell tier for any cant, and the reasons for any advantage or disadvantage. The server reads the character's sheet and adds the stat and skill bonuses itself: put only situational extras in "modifier". It applies the 5e rules (advantage and disadvantage cancel, hits, misses, criticals, damage only on a hit), Luck, armor penalties, Resonance costs and miscants. Then tell the players briefly what they are rolling for and stop; do not narrate outcomes yet. Results arrive next round as "rolls ..." lines with the outcome. Never roll for a player character and never invent their result.
   - Which stat: melee attacks Strength (Agility for daggers and finesse), ranged attacks Perception, cants and resisting cants Resonance, noticing Perception, knowledge and devices Intelligence, persuasion and lies Charisma, reflexes and stealth Agility, enduring Endurance. Luck is never rolled.
@@ -2563,6 +2676,8 @@ DICE_TOOLS.push({
   },
 });
 const MAX_GM_TOOL_ROUNDS = 4;
+// When the referee has called the dice, the GM narrates without the request tool.
+const GM_TOOLS_NO_REQUESTS = DICE_TOOLS.filter((t) => t.function.name !== "request_rolls");
 
 // Turn the GM's request_rolls arguments into stored requests, or explain what's wrong.
 function parseRequests(args, seats, party = [], book = []) {
@@ -2763,14 +2878,14 @@ async function gmTurn(env, model, messages, ctx = {}) {
   for (let i = 0; i <= MAX_GM_TOOL_ROUNDS; i++) {
     const data = await mistralRequest(env, {
       model, temperature: 0.8, max_tokens: 1000, messages: convo,
-      tools: DICE_TOOLS, tool_choice: i < MAX_GM_TOOL_ROUNDS ? "auto" : "none",
+      tools: ctx.noRequests ? GM_TOOLS_NO_REQUESTS : DICE_TOOLS, tool_choice: i < MAX_GM_TOOL_ROUNDS ? "auto" : "none",
     });
     for (const k of Object.keys(usage)) usage[k] += data?.usage?.[k] || 0;
     const msg = data?.choices?.[0]?.message || {};
     const calls = msg.tool_calls || [];
     if (!calls.length) {
       if (!msg.content) throw new Error("Mistral sent an empty reply");
-      if (!requests.length && !corrected && i < MAX_GM_TOOL_ROUNDS && asksForRollInProse(msg.content)) {
+      if (!ctx.noRequests && !requests.length && !corrected && i < MAX_GM_TOOL_ROUNDS && asksForRollInProse(msg.content)) {
         // Asked for a roll in words only: ask once more, through the tool, then take the new answer.
         corrected = true;
         convo.push({ role: "assistant", content: msg.content });
@@ -2800,14 +2915,13 @@ async function gmTurn(env, model, messages, ctx = {}) {
           content: JSON.stringify(name ? { remembered: name } : { error: "A name is required." }) });
         continue;
       }
+      if (call.function?.name === "request_rolls" && ctx.noRequests) {
+        convo.push({ role: "tool", tool_call_id: call.id, name: "request_rolls",
+          content: JSON.stringify({ requested: [], note: "The referee decides the rolls this round and already has. Narrate; don't call request_rolls." }) });
+        continue;
+      }
       if (call.function?.name === "request_rolls") {
-        const parsed = parseRequests(args, ctx.seats || [], ctx.party || [], ctx.book || []);
-        const problems = parsed.problems;
-        const again = (q) => (ctx.rolled || []).includes(`${q.seatId}|${String(q.label || "").trim().toLowerCase()}`);
-        for (const q of parsed.requests.filter(again)) problems.push(`${q.label} was already rolled this round: its result is final. Narrate what it leads to instead.`);
-        const noDc = (q) => (q.type === "check" || q.type === "save") && q.dc == null && !q.spellTier && !q.spell;
-        for (const q of parsed.requests.filter(noDc)) problems.push(`${q.label}: no DC, so nothing is pushing back and no roll is needed. Narrate it, or give the DC of what opposes it.`);
-        const got = parsed.requests.filter((q) => !again(q) && !noDc(q));
+        const { requests: got, problems } = aiRequests(args, ctx);
         requests.push(...got);
         content = JSON.stringify({
           requested: got.map((q) => q.label),
