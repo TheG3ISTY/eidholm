@@ -1,6 +1,8 @@
 # Eidholm: Economy & Equipment
 
+<!-- dev -->
 Status: **designed, not yet played.** Numbers are starting points; adjust at the table and commit as `rules:` changes.
+<!-- /dev -->
 
 ## Two layers of value
 
@@ -107,7 +109,7 @@ Every item carries five things:
 | Standard | does the job | ×1 |
 | Fine | noticeably better than it should be | ×2 |
 | Exceptional | a maker's masterpiece; people recognise it | ×4 |
-| **Masterwork** | beyond what the trade can teach; **only an Intelligence 13 character can make it** (see `rules/characters.md`) | ×8 |
+| **Masterwork** | beyond what the trade can teach; **only an Intelligence 13 character can make it** (the Intelligence capstone) | ×8 |
 
 **Condition** (wears down with hard use, repaired with coin):
 
@@ -127,7 +129,9 @@ Every item carries five things:
 | Restricted | owning tolerated, trading not: gray market |
 | Contraband | black market only, Exchange only |
 
+<!-- dev -->
 ## Pending
 
 - ~~Canon additions~~ done: the bank, the covenant, the Concord's patents, minds of glass never owned, and how often small property changes hands are now in `world/worldbuilding.md`.
 - **Character creation and allocation:** designed separately, next.
+<!-- /dev -->

@@ -1,5 +1,8 @@
-# Eidholm: Rules (Draft 0)
+# Eidholm: Rules
 
+How chance, rolls and remembered people work at the table. Characters and spells have their own pages below.
+
+<!-- dev -->
 Status: **deliberately unresolved.** These get settled at the table, while playing.
 Until a section is marked *Adopted*, the GM resolves things narratively and may propose
 mechanics tagged `[PROVISIONAL]`. Anything the table likes gets written here and committed as a `rules:` change.
@@ -9,6 +12,7 @@ mechanics tagged `[PROVISIONAL]`. Anything the table likes gets written here and
 None right now. Characters, progression, wounds and scars are settled in `rules/characters.md`; the Chamber spectrum is deliberately not tracked on the sheet.
 
 ## Adopted
+<!-- /dev -->
 
 ### Dice and chance: D&D 5e, as written
 
@@ -21,7 +25,7 @@ Everything that decides chance follows the D&D 5e rules: d20 tests (ability chec
 - **The server judges the result by 5e rules:** advantage and disadvantage cancel each other completely (any of each = a straight roll); checks and saves succeed on meeting the DC; attacks hit on meeting the AC or a natural 20 (critical), and miss on a natural 1; damage is rolled only after a hit, with its dice doubled on a critical.
 - **Players see success or failure, not the exact DC or AC.**
 - A character who owes the GM a roll can't pass until it's rolled; the GM answers once every present character has acted, passed, or rolled everything owed. Rolls left unrolled when the round resolves lapse, and the GM is told.
-- **Modifiers come from the sheet.** The GM names the stat and skill; the server adds both (see `rules/characters.md`). Only a character without a sheet gets a modifier picked by the GM.
+- **Modifiers come from the sheet.** The GM names the stat and skill; the server adds both. Only a character without a sheet gets a modifier picked by the GM.
 - **The idle die** (bottom left, any die from d4 to d100) is for fidgeting while others finish: it rolls only on that player's screen and never counts for anything.
 - **The GM rolls for everything else** (NPCs, monsters, hazards, damage it deals, random tables) through a dice tool that returns the server's honest result. The GM narrates from that number and never invents or adjusts one. It never rolls for a player character.
 - **The GM's rolls are hidden from players by default**: they see "the GM rolls behind the screen". An unsealed GM always sees every number. **Settings → Show GM rolls to the party** reveals them to everyone while it is on, along with the DCs and Armor Classes behind player rolls. Hidden numbers are never sent to a player's device.
@@ -29,7 +33,7 @@ Everything that decides chance follows the D&D 5e rules: d20 tests (ability chec
 
 ### Remembering people
 
-The GM improvises minor NPCs freely. It **flags someone as important**, and keeps them in `campaign/cast.json`, the moment any of these is true:
+The GM improvises minor NPCs freely. It **flags someone as important**, and remembers them from then on, the moment any of these is true:
 
 1. **Ledger:** a debt, favor, promise, contract or Exchange deal ties them to a character.
 2. **Blood:** they hurt a character, were hurt by one, or survived a fight with the party.
@@ -43,10 +47,14 @@ Never flagged: one-off shopkeepers, crowds, unnamed guards, people the party wal
 
 **What's kept:** name, role, faction, where to find them, a line of look and voice, attitude toward the party, ledger, and, for the GM only, what they want, their secret, and notes.
 
-**Status:** *active* (read in full every turn), *dormant* (unseen for 3 sessions; one line, wakes up when they reappear), *dead* (one line, kept forever).
+**Who sees what:** players see the People tab in the Codex with the public half; wants, secrets and notes stay with the GM.
 
-**Who sees what:** players see the People tab in the Codex with the public half; wants, secrets and notes are GM-only and never sent to a player's device. Remembered people are written to the repo at Save and End session.
+<!-- dev -->
+**Status:** *active* (read in full every turn), *dormant* (unseen for 3 sessions; one line, wakes up when they reappear), *dead* (one line, kept forever). Kept in `campaign/cast.json`; wants, secrets and notes are never sent to a player's device. Remembered people are written to the repo at Save and End session.
+<!-- /dev -->
 
+
+<!-- dev -->
 ### Fixed figures
 
 Twenty-five canon-level NPCs are kept in `campaign/cast.json` as **pillars**: they never go dormant, and the GM keeps them consistent forever. Each has a public face (role, where, look) and a GM-only layer: what they want, their secret, the contradiction that cuts against their role, and how they treat the party.
@@ -64,3 +72,4 @@ Twenty-five canon-level NPCs are kept in `campaign/cast.json` as **pillars**: th
 ### Economy and equipment
 
 See [economy.md](economy.md).
+<!-- /dev -->

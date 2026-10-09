@@ -139,7 +139,8 @@ export default {
       if (url.pathname === "/api/state") {
         try {
           const { cast, ...state } = await loadState(env);   // the cast has secrets; it goes through /api/cast
-          return json(state);
+          // Dev notes (<!-- dev --> ... <!-- /dev -->) are for an unsealed Settings device only.
+          return json(Object.fromEntries(Object.entries(state).map(([k, v]) => [k, stripDev(v)])));
         } catch (err) {
           return json({ error: `Could not read game state from GitHub: ${err.message}` }, 502);
         }
@@ -160,6 +161,10 @@ async function handleAdmin(action, request, env) {
   try { body = await request.json(); } catch {}
 
   if (action === "cast") return json({ cast: await castView(env, true) });
+  if (action === "state") {
+    const { cast, ...state } = await loadState(env);
+    return json(state);   // everything, dev notes included
+  }
 
   if (action === "check") {
     return json({ ok: true, canWriteRepo: !!env.GITHUB_WRITE_TOKEN });
@@ -1938,8 +1943,19 @@ function spellTopics(title) {
   return /^tier 6/i.test(title) ? ["weave", "war"] : ["weave"];
 }
 
+// Notes for whoever builds the game, not for players or the GM: marked in the
+// Markdown files as <!-- dev --> ... <!-- /dev -->. Other HTML comments go too.
+function stripDev(text) {
+  if (typeof text !== "string") return text;
+  return text
+    .replace(/<!--\s*dev\s*-->[\s\S]*?<!--\s*\/dev\s*-->\n?/g, "")
+    .replace(/<!--[\s\S]*?-->\n?/g, "")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
 // Split the repo files into the chunks the selector works with.
 function buildLibrary(repo) {
+  repo = Object.fromEntries(Object.entries(repo).map(([k, v]) => [k, k === "cast" || k === "party" ? v : stripDev(v)]));
   return {
     canon: chunkCanon(repo.canon),
     economy: chunkMarkdown(repo.economy, "economy", economyTopics),

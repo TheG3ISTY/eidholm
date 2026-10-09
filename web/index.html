@@ -171,6 +171,8 @@
     content: "THE WEAVE"; display: block;
     font-family: var(--mono); font-size: 11px; letter-spacing: 0.2em; color: var(--ember); margin-bottom: 6px;
   }
+  .devnote { border: 1px dashed var(--ember-dim); padding: 6px 12px; margin: 0 0 1em; opacity: 0.85; }
+  .devnote::before { content: "DEV NOTE · ONLY SHOWN WITH SETTINGS UNSEALED"; display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; color: var(--ember); margin-bottom: 4px; }
   .turn.gm.human::before { content: "THE GAME MASTER"; color: var(--brass); }
   .chip.gm { border-color: var(--ember); }
   .chip.gm .name { color: var(--ember); letter-spacing: 0.08em; }
@@ -1253,13 +1255,18 @@
 
   async function loadState(force = false) {
     if (codexState && !force) return codexState;
-    $("codex-status").textContent = "Reading the repo…";
+    $("codex-status").textContent = "Loading…";
+    // With Settings unsealed, the files come with their dev notes.
+    if (admin) {
+      try { codexState = await adminCall("state"); $("codex-status").textContent = "Loaded from repo, dev notes shown"; return codexState; }
+      catch (err) { if (err.message === "locked") throw err; }
+    }
     const r = await fetch(API + "/api/state", { method: "POST", headers: { "X-Game-Password": password } });
     if (r.status === 401) { lock("The word has changed."); throw new Error("locked"); }
     const data = await r.json().catch(() => ({}));
     if (!r.ok) { $("codex-status").textContent = data.error || ("HTTP " + r.status); throw new Error(data.error || ("HTTP " + r.status)); }
     codexState = data;
-    $("codex-status").textContent = "Loaded from repo at " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    $("codex-status").textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     return codexState;
   }
 
@@ -1295,7 +1302,7 @@
     if (codexTab === "table") { renderTableTab(); return; }
     if (codexTab === "settings") { renderSettings(force); return; }
     if (codexTab === "people") { renderPeople(); return; }
-    if (!codexState || force) body.innerHTML = '<p class="muted">Reading the repo…</p>';
+    if (!codexState || force) body.innerHTML = '<p class="muted">Loading…</p>';
     let st;
     try { st = await loadState(force); } catch (err) {
       if (err.message !== "locked") body.innerHTML = '<p class="muted">Could not read the repo: ' + escapeHtml(err.message) + "</p>";
@@ -1308,7 +1315,7 @@
       renderPartyTab();
     }
     else if (codexTab === "log") body.innerHTML = renderMarkdown(st.log) || '<p class="muted">No log yet.</p>';
-    else if (codexTab === "rules") body.innerHTML = (renderMarkdown(st.rules) + (st.economy ? "<hr>" + renderMarkdown(st.economy) : "")) || '<p class="muted">No rules yet.</p>';
+    else if (codexTab === "rules") body.innerHTML = [st.rules, st.characters, st.spells, st.economy].filter(Boolean).map(renderMarkdown).join("<hr>") || '<p class="muted">No rules yet.</p>';
     else body.innerHTML = renderMarkdown(st.canon) || '<p class="muted">No canon found.</p>';
     body.scrollTop = 0;
   }
@@ -1391,6 +1398,7 @@
   function sealSettings() {
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: "admin", off: true }));
     admin = null;
+    codexState = null;   // re-read without the dev notes
     store.del("sessionStorage", "eidholm.admin");
   }
 
@@ -1426,6 +1434,7 @@
         try {
           const res = await adminCall("check", {}, creds);
           admin = { ...creds, canWriteRepo: res.canWriteRepo };
+          codexState = null;   // re-read with the dev notes
           send({ t: "admin", user: creds.user, pass: creds.pass });
           store.set("sessionStorage", "eidholm.admin", JSON.stringify(admin));
           renderSettings();
@@ -1872,7 +1881,9 @@
     ["/party", "everyone in the party file, with the world clock"],
     ["/sheet name", "one character's sheet (name can be partial)"],
     ["/log", "the most recent part of the campaign log"],
-    ["/rules", "the current rules draft"],
+    ["/rules", "dice, rolls and remembered people"],
+    ["/characters", "the character rules: stats, skills, levels, capstones"],
+    ["/spells", "the spellbook"],
     ["/economy", "money, prices, gear tiers and item scales"],
     ["/world word", "search the canon, e.g. /world Kalvane"],
     ["/table", "who is present and who has answered this round"],
@@ -1924,6 +1935,8 @@
       const tail = st.log.length > 2500 ? "…\n\n" + st.log.slice(st.log.lastIndexOf("\n## ", st.log.length - 2500) + 1 || -2500) : st.log;
       note("LOG", renderMarkdown(tail) || '<p class="muted">No log yet.</p>');
     } else if (c === "rules") note("RULES", renderMarkdown(st.rules) || '<p class="muted">No rules yet.</p>');
+    else if (c === "spells") note("SPELLS", renderMarkdown(st.spells) || '<p class="muted">No spellbook yet.</p>');
+    else if (c === "characters") note("CHARACTERS", renderMarkdown(st.characters) || '<p class="muted">No character rules yet.</p>');
     else if (c === "economy" || c === "prices") note("ECONOMY", renderMarkdown(st.economy) || '<p class="muted">No economy rules yet.</p>');
     else if (c === "world" || c === "canon") {
       if (!arg) return note("WORLD", "<p>The canon is long. Search it with <code>/world word</code>, or open the <code>/codex</code> for the whole thing.</p>");
@@ -1974,7 +1987,13 @@
   function cleanMd(text) {
     return String(text || "").replace(/<!--[\s\S]*?-->/g, "").replace(/\\([\\`*_{}\[\]()#+\-.!>])/g, "$1").trim();
   }
+  // Dev notes (<!-- dev --> ... <!-- /dev -->) only ever reach an unsealed device; they're shown marked.
   function renderMarkdown(text) {
+    const parts = String(text || "").split(/<!--\s*dev\s*-->([\s\S]*?)<!--\s*\/dev\s*-->/);
+    if (parts.length === 1) return mdCore(text);
+    return parts.map((seg, i) => (i % 2 ? (admin ? `<div class="devnote">${mdCore(seg)}</div>` : "") : mdCore(seg))).join("");
+  }
+  function mdCore(text) {
     const src = cleanMd(text);
     if (!src) return "";
     let out = "", para = [], list = [], table = [], quote = [];

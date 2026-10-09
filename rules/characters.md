@@ -1,6 +1,8 @@
 # Eidholm: Characters
 
+<!-- dev -->
 Status: **adopted.** The server enforces everything here: it keeps the live sheets during play, does the arithmetic, and writes them back to `characters/party.json` on Save and End.
+<!-- /dev -->
 
 There are **no classes**, and the Chamber spectrum (Canting ↔ Artifice) is **not tracked** on the sheet: a character is what their stats and skills say, and the world reacts to what they do.
 
@@ -76,7 +78,7 @@ All are recalculated from the **current** sheet (raising Endurance raises HP for
 
 - **Lucky breaks:** rerolls per in-game day equal to the Luck modifier (none at 5, three at 8). Any d20 you roll, or one rolled **against** you, can be rerolled; the new result stands.
   - **Your own rolls:** a *Lucky break* button sits on each of your d20 rolls for the rest of the round. If yours is the roll that completes the round, the GM waits **10 seconds** before answering (or until you press *Keep it*), so the chance is real.
-  - **Rolls against you:** say in your action that you spend one ("if that blow lands, I spend a lucky break"); the GM rerolls it and the server takes the break.
+  - **Rolls against you:** say in your action that you spend one ("if that blow lands, I spend a lucky break"); the GM rerolls it and the break is spent.
 - **Critical range:** at Luck 9 and up, attacks crit on 19 or 20. That is the ceiling for everyone.
 - **Fortune:** the GM leans random tables, loot and chance encounters by Luck.
 - **Bad luck:** at Luck 3 or below, once per session the GM may turn a success into a complication (a cost, never a failure).
@@ -149,7 +151,7 @@ Marks reset after each rank-up; taking one skill from Untrained to Legend costs 
 - **One mark per skill per scene at most.** Ten swings in one fight count once; ten fights count ten times. A new place, or a fight breaking out, starts a new scene.
 - **What you wear trains in a fight:** at the end of every round of combat in which you rolled, your worn armor's skill earns a mark (a raised shield trains Heavy armor; no armor at all trains Unarmored combat). It comes after the round's rolls, so the untrained penalty is felt first.
 - Use alone carries a skill all the way to Legend. No teachers, no gates.
-- The server counts marks from the tags; nobody keeps score by hand.
+- The game counts the marks itself; nobody keeps score by hand.
 
 ### At creation
 
@@ -157,7 +159,7 @@ Marks reset after each rank-up; taking one skill from Untrained to Legend costs 
 
 ### Which stat a roll uses
 
-The GM names a stat and (if one fits) a skill for every roll it asks for; the server adds both bonuses from the sheet.
+The GM names a stat and (if one fits) a skill for every roll it asks for; the game adds both bonuses from the sheet.
 
 - **Melee attacks:** Strength (Agility for daggers and other finesse weapons); melee damage adds the Strength modifier automatically.
 - **Ranged attacks:** Perception. **Cants:** Resonance. **Blocking with a shield:** Agility + Heavy armor.
@@ -196,7 +198,7 @@ A fresh character starts with **50 cv**, clothes, a pack, and **3 items** of the
 
 Every item points at a skill: what you carry is where you start learning.
 
-**Two tier-1 spells**, picked at creation from `rules/spells.md`, both unproven until first cast successfully.
+**Two tier-1 spells**, picked at creation from the spellbook, both unproven until first cast successfully.
 
 - **Armor:** padded coat +1 AC, leather jack +2, battered mail +4 (Damaged). One suit at a time; it's worn from the start.
 - **Weapons:** dagger, baton and throwing knives 1d4; mace and bow 1d6; sword, crossbow and the cracked energy staff 1d8; halberd 1d10; greatsword 2d6. Greatswords, halberds, bows, crossbows and staves need two hands.
@@ -213,7 +215,7 @@ At **0 HP** a character falls **unconscious** and makes **death saves**, as 5e:
 - **Massive damage:** if the damage left over after hitting 0 equals or exceeds maximum HP, death is instant.
 - Anyone can stabilise a dying character with a **Medicine** check, DC 10.
 - **Endurance 13** (Won't stay down) triggers before any of this, once per in-game day.
-- The server asks a dying character for a death save **every round**, by itself.
+- A dying character is asked for a death save **every round**, automatically.
 - **Miscants** follow their own rule: unconscious and automatically stable, no death saves.
 
 **Every drop to 0 that a character survives leaves a scar.**
@@ -224,9 +226,13 @@ Scars come from **surviving a drop to 0 HP** and from **miscants of tier 3 and u
 
 ## The clock
 
-The world keeps one clock: **day, hour and minute**, alongside the cycle already in the party file.
+The world keeps one clock: **day, hour and minute**, shown at the top of the screen.
 
-- **The GM moves it.** Every turn, the hidden scene tag reports how much time passed (`time=+20m`, `time=+3h`, `time=+2d`). A fight is minutes; a march is hours.
-- **The server does the rest:** Resonance pools refill at 12.5% of maximum per hour (pro rata, so 30 minutes is 6.25%), and every "per in-game day" ability resets **at dawn**: lucky breaks, Won't stay down, and anything else that counts days.
-- **Divine mode overrides it:** you can set the clock directly in Settings if the GM got it wrong.
-- Time never runs backwards. A correction that rewinds the clock does not take back refills that already happened.
+- **The GM moves it** as the story goes: a fight is minutes, a march is hours.
+- **The game does the rest:** Resonance pools refill at 12.5% of maximum per hour (pro rata, so 30 minutes is 6.25%), and every "per in-game day" ability resets **at dawn**: lucky breaks, Won't stay down, and anything else that counts days.
+- Time never runs backwards. If the GM corrects the clock, refills that already happened stay.
+
+<!-- dev -->
+- The GM reports elapsed time in the hidden scene tag every turn (`time=+20m`, `time=+3h`, `time=+2d`); a human GM uses the time box on the GM desk.
+- The owner can set the clock directly in the unsealed Party tab. Forward counts as time passing; back takes nothing back.
+<!-- /dev -->

@@ -1,6 +1,8 @@
 # Eidholm: Spells
 
+<!-- dev -->
 Status: **adopted.** The server reads the named spells straight from the tables below (name, tier, and whether the roll is Ranged canting), so editing a table here changes the game.
+<!-- /dev -->
 
 ## How the spellbook works
 
@@ -8,7 +10,7 @@ Status: **adopted.** The server reads the named spells straight from the tables 
 - **Freeform cants** built from the root-language grammar: anything the caster can phrase, priced by the tier its effect reaches. Riskier than a protocol.
 - **Tier 6 has no list at all.** See below.
 
-Costs and limits are in `rules/characters.md` (pool, recovery, highest tier unaided, miscants).
+Costs and limits are on the Characters page (pool, recovery, highest tier unaided, miscants).
 
 ### Learning spells
 
@@ -29,7 +31,7 @@ Every spell the canter knows goes on their sheet. Until it has been **cast succe
 | A **freeform** cant | 1 or 2 |
 | A **first fusion** at tier 6 | 1, 2 or 3 |
 
-Luck 13 removes only the natural 1, never the rest. Backlash always follows the tier (see `rules/characters.md`).
+Luck 13 removes only the natural 1, never the rest. Backlash always follows the tier (see Characters).
 
 Every spell rolls **Resonance + Canting** (or **Ranged canting** for anything thrown at a target), against a DC or the target's AC or save.
 
