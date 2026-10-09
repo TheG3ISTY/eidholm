@@ -204,6 +204,16 @@ async function handleAdmin(action, request, env) {
     }
   }
 
+  if (action === "wipe-campaign") {
+    if (!env.GITHUB_WRITE_TOKEN) return json({ error: "No GITHUB_WRITE_TOKEN is set, so the repo can't be changed from here." }, 501);
+    if (body.confirm !== "WIPE") return json({ error: "Type WIPE to confirm." }, 400);
+    try {
+      return json(await wipeCampaign(env, { hard: body.mode === "world" }));
+    } catch (err) {
+      return json({ error: err.message }, err.status || 502);
+    }
+  }
+
   if (action === "discard-scene") {
     await tableCall(env, { t: "reset" });
     return json({ ok: true });
@@ -218,6 +228,77 @@ async function tableCall(env, msg) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw httpError(data.error || `Table error ${res.status}`, res.status);
   return data;
+}
+
+// ---------------- wiping the campaign ----------------
+
+// The campaign log as it starts, before any session.
+const FRESH_LOG = `# Eidholm: Campaign Log
+
+**World clock:** Day 1, Cycle of Ash
+
+No sessions played yet. Session 1 is character creation.
+
+<!--
+Format for each session, newest at the bottom (the Worker sends the GM the last ~4000 characters):
+
+## Session N: <title> (<real-world date>)
+**World clock:** <in-world date at end of session>
+- What happened, in a few bullets
+- Decisions, debts, enemies made
+- Open threads
+-->
+`;
+
+async function listSessionFiles(env) {
+  const base = env.GITHUB_API || "https://api.github.com";
+  const res = await fetch(`${base}/repos/${env.GITHUB_REPO}/contents/campaign/sessions?ref=${env.GITHUB_BRANCH}`, {
+    headers: { Authorization: `Bearer ${env.GITHUB_WRITE_TOKEN}`, Accept: "application/vnd.github+json", "User-Agent": "eidholm-worker", "X-GitHub-Api-Version": "2022-11-28" },
+  });
+  if (res.status === 404) return [];
+  if (!res.ok) throw httpError(`Could not list the session archive (GitHub ${res.status}).`, 502);
+  const items = await res.json();
+  return (Array.isArray(items) ? items : []).filter((x) => x.type === "file" && /\.md$/.test(x.name)).map((x) => x.path);
+}
+
+// Story wipe: every session, the log, the people met and the clock go; the characters stay as they are.
+// World wipe: the characters go too. Fixed figures are canon and always stay. The spend meter is never reset.
+// One commit, so the git history still holds everything.
+async function wipeCampaign(env, { hard }) {
+  const repo = await readFilesFresh(env, [STATE_FILES.party, STATE_FILES.cast]);
+  let party = {};
+  try { party = JSON.parse(repo[STATE_FILES.party] || "{}"); } catch {}
+  if (!party || typeof party !== "object" || Array.isArray(party)) party = {};
+  if (!hard) {
+    // Keep the characters as they are right now, including anything not yet saved.
+    const live = await tableCall(env, { t: "liveParty" }).catch(() => null);
+    if (live?.loaded) party = JSON.parse(buildPartyFile(JSON.stringify(party), live));
+  }
+  party.world_clock = "Day 1, Cycle of Ash";
+  party.location = null;
+  party.party = hard ? [] : partyList(party);
+  party.clock = { minutes: 360, max: 360, label: clockLabel({ minutes: 360 }) };
+
+  let cast = { cast: [] };
+  try { cast = JSON.parse(repo[STATE_FILES.cast] || "{}"); } catch {}
+  const people = Array.isArray(cast.cast) ? cast.cast : [];
+  cast.cast = people.filter((p) => p.pillar);
+
+  const sessions = await listSessionFiles(env);
+  const files = {
+    [STATE_FILES.party]: JSON.stringify(party, null, 2) + "\n",
+    [STATE_FILES.cast]: JSON.stringify(cast, null, 2) + "\n",
+    [STATE_FILES.log]: FRESH_LOG,
+  };
+  for (const path of sessions) files[path] = null;
+  await commitFiles(env, files, hard
+    ? `campaign: world wipe (${sessions.length} session file${sessions.length === 1 ? "" : "s"}, characters, log, people, clock)`
+    : `campaign: story wipe (${sessions.length} session file${sessions.length === 1 ? "" : "s"}, log, people, clock; characters kept)`);
+  for (const f of [STATE_FILES.party, STATE_FILES.cast, STATE_FILES.log]) {
+    await caches.default.delete(new Request(`https://eidholm-state.cache/${env.GITHUB_BRANCH}/${f}`));
+  }
+  await tableCall(env, { t: "wipe", hard, data: party });
+  return { ok: true, hard, sessionsDeleted: sessions.length, peopleForgotten: people.length - cast.cast.length, charactersKept: party.party.length };
 }
 
 // ---------------- end of session ----------------
@@ -540,7 +621,10 @@ async function commitFiles(env, files, message) {
     method: "POST",
     body: JSON.stringify({
       base_tree: parent.tree.sha,
-      tree: Object.entries(files).map(([path, content]) => ({ path, mode: "100644", type: "blob", content })),
+      // null deletes the file (it stays in the history)
+      tree: Object.entries(files).map(([path, content]) => content === null
+        ? { path, mode: "100644", type: "blob", sha: null }
+        : { path, mode: "100644", type: "blob", content }),
     }),
   });
   const commit = await gh(`/git/commits`, {
@@ -736,6 +820,30 @@ export class Table extends DurableObject {
             if (sameName(s.character, msg.removed)) { addEvent(state, `${msg.removed} is struck from the game.`, s); s.character = ""; }
           }
         }
+        await this.commit(state);
+        const payload = JSON.stringify({ t: "party-changed" });
+        for (const ws of this.ctx.getWebSockets()) { try { ws.send(payload); } catch {} }
+        return json({ ok: true });
+      }
+      if (msg.t === "wipe") {
+        // The campaign was wiped in the repo: the table starts over. Seats and the spend meter stay.
+        const p = parsePartyFile(JSON.stringify(msg.data || {}));
+        state.messages = [];
+        state.round = 1;
+        state.requests = [];
+        state.resolvingSince = 0;
+        state.graceUntil = 0;
+        state.spend = { small: { in: 0, out: 0 }, large: { in: 0, out: 0 } };
+        state.session = null;
+        state.scene = null;
+        state.marks = { scene: 0, done: {} };
+        state.cast = { pending: {}, seen: [] };
+        state.dryRounds = 0;
+        state.begun = false;
+        state.opening = null;
+        state.live = { loaded: true, list: p.list, clock: clockOf(p.data), dirty: 0 };
+        if (msg.hard) for (const s of state.seats) s.character = "";
+        addEvent(state, msg.hard ? "The world is wiped. Everything begins again, with new characters." : "The story is wiped. The characters remain; the world has forgotten them.");
         await this.commit(state);
         const payload = JSON.stringify({ t: "party-changed" });
         for (const ws of this.ctx.getWebSockets()) { try { ws.send(payload); } catch {} }

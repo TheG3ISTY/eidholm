@@ -53,6 +53,7 @@ Everyone with the password plays the **same live scene** from their own device.
 - Arrivals, departures and presence changes are recorded in the scene as they happen.
 - **People:** the GM remembers NPCs who matter (debts, blood, secrets, power, minds of glass, anyone the players care about or meet twice) in `campaign/cast.json`. `/remember name` asks it to. Codex → People shows the public half to players; wants, secrets and notes are GM-only.
 - **Save** (on your own seat chip, anyone) commits the transcript so far to this session's archive file, plus the sheets if they changed; play continues.
+- **Wipe the campaign** (Settings, owner only, type WIPE to unlock): a **story wipe** deletes every saved session, the campaign log and the people the GM remembered, sets the clock back to Day 1, 06:00 and clears the table, keeping the characters as they are; a **world wipe** removes the characters too. Fixed figures, seats and the spend meter stay. One commit, so the history keeps everything.
 - **End session** (Settings, GM only) archives the final transcript to `campaign/sessions/`, adds a GM-drafted, GM-edited summary to `campaign/log.md` and updates the world clock, all in one commit, then clears the scene.
 
 The live session lives in a Durable Object (`Table` in `api/worker.js`); the repo is the long-term record.

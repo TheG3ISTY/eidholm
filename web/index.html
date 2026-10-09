@@ -1509,8 +1509,33 @@
       <h3 class="set-h">Characters in the party file</h3>
       <p class="muted">Deletes the character from the game and from <code>characters/party.json</code> with a commit, so it can always be recovered from the repo history. Also available on each card in the Party tab.</p>
       <div id="set-party"><p class="muted">Reading the repo…</p></div>
+      <h3 class="set-h">Wipe the campaign</h3>
+      <p class="muted"><b>Story wipe:</b> deletes every saved session, the campaign log and every person the GM remembered, sets the clock back to Day 1, 06:00 and clears the table. The characters stay exactly as they are.<br>
+      <b>World wipe:</b> all of that, and the characters go too. Everyone makes a new one.<br>
+      Fixed figures are canon and always stay; seats and the spend meter stay. One commit, so the repo history still has everything.</p>
+      <div class="stack"><input class="field" id="wipe-confirm" autocomplete="off" placeholder="Type WIPE to unlock" aria-label="Type WIPE to unlock the wipe buttons">
+      <p class="row-btns"><button type="button" class="ghost danger" id="wipe-story" disabled>Story wipe</button>
+      <button type="button" class="ghost danger" id="wipe-world" disabled>World wipe</button></p>
+      <p class="muted small" id="wipe-msg"></p></div>
       <div class="set-foot"><button type="button" class="ghost" id="admin-seal">Seal settings</button></div>`;
     $("admin-seal").addEventListener("click", () => { sealSettings(); renderSettings(); });
+    $("wipe-confirm").addEventListener("input", (e) => {
+      const ok = e.target.value.trim() === "WIPE";
+      $("wipe-story").disabled = !ok; $("wipe-world").disabled = !ok;
+    });
+    for (const mode of ["story", "world"]) $("wipe-" + mode).addEventListener("click", async () => {
+      $("wipe-story").disabled = $("wipe-world").disabled = true;
+      $("wipe-msg").textContent = mode === "world" ? "Wiping the world…" : "Wiping the story…";
+      try {
+        const r = await adminCall("wipe-campaign", { mode, confirm: $("wipe-confirm").value.trim() });
+        $("wipe-confirm").value = "";
+        $("wipe-msg").textContent = `Done. ${r.sessionsDeleted} saved session${r.sessionsDeleted === 1 ? "" : "s"} deleted, ${r.peopleForgotten} remembered ${r.peopleForgotten === 1 ? "person" : "people"} forgotten, ` +
+          (r.hard ? "every character gone." : `${r.charactersKept} character${r.charactersKept === 1 ? "" : "s"} kept.`);
+        renderSettingsParty(true);
+      } catch (err) {
+        if (err.message !== "locked") { $("wipe-msg").textContent = err.message; $("wipe-story").disabled = $("wipe-world").disabled = false; }
+      }
+    });
     renderGmMode();
     renderBegin();
     $("reveal-toggle").addEventListener("change", (e) => send({ t: "reveal", on: e.target.checked }));
