@@ -239,6 +239,7 @@ async function prepareEnd(env) {
         { role: "user", content: transcriptText(scene).slice(-60000) },
       ]);
       draft = out.reply.trim();
+      await tableCall(env, { t: "addSpend", tier: "small", usage: out.usage || {} }).catch(() => {});
     } catch (err) {
       draftError = `The GM couldn't draft a summary (${err.message}). Write it yourself below.`;
     }
@@ -782,6 +783,12 @@ export class Table extends DurableObject {
         await this.commit(state);
         return json({ ok: true });
       }
+      if (msg.t === "addSpend") {
+        // Model calls made outside a round (the end-of-session summary) still cost money.
+        addSpend(state, msg.tier === "large" ? "large" : "small", msg.usage || {});
+        await this.commit(state);
+        return json({ ok: true });
+      }
       if (msg.t === "castPending") {
         return json({ ...state.cast, exportedAt: Date.now() });
       }
@@ -839,7 +846,9 @@ export class Table extends DurableObject {
       round: s.round || 1,
       resolvingSince: s.resolvingSince || 0,
       tier: s.tier || "small",
-      spend: s.spend || { small: { in: 0, out: 0 }, large: { in: 0, out: 0 } },
+      spend: s.spend || { small: { in: 0, out: 0 }, large: { in: 0, out: 0 } },   // this session (for its transcript)
+      // Everything ever spent on the model. Nothing resets it: not End session, not Discard.
+      spendTotal: s.spendTotal || JSON.parse(JSON.stringify(s.spend || { small: { in: 0, out: 0 }, large: { in: 0, out: 0 } })),
       nextId: s.nextId || 1,
       session: s.session || null,   // { no, date, path, savedAt, savedBy } once first saved
       revealGmRolls: !!s.revealGmRolls,
@@ -900,6 +909,7 @@ export class Table extends DurableObject {
       resolving: isResolving(state),
       tier: state.tier,
       spend: state.spend,
+      spendTotal: state.spendTotal,
       saved: state.session?.savedAt ? { at: state.session.savedAt, by: state.session.savedBy, no: state.session.no } : null,
     };
   }
@@ -1461,8 +1471,7 @@ export class Table extends DurableObject {
       }
     }
     const u = result.usage || {};
-    fresh.spend[tier].in += u.prompt_tokens || 0;
-    fresh.spend[tier].out += u.completion_tokens || 0;
+    addSpend(fresh, tier, u);
     // Actions posted during resolution belong to the next round, not this one.
     fresh.round = round + 1;
     for (const m of fresh.messages) {
@@ -1924,6 +1933,14 @@ function applySheetOp(state, op) {
 }
 
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
+
+function addSpend(state, tier, u) {
+  for (const bucket of [state.spend, state.spendTotal]) {
+    bucket[tier] = bucket[tier] || { in: 0, out: 0 };
+    bucket[tier].in += u.prompt_tokens || 0;
+    bucket[tier].out += u.completion_tokens || 0;
+  }
+}
 function signed(n) { return n >= 0 ? `+${n}` : `${n}`; }
 
 // Sent once per connection: the fixed lists the creation screen and sheets need.

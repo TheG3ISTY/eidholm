@@ -785,10 +785,11 @@
   function seatLabel(s) { return s.character || s.player; }
   function pending() { return table.messages.filter((m) => m.round === table.round && (m.kind === "act" || m.kind === "pass" || m.kind === "roll")); }
 
-  function totals() {
+  // All-time spend by default (nothing resets it); totals("spend") for this session only.
+  function totals(which = "spendTotal") {
     let tokens = 0, usd = 0;
     for (const tier of ["small", "large"]) {
-      const s = (table && table.spend[tier]) || { in: 0, out: 0 };
+      const s = (table && table[which] && table[which][tier]) || { in: 0, out: 0 };
       tokens += s.in + s.out;
       usd += (s.in * PRICES[tier].in + s.out * PRICES[tier].out) / 1e6;
     }
@@ -814,6 +815,7 @@
     $("meter").hidden = !admin;
     const t = totals();
     $("meter").innerHTML = `${t.tokens.toLocaleString()} tok · <b>$${t.usd.toFixed(4)}</b>`;
+    { const ts = totals("spend"); $("meter").title = `All time, never reset. This session: ${ts.tokens.toLocaleString()} tokens, $${ts.usd.toFixed(4)}`; }
     $("clock-stamp").textContent = table.clock ? "⧗ " + table.clock + (table.partyUnsaved ? " · sheets unsaved" : "") : "";
     if ($("create") && mySheet() && mySheet().name === $("create").dataset.want) closeCreate();
     $("saved-stamp").textContent = table.saved
