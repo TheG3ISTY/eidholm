@@ -99,21 +99,21 @@
         }
       ],
       "debts": [],
-      "purse": 50,
+      "purse": 500,
       "scars": [],
       "created": "2026-10-09",
       "hp": 23,
       "pool": 24,
       "luckUsed": 0,
       "enduranceUsed": false,
-      "dying": null,
+      "dying": "",
       "dead": false,
       "scarsOwed": 0
     }
   ],
   "clock": {
-    "minutes": 553,
-    "max": 553,
-    "label": "Day 1, 09:13"
+    "minutes": 563,
+    "max": 563,
+    "label": "Day 1, 09:23"
   }
 }
