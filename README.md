@@ -10,12 +10,14 @@ Browsers → Cloudflare Worker (password gate + proxy) + Durable Object (the sha
 world/worldbuilding.md    settled canon; change only by explicit decision
 rules/resolution.md       dice and how the table resolves things
 rules/characters.md       the character system: stats, skills, levels, capstones, dying, the clock
+rules/spells.md           the spellbook: 55 named spells (tiers 1-5), learning, miscants, tier-6 workings
 characters/party.json     character sheets and the game clock, written at Save / End
 campaign/log.md           session log + world clock
 campaign/cast.json        people the GM remembers (written at Save / End)
 api/worker.js             Cloudflare Worker: gate, state loader, Mistral proxy, shared table
 api/dice.js               dice engine: real randomness for players and the GM
 api/characters.js         character rules: sheets, derived numbers, marks, levels, harm, time
+api/spells.js             reads the spellbook tables; miscant ranges
 api/context.js            what the GM reads each turn: scene-based loading of canon, rules, economy, people
 rules/economy.md          currency, prices, gear tiers, item scales
 wrangler.toml             Worker config (no secrets in here), at repo root
@@ -41,7 +43,7 @@ Everyone with the password plays the **same live scene** from their own device.
 - `OOC: ...` is table talk: everyone sees it, the GM does not, and it doesn't count as your action.
 - **Settings** (separate username + password) lets the GM remove seats, and turns the Party tab into an editor: edit, create, rename and delete character sheets, set the world clock. Every change is a commit. Players see all sheets read-only and can't remove anyone.
 - Absent characters are elsewhere in the story; the GM never narrates them.
-- **Characters** are made on the **Create character** screen (button on your own seat chip): a zero-sum point buy over eight stats (S.P.E.C.I.A.L. + Resonance), a backstory, and three items from the starting kit. Skills start untrained and grow by use; every two skill ranks is a level, up to 50. The sheets live on the table during play (Codex → Party, everyone sees all of them) and the server does every number: modifiers, HP, AC, Resonance, marks, death saves, the clock. Rules in `rules/characters.md`.
+- **Characters** are made on the **Create character** screen (button on your own seat chip): a zero-sum point buy over eight stats (S.P.E.C.I.A.L. + Resonance), a backstory, three items from the starting kit, and two tier-1 spells. Skills start untrained and grow by use; every two skill ranks is a level, up to 50. The sheets live on the table during play (Codex → Party, everyone sees all of them) and the server does every number: modifiers, HP, AC, Resonance, marks, death saves, the clock. Rules in `rules/characters.md`.
 - **Dice:** the GM requests rolls; they appear as buttons on the left side of that player's screen, and `/roll` rolls them all in order. The server rolls honestly and judges them by 5e rules (advantage/disadvantage, DC, AC, criticals, damage on a hit). The GM rolls its own dice through a tool; those stay behind the screen unless the GM shows them (Settings). An idle die at the bottom left is just for fidgeting.
 
 - Arrivals, departures and presence changes are recorded in the scene as they happen.

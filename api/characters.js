@@ -137,7 +137,8 @@ export function derive(sheet) {
 // ---------------------------------------------------------------- creation
 
 // Validates a creation request and returns a fresh sheet, or throws.
-export function createSheet(input, player) {
+// tier1: the tier-1 spells a new character may pick from (from rules/spells.md).
+export function createSheet(input, player, tier1 = [], startSpells = 2) {
   const name = text(input?.name, 40);
   if (!name) throw new Error("Your character needs a name.");
   const stats = {};
@@ -160,6 +161,13 @@ export function createSheet(input, player) {
     const { id: _id, ...rest } = it;
     return { ...rest, tier: 1, quality: it.quality || "Standard", condition: it.condition || "Worn", legality: "Legal", equipped: it.kind === "armor" };
   });
+  const spellPicks = Array.isArray(input?.spells) ? [...new Set(input.spells.map(String))] : [];
+  if (tier1.length && spellPicks.length !== startSpells) throw new Error(`Pick exactly ${startSpells} tier-1 spells.`);
+  const spells = spellPicks.map((n) => {
+    const sp = tier1.find((x) => x.name.toLowerCase() === n.trim().toLowerCase());
+    if (!sp) throw new Error(`"${n}" isn't a tier-1 spell.`);
+    return { name: sp.name, tier: 1, proven: false };
+  });
   // Only one suit of armor worn at a time.
   let worn = false;
   for (const i of items) if (i.kind === "armor") { i.equipped = !worn; worn = true; }
@@ -172,6 +180,7 @@ export function createSheet(input, player) {
     capstone: null,
     skills: {},
     items,
+    spells,
     purse: START_PURSE,
     scars: [],
     created: new Date().toISOString().slice(0, 10),
@@ -195,6 +204,7 @@ export function normalize(sheet) {
   sheet.skills = sheet.skills && typeof sheet.skills === "object" ? sheet.skills : {};
   sheet.items = Array.isArray(sheet.items) ? sheet.items : [];
   sheet.scars = Array.isArray(sheet.scars) ? sheet.scars : [];
+  sheet.spells = Array.isArray(sheet.spells) ? sheet.spells.filter((x) => x && x.name) : [];
   if (!STATS.includes(sheet.capstone)) sheet.capstone = null;
   const d = derive(sheet);
   if (!Number.isFinite(sheet.hp)) sheet.hp = d.maxHp;
@@ -434,6 +444,7 @@ export function sheetForGm(sheet) {
     `- Stats: ${stats}${sheet.capstone ? `; capstone ${CAPSTONES[sheet.capstone][0]}: ${CAPSTONES[sheet.capstone][1]}` : ""}`,
     `- Skills: ${skills}`,
     `- Carrying: ${items}`,
+    `- Spells known: ${(sheet.spells || []).map((x) => `${x.name} (T${x.tier}${x.proven ? "" : ", unproven"}${x.custom ? `, own working: ${x.text || ""}` : ""})`).join("; ") || "none (freeform only)"}`,
     `- Lucky breaks left today: ${Math.max(0, d.luckyBreaks - sheet.luckUsed)}${d.critOn === 19 ? "; crits on 19-20" : ""}`,
     sheet.scars?.length ? `- Scars: ${sheet.scars.join("; ")}` : "",
     sheet.scarsOwed ? `- OWED: ${sheet.scarsOwed} scar(s) to write (add_scar via update_sheet)` : "",

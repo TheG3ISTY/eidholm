@@ -347,8 +347,11 @@
   .cr-kit { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 10px; font-size: 14px; }
   .cr-kit h5 { margin: 4px 0 2px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; color: var(--ink-dim); font-weight: 500; }
   .cr-kit label { display: flex; gap: 6px; align-items: baseline; cursor: pointer; }
-  .cr-kit input { accent-color: var(--ember); }
-  @media (max-width: 600px) { .cr-stats, .cr-kit { grid-template-columns: 1fr; } .sheet .stats { grid-template-columns: repeat(2, 1fr); } }
+  .cr-kit input, .cr-spells input { accent-color: var(--ember); }
+  .cr-spells { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 12px; font-size: 14px; }
+  .cr-spells label { display: flex; gap: 6px; align-items: baseline; cursor: pointer; }
+  .cr-spells small { display: block; font-size: 12px; }
+  @media (max-width: 600px) { .cr-stats, .cr-kit, .cr-spells { grid-template-columns: 1fr; } .sheet .stats { grid-template-columns: repeat(2, 1fr); } }
   .turn.sys { border: 1px dashed var(--line); padding: 12px 14px; font-size: 16px; background: rgba(26,23,20,0.6); }
   .turn.sys::before {
     content: attr(data-label); display: block;
@@ -1783,6 +1786,10 @@
       const wear = mine && ["armor", "shield", "device"].includes(it.kind) ? `<button type="button" class="ghost" data-equip="${i}">${it.equipped ? "Take off" : "Wear"}</button>` : "";
       return `<li><span>${escapeHtml(it.name)} <small>${escapeHtml(tags)}</small></span>${wear}</li>`;
     }).join("") + "</ul>" : '<p class="muted">Nothing.</p>';
+    h += "<h4>SPELLS</h4>";
+    h += (c.spells || []).length ? '<ul class="items">' + [...c.spells].sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name)).map((sp) =>
+      `<li><span>${escapeHtml(sp.name)} <small>tier ${sp.tier}${sp.custom ? " · own working" : ""}${sp.text ? " · " + escapeHtml(sp.text) : ""}</small></span><small>${sp.proven ? "proven" : "unproven"}</small></li>`).join("") + "</ul>"
+      : '<p class="muted">None known. Freeform only.</p>';
     if ((c.scars || []).length || c.scarsOwed) {
       h += "<h4>SCARS</h4>" + (c.scars || []).map((x) => `<p>${escapeHtml(x)}</p>`).join("") +
         (c.scarsOwed ? `<p class="muted">${c.scarsOwed} still to be written by the GM.</p>` : "");
@@ -1808,6 +1815,8 @@
     const keys = Object.keys(rules.stats);
     const st = Object.fromEntries(keys.map((k) => [k, 5]));
     const picks = new Set();
+    const spellPicks = new Set();
+    const wantSpells = (rules.spells1 || []).length ? (rules.startSpells || 2) : 0;
     const ov = document.createElement("div");
     ov.className = "create-ov"; ov.id = "create";
     ov.innerHTML = `<div class="create" role="dialog" aria-label="Create a character">
@@ -1821,6 +1830,8 @@
       <textarea class="field" id="cr-back" rows="5" maxlength="4000" placeholder="Where you come from, who you served, what you believe, what you owe."></textarea>
       <div class="lbl">Starting kit · ${rules.purse} cv, clothes, a pack, and ${rules.picks} of these</div>
       <div class="cr-kit" id="cr-kit"></div>
+      <div class="lbl">Spells · ${rules.startSpells || 2} from tier 1 <small>unproven until you first cast them successfully</small></div>
+      <div class="cr-spells" id="cr-spells"></div>
       <div class="ebar"><span class="emsg" id="cr-msg"></span><button type="button" class="ghost" id="cr-cancel">Cancel</button><button type="button" class="btn" id="cr-go">Create</button></div>
     </div>`;
     document.body.appendChild(ov);
@@ -1840,7 +1851,7 @@
       const E = playsAs(st.endurance), A = playsAs(st.agility) - 5, Rz = playsAs(st.resonance), L = playsAs(st.luck) - 5;
       const armor = [...picks].map((id) => rules.kit.find((x) => x.id === id)).filter((x) => x && x.kind === "armor").reduce((m, x) => Math.max(m, x.ac || 0), 0);
       $("cr-derived").textContent = `HP ${8 + 2 * E} · AC ${10 + A + armor} · Resonance pool ${Rz * 4}, casts up to tier ${Math.min(5, Math.floor(Rz / 2))} · lucky breaks ${Math.max(0, L)} a day${st.luck >= 9 ? " · crits on 19–20" : ""} · carry ${st.strength * 10} kg`;
-      $("cr-go").disabled = bal !== 0 || picks.size !== rules.picks;
+      $("cr-go").disabled = bal !== 0 || picks.size !== rules.picks || spellPicks.size !== wantSpells;
     };
     const groups = [["WEAPONS", "weapon"], ["ARMOR", "armor"], ["ARMOR", "shield"], ["TOOLS", "tool"]];
     const cols = { WEAPONS: [], ARMOR: [], TOOLS: [] };
@@ -1857,6 +1868,14 @@
       $("cr-msg").textContent = "";
       draw();
     }));
+    $("cr-spells").innerHTML = (rules.spells1 || []).map((sp) =>
+      `<label title="${escapeHtml(sp.text)}"><input type="checkbox" value="${escapeHtml(sp.name)}"> <span><b>${escapeHtml(sp.name)}</b> <small class="muted">${escapeHtml(sp.text)}</small></span></label>`).join("");
+    $("cr-spells").querySelectorAll("input").forEach((x) => x.addEventListener("change", () => {
+      if (x.checked) { if (spellPicks.size >= wantSpells) { x.checked = false; $("cr-msg").textContent = `Only ${wantSpells} spells. Uncheck one first.`; return; } spellPicks.add(x.value); }
+      else spellPicks.delete(x.value);
+      $("cr-msg").textContent = "";
+      draw();
+    }));
     $("cr-cancel").addEventListener("click", closeCreate);
     $("cr-go").addEventListener("click", () => {
       const name = $("cr-name").value.trim();
@@ -1864,7 +1883,7 @@
       $("cr-msg").textContent = "Writing you into the world…";
       $("cr-go").disabled = true;
       ov.dataset.want = name;
-      send({ t: "create", seatId: mySeat, sheet: { name, backstory: $("cr-back").value, stats: st, items: [...picks] } });
+      send({ t: "create", seatId: mySeat, sheet: { name, backstory: $("cr-back").value, stats: st, items: [...picks], spells: [...spellPicks] } });
     });
     draw();
     $("cr-name").focus();

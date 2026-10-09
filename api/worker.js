@@ -24,11 +24,13 @@ import {
   derive, normalize, createSheet, raiseStat, takeCapstone, addMark, takeDamage, heal, stabilize, deathSave,
   statMod, skillBonus, skillRank, equipped, clockLabel, parseElapsed, dawnsBetween, passTime, sheetForGm, findSheet,
 } from "./characters.js";
+import { parseSpellbook, findSpell, miscantOn, START_SPELLS } from "./spells.js";
 
 const STATE_FILES = {
   canon: "world/worldbuilding.md",
   rules: "rules/resolution.md",
   characters: "rules/characters.md",
+  spells: "rules/spells.md",
   economy: "rules/economy.md",
   cast: "campaign/cast.json",
   party: "characters/party.json",
@@ -774,7 +776,7 @@ export class Table extends DurableObject {
     pair[1].serializeAttachment({ admin: false, ip: clientIp(request) });
     const state = await this.load();
     if (!state.live?.loaded && await this.ensureLive(state)) await this.save(state);
-    pair[1].send(JSON.stringify(RULES_CATALOGUE));
+    pair[1].send(JSON.stringify({ ...RULES_CATALOGUE, spells1: (await this.spellbook()).filter((x) => x.tier === 1), startSpells: START_SPELLS }));
     pair[1].send(JSON.stringify(this.snapshot(state, pair[1])));
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -871,6 +873,10 @@ export class Table extends DurableObject {
   async commit(state) {
     await this.save(state);
     this.broadcast(state);
+  }
+
+  async spellbook() {
+    try { return parseSpellbook((await loadState(this.env)).spells); } catch { return []; }
   }
 
   // The sheets live here during play and go back to the repo on Save and End.
@@ -974,7 +980,8 @@ export class Table extends DurableObject {
         if (!live) throw new Error("The party file can't be read right now, so the character can't be written yet. Try again in a moment.");
         const own = sheetFor(state, s);
         if (own && !own.dead) throw new Error(`You already play ${own.name}.`);
-        const sheet = createSheet(msg.sheet, s.player);
+        const book = await this.spellbook();
+        const sheet = createSheet(msg.sheet, s.player, book.filter((x) => x.tier === 1), START_SPELLS);
         if (findSheet(live.list, sheet.name)) throw new Error(`There is already a character called "${sheet.name}".`);
         live.list.push(sheet);
         markDirty(state);
@@ -1170,6 +1177,7 @@ export class Table extends DurableObject {
       const sel = selectContext({ library, cast, scene: state.scene, recent: recentText(state) });
       ctx.library = library; ctx.cast = cast;
       ctx.party = state.live?.loaded ? state.live.list : [];
+      ctx.book = parseSpellbook(repo.spells);
       const messages = [
         { role: "system", content: buildSystemPrompt(repo, sel, partyBlock(state, repo)) },
         ...buildConversation(state),
@@ -1372,10 +1380,25 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
     } else if (req.dc != null) {
       outcome = r.total >= req.dc ? "success" : "failure";
     }
-    const miscant = !!(sheet && req.spellTier && fumble && CANTING_SKILLS.includes(req.skill));
+    // Which naturals miscant depends on what's cast; Luck 13 only ever takes away the 1.
+    const known = sheet && req.spell && !req.fusion ? findSpell(sheet.spells, req.spell) : null;
+    const threshold = miscantOn({ proven: known ? !!known.proven : true, freeform: req.freeform, fusion: !!req.fusion });
+    const miscant = !!(sheet && req.spellTier && CANTING_SKILLS.includes(req.skill) && face != null &&
+      face <= threshold && !(face === 1 && d?.noFumble));
     if (miscant) outcome = "miscant";
+    const worked = !miscant && !["failure", "miss"].includes(outcome);
     push(r, { rtype: req.type, label: req.label, dc: req.dc, ac: req.ac, adv, dis, outcome, modFrom: m.from, spellTier: req.spellTier || undefined });
 
+    if (sheet && worked && known && !known.proven) {
+      known.proven = true;
+      tell([`${sheet.name} has proven ${known.name}: it holds now.`]);
+      markDirty(state);
+    }
+    if (sheet && worked && req.fusion && !findSpell(sheet.spells, req.spell)) {
+      sheet.spells.push({ name: req.spell, tier: 6, proven: true, custom: true, text: `fused from ${req.fusion.join(" + ")}` });
+      tell([`${sheet.name} fuses ${req.fusion.join(" and ")} into a working of their own: ${req.spell}.`]);
+      markDirty(state);
+    }
     if (miscant) {
       const br = rollDice(BACKLASH[req.spellTier]);
       push(br, { rtype: "backlash", label: `${req.label}: backlash` });
@@ -1459,10 +1482,12 @@ function d20Face(r) {
 }
 
 function snapSheet(sheet) {
-  return { hp: sheet.hp, dying: sheet.dying ? { ...sheet.dying } : null, dead: sheet.dead, scarsOwed: sheet.scarsOwed, enduranceUsed: sheet.enduranceUsed };
+  return { hp: sheet.hp, dying: sheet.dying ? { ...sheet.dying } : null, dead: sheet.dead, scarsOwed: sheet.scarsOwed, enduranceUsed: sheet.enduranceUsed,
+    spells: JSON.parse(JSON.stringify(sheet.spells || [])) };
 }
 function restoreSheet(sheet, b) {
-  Object.assign(sheet, { hp: b.hp, dying: b.dying ? { ...b.dying } : null, dead: b.dead, scarsOwed: b.scarsOwed, enduranceUsed: b.enduranceUsed });
+  Object.assign(sheet, { hp: b.hp, dying: b.dying ? { ...b.dying } : null, dead: b.dead, scarsOwed: b.scarsOwed, enduranceUsed: b.enduranceUsed,
+    spells: JSON.parse(JSON.stringify(b.spells || sheet.spells || [])) });
 }
 
 // ---------------- live sheets ----------------
@@ -1558,6 +1583,10 @@ function applySheetOp(state, op) {
   if (op.item_condition) {
     const it = sheet.items.find((x) => sameName(x.name, op.item_condition.name));
     if (it) { it.condition = op.item_condition.condition; out.push(`${sheet.name}'s ${it.name} is now ${it.condition.toLowerCase()}.`); }
+  }
+  if (op.learn_spell) {
+    sheet.spells.push(op.learn_spell);
+    out.push(`${sheet.name} learns ${op.learn_spell.name} (tier ${op.learn_spell.tier}). Unproven until it's cast successfully.`);
   }
   if (op.add_scar) {
     sheet.scars.push(op.add_scar);
@@ -1688,7 +1717,9 @@ function buildSystemPrompt(state, sel, party) {
   - Which stat: melee attacks Strength (Agility for daggers and finesse), ranged attacks Perception, cants and resisting cants Resonance, noticing Perception, knowledge and devices Intelligence, persuasion and lies Charisma, reflexes and stealth Agility, enduring Endurance. Luck is never rolled.
   - Which skill: the weapon's size for melee, Ranged for bows and thrown, Canting or Ranged canting for spells, Heavy armor for blocking with a shield, and Survival, Medicine, Creation, Thievery, Performance or Artifice for those crafts. Leave the skill out when none fits; anyone can try anything on a stat alone.
   - A character without a sheet: give the whole modifier yourself (usually -1 to +5).
-  - Spells: give spell_tier (1 to 6). A character can't cast above their tier or without the Resonance for it (both shown on the sheet); the server refuses such requests and tells you. Devices can reach higher tiers (set device: true). Tier 6 needs Resonance 13, always.
+  - Spells: a character casts the spells on their sheet (give "spell" with its name; the server knows its tier and whether it is proven). Anything else is a freeform cant (freeform: true plus spell_tier). Unproven spells and freeform cants miscant on a natural 1 or 2; the server handles it. A character can't cast above their tier or without the Resonance for it; the server refuses and tells you. Devices can reach higher tiers (device: true).
+  - Spells are learned by being taught, found, or worked out from theory: when that happens in the story, call update_sheet learn_spell. Teachers want coin, service or standing.
+  - TIER 6 has no list. Only a Resonance 13 canter reaches it, and writes their own: developed over about a week of downtime (learn_spell with tier 6 and one sentence), or fused on the spot from two known tier-5 or three known tier-4 spells (request_rolls with fusion and the new working's name in spell; it miscants on 1-3). Judge every working against the tier-6 benchmarks. It can never undo death, bend a mind of glass, or touch the bank. It can reach the Rim, but nothing that comes back can be read, and you never explain it. Every tier-6 cast is felt across the continent; the powers notice.
   - Use update_sheet for everything that changes a sheet: damage you deal and healing, coin gained or paid, items gained, lost or damaged, Resonance spent outside a rolled cant, a dying character stabilised, and scars. The server handles dropping to 0, dying, death saves (it asks for them itself every round) and the rest.
   - Scars are pure story: when a sheet says a scar is OWED, write one that fits how it happened (one short line) with add_scar.
   - Lucky breaks: a player may say they spend one against a roll made against them. Reroll it with roll_dice and lucky_break set to their name; the new result stands. Their own rolls they reroll themselves.
@@ -1727,6 +1758,11 @@ ${party || "(empty roster)"}
 ${logTail || "(no sessions yet)"}`;
 }
 
+// The spellbook is only read when the Lattice is in play.
+function spellTopics(title) {
+  return /^tier 6/i.test(title) ? ["weave", "war"] : ["weave"];
+}
+
 // Split the repo files into the chunks the selector works with.
 function buildLibrary(repo) {
   return {
@@ -1735,6 +1771,7 @@ function buildLibrary(repo) {
     rules: [
       ...chunkMarkdown(repo.rules, "rules", rulesTopics, { level: 3 }),
       ...chunkMarkdown(repo.characters, "characters", characterTopics, { level: 3 }),
+      ...chunkMarkdown(repo.spells, "spells", spellTopics, { level: 2 }),
     ],
   };
 }
@@ -1802,7 +1839,10 @@ DICE_TOOLS.push({
               stat: { type: "string", enum: STATS, description: "The stat the roll uses. The server adds its modifier from the sheet." },
               skill: { type: "string", enum: Object.keys(SKILLS), description: "The skill the roll uses, if any. The server adds its bonus from the sheet and counts the use toward learning it." },
               modifier: { type: "integer", description: "With a sheet: only situational extras (cover, a good tool), usually 0. Without a sheet: the whole modifier." },
-              spell_tier: { type: "integer", minimum: 1, maximum: 6, description: "For a cant: its tier. The server charges the Resonance cost and handles miscants." },
+              spell: { type: "string", description: "For a cant: the spell's name as on the caster's sheet. The server takes its tier from there, and knows whether it is proven." },
+              spell_tier: { type: "integer", minimum: 1, maximum: 6, description: "For a freeform cant (or a new tier-6 fusion): its tier. Known spells take their tier from the sheet." },
+              freeform: { type: "boolean", description: "A cant improvised from the root-language grammar, not a spell the caster knows. Miscants on a natural 1 or 2." },
+              fusion: { type: "array", items: { type: "string" }, description: "Tier 6 only: the known spells being fused on the spot, two tier-5 or three tier-4. Give the new working's name in 'spell'. Miscants on 1-3; on a success it becomes a named working on the sheet." },
               device: { type: "boolean", description: "For a cant through a device that lets the caster reach above their own tier." },
               dc: { type: "integer", description: "Difficulty class, for checks and saves" },
               target_ac: { type: "integer", description: "Armor Class of the target, for attacks" },
@@ -1899,6 +1939,12 @@ DICE_TOOLS.push({
           required: ["name", "condition"],
         },
         add_scar: { type: "string", description: "One short line: the scar and how it came to be. Only when the sheet says a scar is OWED." },
+        learn_spell: {
+          type: "object",
+          description: "The character learns a spell: taught, found, or worked out. A spellbook spell needs only its name. A working of their own (a developed tier-6, or a custom spell) needs tier and text. It starts unproven.",
+          properties: { name: { type: "string" }, tier: { type: "integer", minimum: 1, maximum: 6 }, text: { type: "string", description: "For their own working: one sentence of what it does" } },
+          required: ["name"],
+        },
       },
       required: ["character"],
     },
@@ -1907,7 +1953,7 @@ DICE_TOOLS.push({
 const MAX_GM_TOOL_ROUNDS = 4;
 
 // Turn the GM's request_rolls arguments into stored requests, or explain what's wrong.
-function parseRequests(args, seats, party = []) {
+function parseRequests(args, seats, party = [], book = []) {
   const out = [], problems = [];
   const names = seats.map((s) => label(s));
   for (const r of Array.isArray(args?.rolls) ? args.rolls : []) {
@@ -1925,12 +1971,38 @@ function parseRequests(args, seats, party = []) {
       stat: STATS.includes(r.stat) ? r.stat : null,
       skill: SKILLS[r.skill] ? r.skill : null,
       spellTier: Number.isInteger(+r.spell_tier) && +r.spell_tier >= 1 && +r.spell_tier <= 6 ? +r.spell_tier : null,
+      spell: r.spell ? clean(String(r.spell), 80) : null,
+      freeform: !!r.freeform,
+      fusion: Array.isArray(r.fusion) && r.fusion.length ? r.fusion.map((x) => clean(String(x), 80)) : null,
     };
     const sheet = seat.character ? findSheet(party, seat.character) : null;
     if (sheet && sheet.stats) {
       if (sheet.dead) { problems.push(`${sheet.name} is dead`); continue; }
       if (sheet.dying) { problems.push(`${sheet.name} is unconscious; the only roll they make is a death save, and the server asks for that itself`); continue; }
       if (!req.stat && ["check", "save", "attack"].includes(type)) problems.push(`${r.label}: no stat given, so ${sheet.name} rolls with only the modifier you gave. Give a stat next time.`);
+      // Spells: known ones take their tier from the sheet; fusion and freeform are checked here.
+      if (req.fusion) {
+        const parts = req.fusion.map((n) => findSpell(sheet.spells, n));
+        const tiers = parts.map((x) => x?.tier);
+        const missing = req.fusion.filter((n, i) => !parts[i]);
+        if (sheet.capstone !== "resonance") { problems.push(`${r.label}: only a Resonance 13 canter can fuse a tier-6 working`); continue; }
+        if (missing.length) { problems.push(`${r.label}: ${sheet.name} doesn't know ${missing.join(", ")}`); continue; }
+        const ok = (tiers.length === 2 && tiers.every((t) => t === 5)) || (tiers.length === 3 && tiers.every((t) => t === 4));
+        if (!ok) { problems.push(`${r.label}: a fusion takes two tier-5 spells or three tier-4 spells`); continue; }
+        if (!req.spell) { problems.push(`${r.label}: name the new working in "spell"`); continue; }
+        if (findSpell(sheet.spells, req.spell)) { problems.push(`${r.label}: ${sheet.name} already has a working called ${req.spell}`); continue; }
+        req.spellTier = 6;
+        req.freeform = false;
+      } else if (req.spell && !req.freeform) {
+        const known = findSpell(sheet.spells, req.spell);
+        if (!known) { problems.push(`${r.label}: ${sheet.name} doesn't know ${req.spell}. Teach it with update_sheet learn_spell, or cast it as freeform`); continue; }
+        req.spell = known.name;
+        req.spellTier = known.tier;
+        if (!req.skill) req.skill = findSpell(book, known.name)?.skill || "canting";
+      } else if (req.freeform && !req.spellTier) {
+        problems.push(`${r.label}: a freeform cant needs a spell_tier`); continue;
+      }
+      if (req.spellTier && !req.skill) req.skill = "canting";
       if (req.spellTier) {
         const d = derive(sheet);
         if (req.spellTier === 6 && sheet.capstone !== "resonance") { problems.push(`${r.label}: tier 6 needs Resonance 13; ${sheet.name} can't cast it, with or without a device`); continue; }
@@ -1948,7 +2020,7 @@ function parseRequests(args, seats, party = []) {
 }
 
 // Check an update_sheet call against the sheets; return a clean operation.
-function parseSheetOp(args, party) {
+function parseSheetOp(args, party, book = []) {
   const c = findSheet(party, args?.character);
   if (!c || !c.stats) return { error: `No character sheet called "${args?.character}". Names: ${party.filter((x) => x.stats).map((x) => x.name).join(", ") || "none"}.` };
   const num = (v) => (Number.isFinite(+v) ? +v : 0);
@@ -1980,6 +2052,19 @@ function parseSheetOp(args, party) {
     op.item_condition = { name: clean(String(args.item_condition.name), 80), condition: args.item_condition.condition };
   }
   if (args.add_scar) op.add_scar = clean(String(args.add_scar), 200);
+  if (args.learn_spell?.name) {
+    const name = clean(String(args.learn_spell.name), 80);
+    const fromBook = findSpell(book, name);
+    if (findSpell(c.spells, name)) return { error: `${c.name} already knows ${name}.` };
+    if (fromBook) op.learn_spell = { name: fromBook.name, tier: fromBook.tier, proven: false };
+    else {
+      const tier = Math.trunc(num(args.learn_spell.tier));
+      const text = clean(String(args.learn_spell.text || ""), 240);
+      if (!(tier >= 1 && tier <= 6) || !text) return { error: `${name} isn't in the spellbook. For a working of their own, give tier (1-6) and one sentence of text.` };
+      if (tier === 6 && c.capstone !== "resonance") return { error: `Only a Resonance 13 canter can write a tier-6 working.` };
+      op.learn_spell = { name, tier, proven: false, custom: true, text };
+    }
+  }
   if (Object.keys(op).length === 1) return { error: "Nothing to change. Give damage, heal, purse, an item, a scar, or another field." };
   return { op };
 }
@@ -2035,7 +2120,7 @@ async function gmTurn(env, model, messages, ctx = {}) {
         continue;
       }
       if (call.function?.name === "request_rolls") {
-        const { requests: got, problems } = parseRequests(args, ctx.seats || [], ctx.party || []);
+        const { requests: got, problems } = parseRequests(args, ctx.seats || [], ctx.party || [], ctx.book || []);
         requests.push(...got);
         content = JSON.stringify({
           requested: got.map((q) => q.label),
@@ -2046,7 +2131,7 @@ async function gmTurn(env, model, messages, ctx = {}) {
         continue;
       }
       if (call.function?.name === "update_sheet") {
-        const { op, error } = parseSheetOp(args, ctx.party || []);
+        const { op, error } = parseSheetOp(args, ctx.party || [], ctx.book || []);
         if (op) sheetOps.push(op);
         convo.push({ role: "tool", tool_call_id: call.id, name: "update_sheet",
           content: JSON.stringify(op ? { applied: op.character, note: "Applied right after your answer; the table sees it." } : { error }) });

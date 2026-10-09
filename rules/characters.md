@@ -196,6 +196,8 @@ A fresh character starts with **50 cv**, clothes, a pack, and **3 items** of the
 
 Every item points at a skill: what you carry is where you start learning.
 
+**Two tier-1 spells**, picked at creation from `rules/spells.md`, both unproven until first cast successfully.
+
 - **Armor:** padded coat +1 AC, leather jack +2, battered mail +4 (Damaged). One suit at a time; it's worn from the start.
 - **Weapons:** dagger, baton and throwing knives 1d4; mace and bow 1d6; sword, crossbow and the cracked energy staff 1d8; halberd 1d10; greatsword 2d6. Greatswords, halberds, bows, crossbows and staves need two hands.
 - The kit is picked on the **creation screen**, along with stats and backstory. The GM never builds a sheet.
