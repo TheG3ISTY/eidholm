@@ -771,6 +771,7 @@ export class Table extends DurableObject {
         state.session = null;
         state.scene = null;
         state.marks = { scene: 0, done: {} };
+        state.dryRounds = 0;
         state.begun = false;
         state.opening = null;
         // A discarded scene also throws away unsaved changes to the sheets; after
@@ -863,6 +864,7 @@ export class Table extends DurableObject {
       gmMode: s.gmMode === "human" ? "human" : "ai",   // who answers: the AI, or a person in the GM seat
       live: s.live || null,         // the party's sheets as they are right now: { loaded, list, clock, dirty }
       marks: s.marks || { scene: 0, done: {} },   // skill marks already given this scene
+      dryRounds: s.dryRounds || 0,     // rounds with actions and no roll asked for
       begun: !!s.begun,                // the opening scene has been asked for this session
       opening: s.opening || null,      // { id, brief }: the GM's private note for the opening round
     };
@@ -1494,6 +1496,10 @@ export class Table extends DurableObject {
         markDirty(fresh);
       }
     }
+    // Rounds of player actions with no roll asked for: the reminder gets louder.
+    const acted = fresh.messages.some((m) => m.round === round && m.kind === "act");
+    if (result.requests?.length) fresh.dryRounds = 0;
+    else if (acted) fresh.dryRounds = (fresh.dryRounds || 0) + 1;
     const u = result.usage || {};
     addSpend(fresh, tier, u);
     // Actions posted during resolution belong to the next round, not this one.
@@ -2052,6 +2058,7 @@ function buildConversation(state) {
     }
     let content = `ROUND ${r}: actions gathered from the table:\n${lines.join("\n") || "- (no actions)"}`;
     if (r === state.round) {
+      content += "\n\n" + rollReminder(state);
       content += `\n\nAt the table now: ${present.join(", ") || "nobody"}.` +
         (absent.length ? ` Absent (elsewhere, do not narrate them acting): ${absent.join(", ")}.` : "");
     }
@@ -2063,6 +2070,25 @@ function buildConversation(state) {
     });
   }
   return out;
+}
+
+// Said every round, louder after rounds of none: the small model tends to narrate past the dice.
+const ROLL_DROUGHT = 3;
+function rollReminder(state) {
+  const dry = state.dryRounds || 0;
+  if (dry >= ROLL_DROUGHT) {
+    return `(Reminder: you have not asked for a single roll in ${dry} rounds. That is too long. Look at each action above: anything uncertain with something at stake gets request_rolls now, before you narrate its outcome.)`;
+  }
+  return "(Before answering: does any action above have an uncertain outcome with something at stake? Then call request_rolls first and don't narrate how it ends.)";
+}
+
+// The GM wrote "roll a check" in prose but never called the tool: the players got no buttons.
+function asksForRollInProse(text) {
+  const t = String(text || "");
+  return /\bDC\s*\d+/.test(t) ||
+    /\b(make|give me|call for)\s+(me\s+)?(a|an|your)\s+[\w' -]{0,25}\b(check|save|saving throw|roll)\b/i.test(t) ||
+    /\bneeds?\s+(a|an)\s+[\w' -]{0,25}\b(check|save|saving throw|roll)\b/i.test(t) ||
+    /\broll\s+(for|a|an)\s+\w/i.test(t);
 }
 
 // The party as the GM sees it: live sheets, the clock, and who still needs one.
@@ -2117,6 +2143,7 @@ function buildSystemPrompt(state, sel, party) {
 - FIXED FIGURES in the CAST are canon-level characters: keep their names, offices, wants and secrets consistent forever; reveal secrets only through play. Their contradictions and how they treat the party shape every scene they are in.
 - Eidholm's peoples are human. "Dwarven-blooded" Clansmine folk are a human lineage, not a separate species.
 - DICE. Chance uses D&D 5e rules: d20 tests against a DC or Armor Class, advantage and disadvantage, natural 20 and 1 on attacks, damage dice, death saves.
+  - WHEN TO ASK FOR A ROLL. Whenever a player character tries something whose outcome is uncertain and where failing would matter, you MUST call request_rolls and must NOT decide the outcome yourself: attacking, casting, sneaking, climbing, picking a lock, lying, persuading or intimidating someone who isn't already willing, searching or noticing something hidden, resisting harm, anything done under pressure or against opposition. Only trivial or certain actions (walking in, talking to a willing friend, buying at the posted price) go without a roll. Rolls are the game: a scene with real risk and no rolls is a mistake. Asking in prose ("make a Perception check") does nothing: only the request_rolls tool gives the players their buttons.
   - Player characters roll their own dice, through buttons. When any need a roll, call the request_rolls tool once with every roll needed, in order: the type (check, save, attack, damage, other), a short label ("Agility save", "Sword attack"), the STAT and the SKILL it uses, the DC for checks and saves, the target's Armor Class and damage dice for attacks, the spell tier for any cant, and the reasons for any advantage or disadvantage. The server reads the character's sheet and adds the stat and skill bonuses itself: put only situational extras in "modifier". It applies the 5e rules (advantage and disadvantage cancel, hits, misses, criticals, damage only on a hit), Luck, armor penalties, Resonance costs and miscants. Then tell the players briefly what they are rolling for and stop; do not narrate outcomes yet. Results arrive next round as "rolls ..." lines with the outcome. Never roll for a player character and never invent their result.
   - Which stat: melee attacks Strength (Agility for daggers and finesse), ranged attacks Perception, cants and resisting cants Resonance, noticing Perception, knowledge and devices Intelligence, persuasion and lies Charisma, reflexes and stealth Agility, enduring Endurance. Luck is never rolled.
   - Which skill: the weapon's size for melee, Ranged for bows and thrown, Canting or Ranged canting for spells, Heavy armor for blocking with a shield, and Survival, Medicine, Creation, Thievery, Performance or Artifice for those crafts. Leave the skill out when none fits; anyone can try anything on a stat alone.
@@ -2587,6 +2614,7 @@ async function gmTurn(env, model, messages, ctx = {}) {
   const sheetOps = [];
   const luckSpent = [];
   const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+  let corrected = false;
   for (let i = 0; i <= MAX_GM_TOOL_ROUNDS; i++) {
     const data = await mistralRequest(env, {
       model, temperature: 0.8, max_tokens: 1000, messages: convo,
@@ -2597,6 +2625,13 @@ async function gmTurn(env, model, messages, ctx = {}) {
     const calls = msg.tool_calls || [];
     if (!calls.length) {
       if (!msg.content) throw new Error("Mistral sent an empty reply");
+      if (!requests.length && !corrected && i < MAX_GM_TOOL_ROUNDS && asksForRollInProse(msg.content)) {
+        // Asked for a roll in words only: ask once more, through the tool, then take the new answer.
+        corrected = true;
+        convo.push({ role: "assistant", content: msg.content });
+        convo.push({ role: "user", content: "(System: you asked for a roll in your text, but the players only get buttons from the request_rolls tool. Call request_rolls now for every roll you meant, then write your answer again, without the outcome.)" });
+        continue;
+      }
       return { reply: msg.content, usage, rolls, requests, remember, sheetOps, luckSpent };
     }
     convo.push({ role: "assistant", content: msg.content || "", tool_calls: calls });
