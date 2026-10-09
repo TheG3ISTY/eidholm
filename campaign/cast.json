@@ -340,6 +340,20 @@
       "contradiction": "merciless with Anchorers, achingly gentle with the souls they trap; talks to wiring-ghosts as people, because she believes they are",
       "with_party": "cold until she knows whether they've trafficked in souls; then an ally, or the worst enemy they'll make in the Choir",
       "meet_level": 10
+    },
+    {
+      "name": "Rust-Eye Harkin",
+      "status": "active",
+      "first_seen_session": 1,
+      "role": "former Echo-warden, now a rogue operative in the ruins",
+      "faction": "Unaligned (formerly Echo-warden)",
+      "where": "The Echo-chambers beneath the Combine Concord's ruins",
+      "look": "Gaunt, masked face now exposed, burned hand scarred but healing, clad in scavenged Echo-warden remnants and a patched coat",
+      "attitude": "wary but loyal in a fight, desperate to survive the Echo",
+      "ledger": "None",
+      "secret": "He once served as an Echo-warden but fled after witnessing something that broke his faith in the Combine Concord; he knows more about the Echo-wardens and their connection to the crucible than he lets on, and he’s terrified of what’s coming.",
+      "notes": "Rust-Eye is not a mind of glass, but he knows how to navigate the ruins and the Echo’s influence—though his knowledge is incomplete and dangerous. He’s willing to fight if it means survival, but he’s no hero.",
+      "reason": "A debt, favor, promise, contract or Exchange deal ties them to a character (Ledger); they hurt a character, were hurt by one, or survived a fight with the party (Blood); they know something about a character or the plot (Secrets); they hold real power, including any bank enforcer assigned to a chara"
     }
   ]
 }

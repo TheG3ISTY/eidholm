@@ -36,7 +36,7 @@
         },
         "ranged_canting": {
           "rank": 1,
-          "marks": 0
+          "marks": 1
         },
         "performance": {
           "rank": 1,
@@ -47,6 +47,10 @@
           "marks": 0
         },
         "large_melee": {
+          "rank": 1,
+          "marks": 0
+        },
+        "heavy_armor": {
           "rank": 1,
           "marks": 0
         }
@@ -120,6 +124,10 @@
         {
           "name": "Glimmer",
           "tier": 1
+        },
+        {
+          "name": "Ember Lance",
+          "tier": 2
         }
       ],
       "debts": [],
@@ -127,7 +135,7 @@
       "scars": [],
       "created": "2026-10-09",
       "hp": 32,
-      "pool": 22,
+      "pool": 18.29,
       "luckUsed": 0,
       "enduranceUsed": false,
       "dying": "",
@@ -140,8 +148,8 @@
     }
   ],
   "clock": {
-    "minutes": 405,
-    "max": 405,
-    "label": "Day 1, 06:45"
+    "minutes": 410,
+    "max": 410,
+    "label": "Day 1, 06:50"
   }
 }
