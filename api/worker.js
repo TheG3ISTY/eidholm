@@ -41,7 +41,7 @@ const STATE_FILES = {
 };
 // Difficulty is chosen as a word and the server sets the number, so the model can't
 // drift every check up to 15+. A level-1 character has about +0 to +2.
-const DIFFICULTY = { easy: 10, moderate: 12, hard: 15, very_hard: 18 };
+const DIFFICULTY = { very_easy: 7, easy: 8, fair: 10, moderate: 12, hard: 15, very_hard: 18 };
 
 const LOG_TAIL_CHARS = 4000;
 const STATE_CACHE_SECONDS = 60;
@@ -2269,7 +2269,7 @@ How to fill a roll:
 - character: the name exactly as given. label: what is tested, short ("Resonance save: the glass thread", "Perception: read Severin").
 - type: check, save or attack. stat: strength, perception, endurance, charisma, intelligence, agility or resonance (never luck). skill when one fits: small_melee, medium_melee, large_melee, ranged, canting, ranged_canting, survival, medicine, creation, thievery, performance, artifice.
 - Stats: melee attacks strength (agility for daggers), ranged attacks perception, cants resonance, noticing perception, knowledge and devices intelligence, persuading and lying charisma, reflexes and stealth agility, toughness endurance.
-- difficulty for every check and save: moderate is the usual choice. easy for something routine that still carries a little risk. hard only when the fiction makes it hard (guarded, expert-made, under fire, in the dark). very_hard is rare. These characters are beginners: most of what they try should be moderate. Attacks: target_ac (10-12 unarmoured, 13-15 armoured, 16-18 heavily armoured) and damage_dice from the weapon.
+- difficulty for every check and save: moderate (DC 12) is the usual choice. fair (10) for an ordinary task with something at stake; easy (8) or very_easy (7) for something simple that could still go wrong. hard (15) only when the fiction makes it hard (guarded, expert-made, under fire, in the dark). very_hard is rare. These characters are beginners: most of what they try should be moderate. Attacks: target_ac (10-12 unarmoured, 13-15 armoured, 16-18 heavily armoured) and damage_dice from the weapon.
 - Spells: a spell on the character's sheet goes by its name in "spell". A spell the character improvises: freeform true, spell named, spell_tier.
 - At most two rolls per character. Never a roll for something already rolled this round. Never invent actions the players did not take.`;
 
@@ -2287,7 +2287,7 @@ function refereeRequestTool() {
   const t = JSON.parse(JSON.stringify(DICE_TOOLS.find((x) => x.function.name === "request_rolls")));
   const item = t.function.parameters.properties.rolls.items;
   delete item.properties.dc;
-  item.properties.difficulty.description = "For every check and save. moderate is the usual. easy for something routine with a little risk. hard only when the fiction makes it hard: guarded, expert-made, under fire, in the dark. very_hard is rare.";
+  item.properties.difficulty.description = "For every check and save. moderate (DC 12) is the usual. fair (10) for an ordinary task with something at stake; easy (8) or very_easy (7) for something simple that could still go wrong. hard (15) only when the fiction makes it hard: guarded, expert-made, under fire, in the dark. very_hard (18) is rare.";
   return t;
 }
 
@@ -2321,7 +2321,7 @@ function aiRequests(args, ctx) {
   const again = (q) => (ctx.rolled || []).includes(`${q.seatId}|${String(q.label || "").trim().toLowerCase()}`);
   const noDc = (q) => (q.type === "check" || q.type === "save") && q.dc == null && !q.spellTier && !q.spell;
   for (const q of parsed.requests.filter(again)) problems.push(`${q.label} was already rolled this round: its result is final. Narrate what it leads to instead.`);
-  for (const q of parsed.requests.filter(noDc)) problems.push(`${q.label}: no DC, so nothing is pushing back and no roll is needed. Narrate it, or give its difficulty (easy, moderate, hard, very_hard).`);
+  for (const q of parsed.requests.filter(noDc)) problems.push(`${q.label}: no DC, so nothing is pushing back and no roll is needed. Narrate it, or give its difficulty (very_easy, easy, fair, moderate, hard, very_hard).`);
   return { requests: parsed.requests.filter((q) => !again(q) && !noDc(q)), problems };
 }
 
@@ -2445,7 +2445,7 @@ function buildSystemPrompt(state, sel, party) {
   - WHEN TO ASK FOR A ROLL. Roll only when a character attempts something that could fail and failing would cost them: attacking, casting, sneaking past someone, climbing something dangerous, forcing or picking a lock, lying to or pressuring someone unwilling, searching for something hidden, scanning for danger or looking for a way out somewhere that isn't safe, examining something strange or unknown (Perception or Intelligence), resisting harm. Then you MUST call request_rolls and must NOT decide the outcome yourself. NO ROLL for: asking someone a question, talking, agreeing, listening, walking somewhere, glancing around a place that is calm and safe, picking up or readying a weapon, turning to face someone, lowering a weapon, anything the world simply allows or a willing person simply answers. Most conversation needs no roll at all. Every check and save needs a DC, which is what pushes back; if nothing pushes back, there is no roll. The label names what is being tested ("Perception: the shard", "Stealth past the guards"), never the player's whole action. Asking in prose ("make a Perception check") does nothing: only the request_rolls tool gives the players their buttons.
   - THREATS TO PLAYER CHARACTERS: never decide whether an attack, trap, spell, grab, blast or poison aimed at a player character lands. Describe it coming and end your reply on it; the dice decide it next round.
   - WHEN RESULTS ARRIVE ("rolls ..." lines with SUCCESS or FAILURE), the roll is settled: narrate its consequences at once and move the scene forward. Never ask for the same roll again, and never ask for a second roll to decide the same thing. A failure is not a retry: it costs time, noise, coin, blood or position, or something goes wrong, and the players choose what to do next.
-  - Player characters roll their own dice, through buttons. When any need a roll, call the request_rolls tool once with every roll needed, in order: the type (check, save, attack, damage, other), a short label ("Agility save", "Sword attack"), the STAT and the SKILL it uses, the difficulty for checks and saves (moderate is the usual; easy, hard or very_hard when the fiction says so; the server sets the DC), the target's Armor Class and damage dice for attacks, the spell tier for any cant, and the reasons for any advantage or disadvantage. The server reads the character's sheet and adds the stat and skill bonuses itself: put only situational extras in "modifier". It applies the 5e rules (advantage and disadvantage cancel, hits, misses, criticals, damage only on a hit), Luck, armor penalties, Resonance costs and miscants. Then tell the players briefly what they are rolling for and stop; do not narrate outcomes yet. Results arrive next round as "rolls ..." lines with the outcome. Never roll for a player character and never invent their result.
+  - Player characters roll their own dice, through buttons. When any need a roll, call the request_rolls tool once with every roll needed, in order: the type (check, save, attack, damage, other), a short label ("Agility save", "Sword attack"), the STAT and the SKILL it uses, the difficulty for checks and saves (very_easy 7, easy 8, fair 10, moderate 12 the usual, hard 15, very_hard 18; the server sets the DC), the target's Armor Class and damage dice for attacks, the spell tier for any cant, and the reasons for any advantage or disadvantage. The server reads the character's sheet and adds the stat and skill bonuses itself: put only situational extras in "modifier". It applies the 5e rules (advantage and disadvantage cancel, hits, misses, criticals, damage only on a hit), Luck, armor penalties, Resonance costs and miscants. Then tell the players briefly what they are rolling for and stop; do not narrate outcomes yet. Results arrive next round as "rolls ..." lines with the outcome. Never roll for a player character and never invent their result.
   - Which stat: melee attacks Strength (Agility for daggers and finesse), ranged attacks Perception, cants and resisting cants Resonance, noticing Perception, knowledge and devices Intelligence, persuasion and lies Charisma, reflexes and stealth Agility, enduring Endurance. Luck is never rolled.
   - Which skill: the weapon's size for melee, Ranged for bows and thrown, Canting or Ranged canting for spells, Heavy armor for blocking with a shield, and Survival, Medicine, Creation, Thievery, Performance or Artifice for those crafts. Leave the skill out when none fits; anyone can try anything on a stat alone.
   - A character without a sheet: give the whole modifier yourself (usually -1 to +5).
@@ -2613,7 +2613,7 @@ DICE_TOOLS.push({
               learning: { type: "boolean", description: "Casting a spellbook spell the caster does NOT know yet (worked out from theory or watching). A straight d8 first: equal to or lower than the tier miscasts. If the cast works, they learn it." },
               held: { type: "boolean", description: "For a freeform cant or own working with a duration: it has to be held (one at a time)." },
               fusion: { type: "array", items: { type: "string" }, description: "Tier 6 only, mid-fight: the known spells being fused right now (two tier-5 or three tier-4); name the new working in 'spell'. Learning by casting at tier 6: the d8 fails on 1-6. On a success it goes on the sheet. (A fusion meditated overnight is update_sheet learn_spell with fused_from instead.)" },
-              difficulty: { type: "string", enum: Object.keys(DIFFICULTY), description: "For checks and saves: easy (DC 10), moderate (12, the usual), hard (15), very_hard (18). Prefer this to dc." },
+              difficulty: { type: "string", enum: Object.keys(DIFFICULTY), description: "For checks and saves: very_easy (DC 7), easy (8), fair (10), moderate (12, the usual), hard (15), very_hard (18). Prefer this to dc." },
               dc: { type: "integer", description: "An exact DC, only when one is fixed by the rules (a caster's spell save DC). Otherwise use difficulty." },
               target_ac: { type: "integer", description: "Armor Class of the target, for attacks" },
               damage_dice: { type: "string", description: "For attacks: damage dice rolled on a hit, e.g. '1d6'" },
