@@ -124,6 +124,17 @@ Players joining, leaving or stepping away mid-session are recorded as lines in t
 
 **Discard scene** (also in Settings) throws the scene away without saving, for test runs, including any sheet changes since the last save. Players can no longer clear the scene themselves.
 
+## The model, and running without one
+
+The GM model is any provider with an OpenAI-style chat completions API (Mistral is one). By default it calls Mistral with the `MISTRAL_API_KEY` secret. To use another provider, set two more:
+
+- `LLM_URL`: the provider's chat completions URL (a variable)
+- `LLM_API_KEY`: its key (a secret)
+
+and set `MODEL` / `MODEL_LARGE` in `wrangler.toml` to that provider's model names. The model must support tool calling.
+
+To run with a person as GM instead, switch **Settings → Who runs the game** to *Human game master* and take the GM seat. No model is called at all in that mode, so it works with no key set.
+
 ## Character sheets during play
 
 The sheets live on the table (the `Table` Durable Object) while a session runs, so every hit, coin, mark and level is instant and nothing waits on GitHub. They go back to `characters/party.json` on **Save**, **End session**, and every edit made in the unsealed Party tab (that edit commits everything that changed at the table too, so nothing is lost either way). The header shows "sheets unsaved" until then. A hand edit made directly in the repo is picked up after End session or Discard.

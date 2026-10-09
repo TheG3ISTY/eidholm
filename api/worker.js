@@ -8,9 +8,10 @@
 // WebSocket:
 //   GET  /api/ws?ticket=...   live connection to the shared table
 //
-// Secrets: GAME_PASSWORD, MISTRAL_API_KEY, GITHUB_TOKEN (read-only)
+// Secrets: GAME_PASSWORD, MISTRAL_API_KEY (or LLM_API_KEY), GITHUB_TOKEN (read-only)
 // Settings secrets: ADMIN_USERNAME, ADMIN_PASSWORD, GITHUB_WRITE_TOKEN (contents read+write)
 // Vars:    MODEL, MODEL_LARGE, GITHUB_REPO, GITHUB_BRANCH
+// Optional: LLM_URL + LLM_API_KEY for any OpenAI-style chat API instead of Mistral
 // Optional dev overrides: MISTRAL_URL, GITHUB_API
 
 import { DurableObject } from "cloudflare:workers";
@@ -827,6 +828,7 @@ export class Table extends DurableObject {
       requests: s.requests || [],   // rolls the GM asked for: { rid, round, seatId, order, type, label, ..., status }
       nextRid: s.nextRid || 1,
       graceUntil: s.graceUntil || 0,
+      gmMode: s.gmMode === "human" ? "human" : "ai",   // who answers: the AI, or a person in the GM seat
       live: s.live || null,         // the party's sheets as they are right now: { loaded, list, clock, dirty }
       marks: s.marks || { scene: 0, done: {} },   // skill marks already given this scene
     };
@@ -846,14 +848,20 @@ export class Table extends DurableObject {
   snapshot(state, ws) {
     const att = (ws && ws.deserializeAttachment()) || {};
     const canSee = !!att.admin || !!state.revealGmRolls;
+    const gmHere = this.ctx.getWebSockets().some((w) => { try { return !!w.deserializeAttachment()?.gmSeat; } catch { return false; } });
     return {
       t: "state",
-      seats: state.seats,
+      seats: state.seats.map(({ key, ...x }) => ({ ...x, claimed: !!key })),
+      gmMode: state.gmMode,
+      gmPresent: gmHere,
+      youAreGm: !!att.gmSeat,
+      scene: att.admin ? state.scene : null,
+      complete: roundComplete(state),
       messages: state.messages.slice(-SNAPSHOT_MESSAGES).map((m) => viewMessage(m, canSee)),
       revealGmRolls: !!state.revealGmRolls,
       admin: !!att.admin,
       requests: state.requests
-        .filter((r) => r.round === state.round && r.status === "pending")
+        .filter((r) => r.round === state.round && r.status === "pending" && stillOwed(state, r))
         .map((r) => {
           const { before, ...q } = r;
           const sheet = sheetFor(state, state.seats.find((x) => x.id === r.seatId));
@@ -907,22 +915,125 @@ export class Table extends DurableObject {
   async handle(ws, msg) {
     const state = await this.load();
     const seat = (id) => state.seats.find((s) => s.id === id);
+    const att = ws.deserializeAttachment() || {};
+    // A seat answers only to the device holding its key, or to an unsealed GM.
+    const mine = (id) => {
+      const s = seat(id);
+      if (!s) throw new Error("That seat no longer exists.");
+      if (att.admin || (s.key && msg.key && s.key === msg.key)) return s;
+      throw new Error(s.key ? "That seat belongs to another device. The GM can free it in Settings." : "Sit down first: pick this seat on the seat screen.");
+    };
+    const gmOnly = () => {
+      if (!att.admin || !att.gmSeat) throw new Error("Only the GM, in the GM seat, can do that.");
+      if (state.gmMode !== "human") throw new Error("The AI is the GM right now. Switch to a human GM in Settings first.");
+    };
 
     switch (msg.t) {
       case "join": {
         const player = clean(msg.player, MAX_NAME);
         if (!player) throw new Error("A name is needed to take a seat.");
-        const s = { id: "s" + crypto.randomUUID().slice(0, 8), player, character: clean(msg.character, MAX_NAME), present: true };
+        const s = { id: "s" + crypto.randomUUID().slice(0, 8), player, character: clean(msg.character, MAX_NAME), present: true, key: crypto.randomUUID() };
         state.seats.push(s);
         addEvent(state, s.character ? `${s.character} (${s.player}) takes a seat.` : `${s.player} takes a seat, without a character yet.`, s);
-        send(ws, { t: "joined", seatId: s.id });
+        send(ws, { t: "joined", seatId: s.id, key: s.key });
         return this.commit(state);
+      }
+
+      case "claim": {
+        // Sitting down in an existing seat: free seats can be taken; a held one only by the GM.
+        const s = seat(msg.seatId);
+        if (!s) throw new Error("That seat no longer exists.");
+        if (s.key && msg.key === s.key) { send(ws, { t: "joined", seatId: s.id, key: s.key }); return; }
+        if (s.key && !att.admin) throw new Error(`${label(s)} is already taken on another device. The GM can free the seat in Settings.`);
+        s.key = crypto.randomUUID();
+        send(ws, { t: "joined", seatId: s.id, key: s.key });
+        return this.commit(state);
+      }
+
+      case "freeSeat": {
+        if (!att.admin) throw new Error("Only an unsealed GM can free a seat.");
+        const s = seat(msg.id);
+        if (!s) throw new Error("That seat no longer exists.");
+        delete s.key;
+        addEvent(state, `The GM frees ${label(s)}'s seat: the next device to sit there takes it.`, s);
+        return this.commit(state);
+      }
+
+      case "gmMode": {
+        if (!att.admin) throw new Error("Only an unsealed GM can change who runs the game.");
+        const mode = msg.mode === "human" ? "human" : "ai";
+        if (mode === state.gmMode) return send(ws, this.snapshot(state, ws));
+        state.gmMode = mode;
+        state.graceUntil = 0;
+        addEvent(state, mode === "human" ? "A person takes the GM's chair. The Weave falls quiet." : "The Weave takes the GM's chair again.");
+        if (mode === "ai") {
+          for (const w of this.ctx.getWebSockets()) { try { const a = w.deserializeAttachment() || {}; if (a.gmSeat) w.serializeAttachment({ ...a, gmSeat: false }); } catch {} }
+        }
+        if (await this.maybeAutoResolve(state)) return;
+        return this.commit(state);
+      }
+
+      case "sitGm": {
+        if (!att.admin) throw new Error("Only an unsealed GM can take the GM seat.");
+        if (msg.on && state.gmMode !== "human") throw new Error("Switch to a human GM in Settings first.");
+        ws.serializeAttachment({ ...att, gmSeat: !!msg.on });
+        addEvent(state, msg.on ? "The GM sits down at the head of the table." : "The GM steps away from the head of the table.");
+        return this.commit(state);
+      }
+
+      case "gmRoll": {
+        gmOnly();
+        const r = rollDice(String(msg.expression || ""));
+        let purpose = clean(msg.purpose, 120);
+        if (msg.luckyBreak) {
+          const c = state.live?.loaded ? findSheet(state.live.list, msg.luckyBreak) : null;
+          if (!isSheet(c)) throw new Error(`No character sheet called "${msg.luckyBreak}".`);
+          if ((c.luckUsed || 0) >= derive(c).luckyBreaks) throw new Error(`${c.name} has no lucky breaks left today.`);
+          c.luckUsed += 1;
+          markDirty(state);
+          addEvent(state, `${c.name} spends a lucky break: the roll against them is made again.`);
+          purpose += ` (reroll: ${c.name}'s lucky break)`;
+        }
+        state.messages.push({ id: state.nextId++, kind: "gmroll", round: state.round, purpose, expr: r.expr, total: r.total, parts: r.parts, nat: r.nat, mode: r.mode, ts: Date.now() });
+        return this.commit(state);
+      }
+
+      case "gmPost": {
+        gmOnly();
+        if (isResolving(state)) throw new Error("Still finishing the last answer.");
+        const live = await this.ensureLive(state);
+        const repo = await loadState(this.env);
+        const book = parseSpellbook(repo.spells);
+        const party = live?.loaded ? live.list : [];
+        const text = clean(msg.text, 12000, true);
+        const rolls = Array.isArray(msg.rolls) ? msg.rolls : [];
+        const { requests, problems } = parseRequests({ rolls }, state.seats, party, book);
+        const fatal = [];
+        if (requests.length < rolls.length) fatal.push(...problems);
+        const sheetOps = [];
+        for (const a of Array.isArray(msg.sheetOps) ? msg.sheetOps : []) {
+          const { op, error } = parseSheetOp(a, party, book);
+          if (op) sheetOps.push(op); else fatal.push(error);
+        }
+        const remember = (Array.isArray(msg.remember) ? msg.remember : []).map(parseRemember).filter(Boolean);
+        if (fatal.length) throw new Error("Not posted. " + fatal.join(" · "));
+        if (!text && !requests.length && !sheetOps.length) throw new Error("Write something, or ask for a roll, before posting.");
+        const sc = msg.scene || {};
+        const list = (v) => String(v || "").split(",").map((x) => clean(x, 60)).filter(Boolean).join(", ");
+        const tag = `[[scene: mode=${clean(sc.mode, 20) || state.scene?.mode || "social"}; where=${clean(sc.where, 120) || state.scene?.where || ""}; present=${list(sc.present)}; factions=${list(sc.factions)}; topics=${list(sc.topics)}; time=${clean(sc.time, 20)}]]`;
+        const result = { reply: `${text}\n\n${tag}`, rolls: [], requests, remember, sheetOps, luckSpent: [], usage: {}, model: "human", human: true };
+        state.resolvingSince = Date.now();
+        await this.finishRound(state, state.round, state.tier, result, state.resolvingSince);
+        if (problems.length) send(ws, { t: "error", text: "Posted, with notes: " + problems.join(" · ") });
+        return;
       }
 
       case "seat": {
         const s = seat(msg.id);
         if (!s) throw new Error("That seat no longer exists.");
         const p = msg.patch || {};
+        // Anyone may mark someone present or absent; only the seat's own device (or the GM) renames it.
+        if (typeof p.player === "string" || typeof p.character === "string") mine(msg.id);
         const before = label(s);
         if (typeof p.player === "string" && clean(p.player, MAX_NAME)) s.player = clean(p.player, MAX_NAME);
         if (typeof p.character === "string") s.character = clean(p.character, MAX_NAME);
@@ -942,8 +1053,7 @@ export class Table extends DurableObject {
       case "act":
       case "pass": {
         if (isResolving(state)) throw new Error("The GM is already answering. Hold that thought.");
-        const s = seat(msg.seatId);
-        if (!s) throw new Error("Take a seat first.");
+        const s = mine(msg.seatId);
         if (!s.present) throw new Error(`${label(s)} is marked absent. Mark them present to act.`);
         const text = msg.t === "act" ? clean(msg.text, MAX_TEXT, true) : "";
         if (msg.t === "act" && !text) return;
@@ -964,27 +1074,25 @@ export class Table extends DurableObject {
       case "rollRequest":
       case "rollAll": {
         if (isResolving(state)) throw new Error("The GM is answering. Roll when it's done.");
-        const mine = msg.t === "rollAll"
-          ? state.requests.filter((r) => r.round === state.round && r.status === "pending" && r.seatId === msg.seatId)
-          : state.requests.filter((r) => r.rid === msg.rid && r.round === state.round && r.status === "pending");
-        if (!mine.length) throw new Error("Nothing to roll right now. The GM will ask when it needs a roll.");
-        const s = seat(mine[0].seatId);
-        if (!s) throw new Error("That seat no longer exists.");
+        const owed = msg.t === "rollAll"
+          ? state.requests.filter((r) => r.round === state.round && r.status === "pending" && r.seatId === msg.seatId && stillOwed(state, r))
+          : state.requests.filter((r) => r.rid === msg.rid && r.round === state.round && r.status === "pending" && stillOwed(state, r));
+        if (!owed.length) throw new Error("Nothing to roll right now. The GM will ask when it needs a roll.");
+        const s = mine(owed[0].seatId);
         if (msg.t === "rollAll" && s.id !== msg.seatId) throw new Error("Those aren't your rolls.");
         if (!s.present) throw new Error(`${label(s)} is marked absent. Mark them present to roll.`);
-        mine.sort((a, b) => a.order - b.order);
-        for (const req of mine) performRequest(state, req, s);
+        owed.sort((a, b) => a.order - b.order);
+        for (const req of owed) performRequest(state, req, s);
         // Someone who could still spend a lucky break gets a moment before the GM answers.
         const sheet = sheetFor(state, s);
-        const d20 = mine.some((r) => ["check", "save", "attack", "death"].includes(r.type));
+        const d20 = owed.some((r) => ["check", "save", "attack", "death"].includes(r.type));
         const grace = !!(sheet && d20 && derive(sheet).luckyBreaks > (sheet.luckUsed || 0));
         if (await this.maybeAutoResolve(state, { grace })) return;
         return this.commit(state);
       }
 
       case "create": {
-        const s = seat(msg.seatId);
-        if (!s) throw new Error("Take a seat first.");
+        const s = mine(msg.seatId);
         const live = await this.ensureLive(state);
         if (!live) throw new Error("The party file can't be read right now, so the character can't be written yet. Try again in a moment.");
         const own = sheetFor(state, s);
@@ -1004,7 +1112,7 @@ export class Table extends DurableObject {
 
       case "raise":
       case "capstone": {
-        const s = seat(msg.seatId);
+        const s = mine(msg.seatId);
         const sheet = sheetFor(state, s);
         if (!sheet) throw new Error("Only your own character's sheet can be changed from here.");
         if (sheet.dead) throw new Error(`${sheet.name} is dead.`);
@@ -1015,7 +1123,7 @@ export class Table extends DurableObject {
       }
 
       case "equip": {
-        const s = seat(msg.seatId);
+        const s = mine(msg.seatId);
         const sheet = sheetFor(state, s);
         if (!sheet) throw new Error("Only your own character's gear can be changed from here.");
         const item = sheet.items[Number(msg.index)];
@@ -1031,8 +1139,7 @@ export class Table extends DurableObject {
 
       case "luck": {
         if (isResolving(state)) throw new Error("Too late, the GM is already answering.");
-        const s = seat(msg.seatId);
-        if (!s) throw new Error("Take a seat first.");
+        const s = mine(msg.seatId);
         const m = state.messages.find((x) => x.id === Number(msg.msgId));
         if (!m || m.kind !== "roll" || m.seatId !== s.id || m.round !== state.round || !m.rid) {
           throw new Error("A lucky break rerolls one of your own rolls from this round.");
@@ -1075,7 +1182,7 @@ export class Table extends DurableObject {
       case "admin": {
         const att = ws.deserializeAttachment() || {};
         if (msg.off) {
-          ws.serializeAttachment({ ...att, admin: false });
+          ws.serializeAttachment({ ...att, admin: false, gmSeat: false });
         } else {
           const bouncer = this.env.BOUNCER.get(this.env.BOUNCER.idFromName(att.ip || "unknown"));
           const res = await guarded(bouncer, "admin", async () => {
@@ -1102,12 +1209,13 @@ export class Table extends DurableObject {
 
       case "retract": {
         if (isResolving(state)) throw new Error("Too late, the GM is already answering.");
+        mine(msg.seatId);
         state.messages = state.messages.filter((m) => !(m.round === state.round && isPending(m) && m.seatId === msg.seatId));
         return this.commit(state);
       }
 
       case "remember": {
-        const s = seat(msg.seatId);
+        const s = mine(msg.seatId);
         const name = clean(msg.name, 80);
         if (!s || !name) throw new Error("Remember whom? Try /remember Teodor");
         state.messages.push({
@@ -1118,7 +1226,7 @@ export class Table extends DurableObject {
       }
 
       case "ooc": {
-        const s = seat(msg.seatId);
+        const s = mine(msg.seatId);
         const text = clean(msg.text, MAX_TEXT, true);
         if (!s || !text) return;
         state.messages.push({
@@ -1129,6 +1237,7 @@ export class Table extends DurableObject {
       }
 
       case "resolve": {
+        if (state.gmMode === "human") throw new Error("A person is the GM tonight: they answer when they're ready.");
         if (isResolving(state)) return;
         if (!answersFor(state).length) throw new Error("Nothing to resolve yet. Someone has to act or roll first.");
         return this.resolve(state);
@@ -1148,6 +1257,7 @@ export class Table extends DurableObject {
   }
 
   async maybeAutoResolve(state, { grace = false } = {}) {
+    if (state.gmMode === "human") return false;   // a person answers when they're ready
     if (isResolving(state)) return false;
     if (!roundComplete(state)) { state.graceUntil = 0; return false; }
     if (grace) {
@@ -1164,7 +1274,7 @@ export class Table extends DurableObject {
   // The lucky-break pause ran out: answer now if the round is still complete.
   async alarm() {
     const state = await this.load();
-    if (!state.graceUntil) return;
+    if (!state.graceUntil || state.gmMode === "human") return;
     state.graceUntil = 0;
     if (!isResolving(state) && roundComplete(state)) await this.resolve(state);
     else await this.commit(state);
@@ -1207,6 +1317,12 @@ export class Table extends DurableObject {
 
     // Re-read: other commands may have landed while the GM was thinking.
     const fresh = await this.load();
+    await this.finishRound(fresh, round, tier, result, state.resolvingSince);
+  }
+
+  // Everything after the GM's answer, the same for the AI and a human GM:
+  // scene, dice, narration, sheet changes, time, people, the next round's rolls.
+  async finishRound(fresh, round, tier, result, since) {
     // The hidden scene tag: players never see it; it decides what the GM reads next turn.
     const tagged = parseSceneTag(result.reply);
     if (!fresh.live?.loaded) await this.ensureLive(fresh);
@@ -1228,7 +1344,7 @@ export class Table extends DurableObject {
     }
     fresh.messages.push({
       id: fresh.nextId++, kind: "gm", round, text: tagged.text, scene: tagged.scene, ts: Date.now(),
-      model: result.model, usage: result.usage,
+      model: result.model, usage: result.usage, human: !!result.human,
     });
     // What the GM did to the sheets this turn, then the time that passed.
     for (const op of result.sheetOps || []) applySheetOp(fresh, op);
@@ -1268,7 +1384,7 @@ export class Table extends DurableObject {
     // Actions posted during resolution belong to the next round, not this one.
     fresh.round = round + 1;
     for (const m of fresh.messages) {
-      if (m.round === round && isPending(m) && m.ts > state.resolvingSince) m.round = round + 1;
+      if (m.round === round && isPending(m) && m.ts > since) m.round = round + 1;
     }
     fresh.resolvingSince = 0;
     await this.commit(fresh);
@@ -1334,7 +1450,15 @@ function rollLine(m) {
 
 // Rolls a seat still owes the GM this round.
 function owedBy(state, seatId) {
-  return state.requests.filter((r) => r.round === state.round && r.status === "pending" && r.seatId === seatId);
+  return state.requests.filter((r) => r.round === state.round && r.status === "pending" && r.seatId === seatId && stillOwed(state, r));
+}
+
+// A death save is only owed while that seat's character is still dying (healed,
+// stabilised, dead or deleted characters owe nothing).
+function stillOwed(state, r) {
+  if (r.type !== "death") return true;
+  const c = sheetFor(state, state.seats.find((x) => x.id === r.seatId));
+  return !!(c && c.dying && !c.dying.stable && !c.dead);
 }
 
 function fmtMod(n) {
@@ -1796,14 +1920,15 @@ function recentText(state) {
 }
 
 async function mistralRequest(env, body) {
-  const res = await fetch(env.MISTRAL_URL || "https://api.mistral.ai/v1/chat/completions", {
+  // Any provider with an OpenAI-style chat completions API: set LLM_URL and LLM_API_KEY.
+  const res = await fetch(env.LLM_URL || env.MISTRAL_URL || "https://api.mistral.ai/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.MISTRAL_API_KEY}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.LLM_API_KEY || env.MISTRAL_API_KEY}` },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
     const detail = (await res.text()).slice(0, 200);
-    throw new Error(`Mistral returned ${res.status}${detail ? ` (${detail})` : ""}`);
+    throw new Error(`The model returned ${res.status}${detail ? ` (${detail})` : ""}`);
   }
   return res.json();
 }
@@ -2031,6 +2156,19 @@ function parseRequests(args, seats, party = [], book = []) {
   return { requests: out, problems };
 }
 
+// A remember_npc call (or the human GM's form) as a clean cast entry.
+function parseRemember(args) {
+  const name = clean(String(args?.name || ""), 80);
+  if (!name) return null;
+  const entry = { name };
+  for (const k of [...CAST_PUBLIC, ...CAST_GM_ONLY]) {
+    if (k === "name" || k === "last_seen_session" || args[k] == null || args[k] === "") continue;
+    if (k === "status" && !["active", "dead"].includes(args[k])) continue;
+    entry[k] = clean(String(args[k]), 300);
+  }
+  return entry;
+}
+
 // Check an update_sheet call against the sheets; return a clean operation.
 function parseSheetOp(args, party, book = []) {
   const c = findSheet(party, args?.character);
@@ -2117,16 +2255,9 @@ async function gmTurn(env, model, messages, ctx = {}) {
         continue;
       }
       if (call.function?.name === "remember_npc") {
-        const name = clean(String(args.name || ""), 80);
-        if (name) {
-          const entry = { name };
-          for (const k of [...CAST_PUBLIC, ...CAST_GM_ONLY]) {
-            if (k === "name" || k === "last_seen_session" || args[k] == null) continue;
-            if (k === "status" && !["active", "dead"].includes(args[k])) continue;
-            entry[k] = clean(String(args[k]), 300);
-          }
-          remember.push(entry);
-        }
+        const entry = parseRemember(args);
+        const name = entry?.name;
+        if (entry) remember.push(entry);
         convo.push({ role: "tool", tool_call_id: call.id, name: "remember_npc",
           content: JSON.stringify(name ? { remembered: name } : { error: "A name is required." }) });
         continue;

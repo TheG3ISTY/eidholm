@@ -14,6 +14,8 @@ None right now. Characters, progression, wounds and scars are settled in `rules/
 
 Everything that decides chance follows the D&D 5e rules: d20 tests (ability checks, attack rolls, saving throws) against a DC or Armor Class; ability modifiers and proficiency; advantage and disadvantage; natural 20 and natural 1 on attacks, criticals; passive checks, contests, group checks, initiative; damage dice, resistance and vulnerability; death saving throws; concentration; rerolls; random tables. Character creation is **not** 5e; it is designed separately.
 
+**Who runs the game:** the AI GM, or a human GM in the GM seat (Settings). Both work through the same server rules below: a human GM asks for rolls, rolls hidden dice and changes sheets from the GM desk, and the server judges and applies everything exactly as it does for the AI.
+
 **Who rolls:**
 - **The GM asks, players roll.** When a character needs to roll, the GM requests it (type, label, modifier, DC or target AC, damage dice, reasons for advantage or disadvantage). Each request appears as a **button on the left side of that player's screen**, stacked in order. Clicking a button rolls it; **`/roll` rolls all of them in order.** The server rolls with real randomness and everyone sees the result. Rolls can't be taken back.
 - **The server judges the result by 5e rules:** advantage and disadvantage cancel each other completely (any of each = a straight roll); checks and saves succeed on meeting the DC; attacks hit on meeting the AC or a natural 20 (critical), and miss on a natural 1; damage is rolled only after a hit, with its dice doubled on a critical.

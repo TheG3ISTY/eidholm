@@ -171,6 +171,23 @@
     content: "THE WEAVE"; display: block;
     font-family: var(--mono); font-size: 11px; letter-spacing: 0.2em; color: var(--ember); margin-bottom: 6px;
   }
+  .turn.gm.human::before { content: "THE GAME MASTER"; color: var(--brass); }
+  .chip.gm { border-color: var(--ember); }
+  .chip.gm .name { color: var(--ember); letter-spacing: 0.08em; }
+  #gmdesk { border-top: 1px solid var(--line); background: var(--bg-2); padding: 10px 16px 12px; display: grid; gap: 8px; max-height: 55vh; overflow-y: auto; }
+  #gmdesk .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  #gmdesk .row .field { padding: 6px 8px; font-size: 13px; width: auto; flex: 0 0 auto; }
+  #gmdesk select.field { min-width: 120px; color: var(--ink); background: var(--bg); }
+  #gmdesk textarea.field { width: 100%; min-height: 90px; resize: vertical; font-family: var(--body); font-size: 16px; }
+  #gmdesk .lbl { font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; color: var(--ink-dim); }
+  #gmdesk .queue { display: grid; gap: 4px; }
+  #gmdesk .q { display: flex; justify-content: space-between; gap: 8px; font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); padding: 4px 8px; }
+  #gmdesk .q button { background: transparent; border: 0; color: var(--danger); cursor: pointer; }
+  #gmdesk .form { border: 1px dashed var(--line); padding: 8px; display: grid; gap: 6px; }
+  #gmdesk .form .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+  #gmdesk .form label { display: grid; gap: 2px; font-family: var(--mono); font-size: 10px; color: var(--ink-dim); letter-spacing: 0.08em; }
+  #gmdesk .form .field { padding: 5px 7px; font-size: 13px; }
+  #gmdesk .dice-out { font-family: var(--mono); font-size: 12px; color: var(--brass); }
   .turn.act { border-left: 2px solid var(--brass); padding: 2px 0 2px 14px; color: var(--brass); font-style: italic; white-space: pre-wrap; }
   .turn.act.pending { border-left-style: dashed; }
   .who { display: block; font-style: normal; font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; color: var(--ink-dim); margin-bottom: 2px; }
@@ -443,6 +460,7 @@
     </div>
     <div class="hint">Enter to act · Shift+Enter new line · /roll rolls what the GM asked for · OOC: talks to the table · /help</div>
   </form>
+  <div id="gmdesk" hidden></div>
 </section>
 
 <div class="scrim" id="scrim"></div>
@@ -487,6 +505,11 @@
   let mySeat = store.get("localStorage", "eidholm.seat") || "";
   let table = null;      // latest snapshot from the server
   let rules = null;      // fixed lists from the server: stats, skills, ranks, starting kit, capstones
+  // Each seat answers only to the device holding its key.
+  let seatKeys = {};
+  try { seatKeys = JSON.parse(store.get("localStorage", "eidholm.keys") || "{}") || {}; } catch { seatKeys = {}; }
+  let claiming = "";
+  let gmEntry = false;   // the GM came in through the seat screen without taking a player seat
   let notes = [];        // local-only slash command output: { ts, label, html }
   let errors = [];       // local-only error lines: { ts, text }
   let ws = null, wsWanted = false, retry = 0;
@@ -541,15 +564,34 @@
   function renderSeatScreen() {
     const seats = table ? table.seats : [];
     $("seat-list").innerHTML = "";
+    if (!$("gm-entry")) {
+      const g = document.createElement("button");
+      g.type = "button"; g.className = "ghost"; g.id = "gm-entry";
+      g.textContent = "I'm the Game Master";
+      g.title = "Go to the table without a player seat and unseal Settings";
+      g.style.marginTop = "14px";
+      g.addEventListener("click", () => { gmEntry = true; route(); openTab("settings"); });
+      $("seat-list").parentNode.appendChild(g);
+    }
     $("seat-divider").hidden = !seats.length;
     for (const s of seats) {
       const b = document.createElement("button");
       b.type = "button"; b.className = "seat-pick";
       b.innerHTML = "<b>" + escapeHtml(s.character || s.player) + "</b><small>" +
-        (s.character ? escapeHtml(s.player) + " · " : "") + (s.present ? "present" : "absent") + "</small>";
-      b.addEventListener("click", () => takeSeat(s.id));
+        (s.character ? escapeHtml(s.player) + " · " : "") + (s.present ? "present" : "absent") +
+        (s.claimed && !seatKeys[s.id] ? " · taken" : "") + "</small>";
+      const held = s.claimed && !seatKeys[s.id];
+      if (held && !admin) { b.disabled = true; b.title = "Taken on another device. The GM can free it."; }
+      b.addEventListener("click", () => sit(s.id));
       $("seat-list").appendChild(b);
     }
+  }
+
+  // Sitting down in an existing seat asks the server for its key.
+  function sit(id) {
+    if (seatKeys[id]) return takeSeat(id);
+    claiming = id;
+    send({ t: "claim", seatId: id, key: "" });
   }
 
   function takeSeat(id) {
@@ -569,8 +611,14 @@
   // Decide which screen to show from the latest snapshot.
   function route() {
     if (!table) return;
-    const seated = table.seats.some((s) => s.id === mySeat);
-    if (!seated) { renderSeatScreen(); show("seats"); return; }
+    const st = table.seats.find((s) => s.id === mySeat);
+    // A seat this device has no key for (or a seat from before keys existed) is claimed first.
+    if (st && !seatKeys[st.id] && !claiming) {
+      if (!st.claimed || admin) { claiming = st.id; send({ t: "claim", seatId: st.id, key: "" }); }
+      else { mySeat = ""; store.del("localStorage", "eidholm.seat"); }
+    }
+    const seated = table.seats.some((s) => s.id === mySeat) && !!seatKeys[mySeat];
+    if (!seated && !table.youAreGm && !gmEntry) { renderSeatScreen(); show("seats"); return; }
     show("game");
     render();
   }
@@ -597,13 +645,26 @@
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch { return; }
       if (m.t === "state") {
+        if (gmPosting && m.messages.some((x) => x.kind === "gm" && x.human && x.ts > Date.now() - 15000)) gmPosting = null;
         // A fresh scene (session ended or discarded) also clears this device's local lines.
         if (table && table.messages.length && !m.messages.length) { notes = []; errors = []; }
         table = m; route();
       }
       else if (m.t === "rules") rules = m;
-      else if (m.t === "joined") takeSeat(m.seatId);
-      else if (m.t === "error") pushError(m.text);
+      else if (m.t === "joined") {
+        if (m.key) { seatKeys[m.seatId] = m.key; store.set("localStorage", "eidholm.keys", JSON.stringify(seatKeys)); }
+        claiming = "";
+        takeSeat(m.seatId);
+      }
+      else if (m.t === "error") {
+        if (gmPosting && /^Not posted/.test(m.text) && $("gm-text")) {
+          $("gm-text").value = gmPosting.text;
+          Object.assign(gmQueue, gmPosting.queue);
+          gmDeskSig = ""; renderGmDesk();
+        }
+        gmPosting = null;
+        pushError(m.text);
+      }
       else if (m.t === "party-changed") partyChanged();
     };
     ws.onclose = () => {
@@ -619,6 +680,7 @@
   }
 
   function send(obj) {
+    if (!obj.key) obj.key = seatKeys[obj.seatId] || seatKeys[obj.id] || seatKeys[mySeat];
     if (ws && ws.readyState === 1) { ws.send(JSON.stringify(obj)); return true; }
     pushError("Not connected to the table. Reconnecting…");
     return false;
@@ -747,6 +809,12 @@
     // roster
     const roster = $("roster");
     roster.innerHTML = "";
+    if (table.gmMode === "human") {
+      const g = document.createElement("div");
+      g.className = "chip gm";
+      g.innerHTML = `<span class="name">GAME MASTER</span><span class="status">${table.youAreGm ? "you" : table.gmPresent ? "at the table" : "away"}</span>`;
+      roster.appendChild(g);
+    }
     for (const s of table.seats) {
       const chip = document.createElement("div");
       chip.className = "chip" + (s.id === mySeat ? " me" : "") + (s.present ? "" : " absent");
@@ -780,6 +848,7 @@
     }
 
     renderRail(me);
+    renderGmDesk();
 
     // log: shared messages merged with this device's local notes and errors
     const items = [
@@ -804,12 +873,12 @@
         const who = m.character ? `${m.character} · ${m.author}` : m.author;
         const isPend = m.round === table.round && (m.kind === "act" || m.kind === "pass");
         if (m.kind === "gm") {
-          div.className = "turn gm";
+          div.className = "turn gm" + (m.human ? " human" : "");
           div.innerHTML = formatProse(m.text);
           const u = m.usage || {};
           const meta = document.createElement("span");
           meta.className = "meta";
-          meta.textContent = `${m.model || ""} · ${u.total_tokens || "?"} tok`;
+          meta.textContent = m.human ? "" : `${m.model || ""} · ${u.total_tokens || "?"} tok`;
           div.appendChild(meta);
         } else if (m.kind === "act") {
           div.className = "turn act" + (isPend ? " pending" : "");
@@ -885,6 +954,8 @@
       w.appendChild(b);
     } else if (table.resolving) {
       w.textContent = "The GM is answering…";
+    } else if (table.gmMode === "human" && table.complete && !table.youAreGm) {
+      w.textContent = "Everyone has answered. Waiting on the GM.";
     } else if (table.graceUntil && table.graceUntil > Date.now()) {
       const left = Math.max(1, Math.ceil((table.graceUntil - Date.now()) / 1000));
       w.innerHTML = `Rolled. The GM answers in <b>${left}s</b>, unless a lucky break is spent. `;
@@ -918,7 +989,7 @@
         go.type = "button"; go.className = "ghost"; go.textContent = "Resolve now";
         go.title = "Let the GM answer without waiting for the others";
         go.addEventListener("click", () => send({ t: "resolve" }));
-        w.appendChild(go);
+        if (table.gmMode !== "human") w.appendChild(go);
       } else {
         w.textContent = `Round ${table.round} · the GM answers once every present character has acted, rolled or passed.`;
       }
@@ -931,8 +1002,177 @@
     if ($("codex").classList.contains("open") && codexTab === "party" && !(admin && admin.canWriteRepo)) renderPartyTab();
     if ($("codex").classList.contains("open") && codexTab === "settings" && admin) {
       renderSettingsSeats();
+      renderGmMode();
       if ($("reveal-toggle")) $("reveal-toggle").checked = !!table.revealGmRolls;
     }
+  }
+
+  // ================= the GM desk (human GM, in the GM seat) =================
+  const gmQueue = { rolls: [], sheetOps: [], remember: [] };
+  let gmDeskSig = "";
+  function renderGmDesk() {
+    const desk = $("gmdesk");
+    const on = !!(table && table.youAreGm && table.gmMode === "human");
+    desk.hidden = !on;
+    $("chat-form").hidden = on;
+    if (!on) { gmDeskSig = ""; return; }
+    // Rebuild only when something it shows changed, so typing isn't interrupted.
+    const sig = JSON.stringify([table.seats.map((x) => x.character || x.player), (table.party || []).map((c) => c.name), gmQueue, table.resolving]);
+    if (sig === gmDeskSig) return;
+    const keep = desk.querySelector("#gm-text") ? {
+      text: $("gm-text").value, mode: $("gmd-mode").value, where: $("gm-where").value, present: $("gm-present").value,
+      factions: $("gm-factions").value, time: $("gm-time").value, dx: $("gm-dx").value, dp: $("gm-dp").value,
+    } : null;
+    gmDeskSig = sig;
+    const sc = table.scene || {};
+    const chars = table.seats.filter((x) => x.character).map((x) => x.character);
+    const opt = (list, cur) => list.map((v) => `<option ${v === cur ? "selected" : ""}>${escapeHtml(v)}</option>`).join("");
+    const qline = (kind, i, text) => `<div class="q"><span>${escapeHtml(text)}</span><button type="button" data-unq="${kind}:${i}" title="Remove">✕</button></div>`;
+    desk.innerHTML = `
+      <div class="lbl">THE GM DESK · round ${table.round}${table.complete ? " · everyone has answered" : ""}</div>
+      <textarea class="field" id="gm-text" placeholder="What happens. Address the characters by name; second person, present tense."></textarea>
+      <div class="row">
+        <select class="field" id="gmd-mode" title="Scene mode">${opt(["social", "combat", "trade", "travel", "explore", "downtime", "creation"], sc.mode || "social")}</select>
+        <input class="field" id="gm-where" placeholder="Where" value="${escapeHtml(sc.where || "")}" style="flex:1;min-width:140px">
+        <input class="field" id="gm-present" placeholder="NPCs present, comma-separated" value="${escapeHtml((sc.present || []).join(", "))}" style="flex:1;min-width:160px">
+        <input class="field" id="gm-factions" placeholder="Factions" value="${escapeHtml((sc.factions || []).join(", "))}" style="width:120px">
+        <input class="field" id="gm-time" placeholder="Time passed, e.g. +20m" style="width:150px">
+      </div>
+      <div class="queue">
+        ${gmQueue.rolls.map((r, i) => qline("rolls", i, `ROLL · ${r.character}: ${r.label}${r.stat ? " · " + r.stat : ""}${r.skill ? " + " + r.skill : ""}${r.dc ? " · DC " + r.dc : ""}${r.target_ac ? " · AC " + r.target_ac : ""}${r.spell ? " · " + r.spell : ""}`)).join("")}
+        ${gmQueue.sheetOps.map((o, i) => qline("sheetOps", i, "SHEET · " + o.character + ": " + Object.entries(o).filter(([k]) => k !== "character").map(([k, v]) => k + " " + (typeof v === "object" ? (v.name || JSON.stringify(v)) : v)).join(", "))).join("")}
+        ${gmQueue.remember.map((r, i) => qline("remember", i, "REMEMBER · " + r.name + (r.role ? ", " + r.role : ""))).join("")}
+      </div>
+      <div class="row">
+        <button type="button" class="ghost" data-form="roll">+ Ask for a roll</button>
+        <button type="button" class="ghost" data-form="sheet">+ Change a sheet</button>
+        <button type="button" class="ghost" data-form="npc">+ Remember someone</button>
+        <span style="flex:1"></span>
+        <button type="button" class="btn" id="gm-post" ${table.resolving ? "disabled" : ""}>Post</button>
+      </div>
+      <div id="gm-form"></div>
+      <div class="row">
+        <span class="lbl">YOUR DICE</span>
+        <input class="field" id="gm-dx" placeholder="d20+4" style="width:110px">
+        <input class="field" id="gm-dp" placeholder="What for" style="flex:1;min-width:140px">
+        <select class="field" id="gm-lb" title="Reroll a roll against this character with their lucky break"><option value="">no lucky break</option>${opt(chars, "")}</select>
+        <button type="button" class="ghost" id="gm-roll">Roll behind the screen</button>
+      </div>`;
+    if (keep) for (const [k, id] of [["text", "gm-text"], ["mode", "gmd-mode"], ["where", "gm-where"], ["present", "gm-present"], ["factions", "gm-factions"], ["time", "gm-time"], ["dx", "gm-dx"], ["dp", "gm-dp"]]) $(id).value = keep[k];
+    desk.querySelectorAll("[data-unq]").forEach((b) => b.addEventListener("click", () => {
+      const [k, i] = b.dataset.unq.split(":"); gmQueue[k].splice(Number(i), 1); renderGmDesk();
+    }));
+    desk.querySelectorAll("[data-form]").forEach((b) => b.addEventListener("click", () => gmForm(b.dataset.form, chars)));
+    $("gm-roll").addEventListener("click", () => {
+      const expression = $("gm-dx").value.trim();
+      if (!expression) return;
+      send({ t: "gmRoll", expression, purpose: $("gm-dp").value.trim(), luckyBreak: $("gm-lb").value });
+      $("gm-dp").value = "";
+    });
+    $("gm-post").addEventListener("click", () => {
+      const ok = send({
+        t: "gmPost", text: $("gm-text").value,
+        scene: { mode: $("gmd-mode").value, where: $("gm-where").value, present: $("gm-present").value, factions: $("gm-factions").value, time: $("gm-time").value },
+        rolls: gmQueue.rolls, sheetOps: gmQueue.sheetOps, remember: gmQueue.remember,
+      });
+      if (!ok) return;
+      // Cleared optimistically; if the server refuses, the reason shows and the text is still in the box.
+      gmPosting = { text: $("gm-text").value, queue: JSON.parse(JSON.stringify(gmQueue)) };
+      $("gm-text").value = ""; $("gm-time").value = "";
+      gmQueue.rolls = []; gmQueue.sheetOps = []; gmQueue.remember = [];
+      gmDeskSig = ""; renderGmDesk();
+    });
+  }
+  let gmPosting = null;
+
+  // Small forms that add a roll request, a sheet change or a person to the queue.
+  function gmForm(kind, chars) {
+    const box = $("gm-form");
+    const R = rules || { stats: {}, skills: {} };
+    const sel = (id, list, blank) => `<select class="field" data-f="${id}">${blank ? `<option value="">${blank}</option>` : ""}${list.map(([v, t]) => `<option value="${escapeHtml(v)}">${escapeHtml(t)}</option>`).join("")}</select>`;
+    const inp = (id, ph, type = "text") => `<input class="field" data-f="${id}" type="${type}" placeholder="${escapeHtml(ph)}">`;
+    const L = (label, html) => `<label>${label}${html}</label>`;
+    const who = sel("character", chars.map((c) => [c, c]));
+    let html = "";
+    if (kind === "roll") html = `<div class="grid">
+        ${L("CHARACTER", who)}
+        ${L("TYPE", sel("type", [["check", "check"], ["save", "save"], ["attack", "attack"], ["damage", "damage"], ["other", "other"]]))}
+        ${L("LABEL", inp("label", "Agility save"))}
+        ${L("STAT", sel("stat", Object.entries(R.stats), "none"))}
+        ${L("SKILL", sel("skill", Object.entries(R.skills), "none"))}
+        ${L("DC", inp("dc", "for checks and saves", "number"))}
+        ${L("TARGET AC", inp("target_ac", "for attacks", "number"))}
+        ${L("DAMAGE DICE", inp("damage_dice", "1d8, on a hit"))}
+        ${L("DICE", inp("dice", "for damage/other rolls"))}
+        ${L("SPELL", inp("spell", "name on their sheet"))}
+        ${L("FREEFORM TIER", inp("spell_tier", "1-6, freeform only", "number"))}
+        ${L("FUSE (TIER 6)", inp("fusion", "Ashfall, Quake"))}
+        ${L("SITUATIONAL +/-", inp("modifier", "0", "number"))}
+        ${L("ADVANTAGE BECAUSE", inp("advantage", "comma-separated"))}
+        ${L("DISADVANTAGE BECAUSE", inp("disadvantage", "comma-separated"))}
+      </div>`;
+    if (kind === "sheet") html = `<div class="grid">
+        ${L("CHARACTER", who)}
+        ${L("DAMAGE", inp("damage", "HP lost", "number"))}
+        ${L("CRITICAL?", sel("critical", [["", "no"], ["1", "yes"]]))}
+        ${L("HEAL", inp("heal", "HP regained", "number"))}
+        ${L("STABILISE?", sel("stabilize", [["", "no"], ["1", "yes"]]))}
+        ${L("RESONANCE +/-", inp("resonance", "-4", "number"))}
+        ${L("COIN +/- (CV)", inp("purse", "12.5", "number"))}
+        ${L("GIVE ITEM", inp("item", "item name"))}
+        ${L("ITEM TIER", sel("itemTier", [["1", "1 Common"], ["2", "2 Guild"], ["3", "3 Superior"], ["4", "4 Relic"], ["5", "5 Unique"]]))}
+        ${L("TAKE ITEM", inp("remove_item", "item name"))}
+        ${L("ITEM CONDITION", inp("condName", "item name"))}
+        ${L("BECOMES", sel("cond", [["", "unchanged"], ["Pristine", "Pristine"], ["Worn", "Worn"], ["Damaged", "Damaged"], ["Broken", "Broken"]]))}
+        ${L("TEACH SPELL", inp("spell", "spellbook name, or their own"))}
+        ${L("OWN SPELL TIER", inp("spellTier", "only for their own", "number"))}
+        ${L("OWN SPELL TEXT", inp("spellText", "one sentence"))}
+        ${L("SCAR", inp("scar", "one short line"))}
+      </div>`;
+    if (kind === "npc") html = `<div class="grid">
+        ${L("NAME", inp("name", "as used in the story"))}
+        ${["role", "faction", "where", "look", "attitude", "ledger"].map((k) => L(k.toUpperCase(), inp(k, ""))).join("")}
+        ${["wants", "secret", "notes", "reason"].map((k) => L(k.toUpperCase() + " (GM)", inp(k, ""))).join("")}
+        ${L("STATUS", sel("status", [["", "unchanged"], ["active", "active"], ["dead", "dead"]]))}
+      </div>`;
+    box.innerHTML = `<div class="form">${html}<div class="row"><button type="button" class="ghost" id="gmf-add">Add to this post</button><button type="button" class="ghost" id="gmf-cancel">Cancel</button><span class="emsg" id="gmf-msg"></span></div></div>`;
+    $("gmf-cancel").addEventListener("click", () => { box.innerHTML = ""; });
+    $("gmf-add").addEventListener("click", () => {
+      const v = {};
+      box.querySelectorAll("[data-f]").forEach((el) => { if (el.value !== "") v[el.dataset.f] = el.value.trim(); });
+      const num = (x) => (x === undefined || x === "" ? undefined : Number(x));
+      const list = (x) => (x ? x.split(",").map((y) => y.trim()).filter(Boolean) : undefined);
+      let out;
+      if (kind === "roll") {
+        if (!v.label) return ($("gmf-msg").textContent = "Give it a label.");
+        out = { character: v.character, type: v.type, label: v.label, stat: v.stat, skill: v.skill, dc: num(v.dc), target_ac: num(v.target_ac),
+          damage_dice: v.damage_dice, dice: v.dice, spell: v.spell, modifier: num(v.modifier), advantage: list(v.advantage), disadvantage: list(v.disadvantage) };
+        if (v.spell_tier && !v.fusion) { out.spell_tier = num(v.spell_tier); out.freeform = true; }
+        if (v.fusion) { out.fusion = list(v.fusion); out.freeform = false; }
+        gmQueue.rolls.push(out);
+      } else if (kind === "sheet") {
+        out = { character: v.character };
+        if (v.damage) out.damage = num(v.damage);
+        if (v.critical) out.critical = true;
+        if (v.heal) out.heal = num(v.heal);
+        if (v.stabilize) out.stabilize = true;
+        if (v.resonance) out.resonance = num(v.resonance);
+        if (v.purse) out.purse = num(v.purse);
+        if (v.item) out.add_item = { name: v.item, tier: num(v.itemTier) || 1 };
+        if (v.remove_item) out.remove_item = v.remove_item;
+        if (v.condName && v.cond) out.item_condition = { name: v.condName, condition: v.cond };
+        if (v.spell) out.learn_spell = { name: v.spell, tier: num(v.spellTier), text: v.spellText };
+        if (v.scar) out.add_scar = v.scar;
+        if (Object.keys(out).length === 1) return ($("gmf-msg").textContent = "Nothing to change yet.");
+        gmQueue.sheetOps.push(out);
+      } else {
+        if (!v.name) return ($("gmf-msg").textContent = "Who?");
+        gmQueue.remember.push(v);
+      }
+      for (const k of Object.keys(out || {})) if (out[k] === undefined) delete out[k];
+      box.innerHTML = "";
+      renderGmDesk();
+    });
   }
 
   // The rolls this seat owes the GM, one button each, in order.
@@ -1080,7 +1320,9 @@
           <input class="field" data-k="character" maxlength="40" placeholder="Character name" value="${escapeHtml(s.character || "")}">
         </div>
         <div class="actions"></div>`;
+      const canEdit = s.id === mySeat || !!admin;
       row.querySelectorAll("input").forEach((inp) => {
+        inp.disabled = !canEdit;
         const save = () => {
           if ((s[inp.dataset.k] || "") === inp.value.trim()) return;
           send({ t: "seat", id: s.id, patch: { [inp.dataset.k]: inp.value } });
@@ -1091,13 +1333,20 @@
       const act = row.querySelector(".actions");
       const mk = (text, fn, title) => { const b = document.createElement("button"); b.type = "button"; b.className = "ghost"; b.textContent = text; b.title = title || ""; b.addEventListener("click", fn); act.appendChild(b); };
       mk(s.present ? "Present · mark absent" : "Absent · mark present", () => send({ t: "seat", id: s.id, patch: { present: !s.present } }), "Toggle presence");
-      if (s.id !== mySeat) mk("Sit here", () => { takeSeat(s.id); renderTableTab(); }, "Play this seat from this device");
+      if (s.id !== mySeat && admin) mk("Sit here", () => { sit(s.id); renderTableTab(); }, "Play this seat from this device (GM only)");
       body.appendChild(row);
     }
-    const add = document.createElement("button");
-    add.type = "button"; add.className = "ghost"; add.textContent = "Switch seat / add someone";
-    add.addEventListener("click", () => { closeCodex(); mySeat = ""; store.del("localStorage", "eidholm.seat"); route(); });
-    body.appendChild(add);
+    if (admin) {
+      const add = document.createElement("button");
+      add.type = "button"; add.className = "ghost"; add.textContent = "Switch seat / add someone";
+      add.addEventListener("click", () => { closeCodex(); mySeat = ""; store.del("localStorage", "eidholm.seat"); route(); });
+      body.appendChild(add);
+    } else {
+      const p = document.createElement("p");
+      p.className = "muted small";
+      p.textContent = "Seats stay with the device that took them. To move to another seat or device, ask the GM to free yours.";
+      body.appendChild(p);
+    }
   }
 
   // ================= settings (Game Master only) =================
@@ -1161,7 +1410,10 @@
       return;
     }
     $("codex-status").textContent = "Unsealed · every action is checked by the server";
-    body.innerHTML = `<h3 class="set-h">The GM's dice</h3>
+    body.innerHTML = `<h3 class="set-h">Who runs the game</h3>
+      <p class="muted">The AI GM answers every round by itself. A human GM sits in the GM seat at the head of the table and answers when ready, with the same tools; no AI calls are made.</p>
+      <div class="row-btns" id="gm-mode"></div>
+      <h3 class="set-h">The GM's dice</h3>
       <p class="muted">You always see every roll the GM makes while Settings are unsealed. Players only see "the GM rolls behind the screen", unless you show them.</p>
       <label class="switch"><input type="checkbox" id="reveal-toggle" ${table && table.revealGmRolls ? "checked" : ""}> Show GM rolls to the party</label>
       <h3 class="set-h">The session</h3>
@@ -1175,6 +1427,7 @@
       <div id="set-party"><p class="muted">Reading the repo…</p></div>
       <div class="set-foot"><button type="button" class="ghost" id="admin-seal">Seal settings</button></div>`;
     $("admin-seal").addEventListener("click", () => { sealSettings(); renderSettings(); });
+    renderGmMode();
     $("reveal-toggle").addEventListener("change", (e) => send({ t: "reveal", on: e.target.checked }));
     renderSettingsSeats();
     renderSettingsParty(force);
@@ -1241,6 +1494,19 @@
     });
   }
 
+  function renderGmMode() {
+    const box = $("gm-mode");
+    if (!box || !table) return;
+    const human = table.gmMode === "human";
+    box.innerHTML = `<label class="switch"><input type="radio" name="gmm" value="ai" ${human ? "" : "checked"}> AI game master</label>
+      <label class="switch"><input type="radio" name="gmm" value="human" ${human ? "checked" : ""}> Human game master</label>
+      ${human ? `<button type="button" class="ghost" id="gm-sit">${table.youAreGm ? "Leave the GM seat" : "Take the GM seat on this device"}</button>
+        <span class="muted small">${table.gmPresent ? "The GM seat is taken." : "Nobody is in the GM seat."}</span>` : ""}`;
+    box.querySelectorAll('input[name="gmm"]').forEach((r) => r.addEventListener("change", () => send({ t: "gmMode", mode: r.value })));
+    const sitb = $("gm-sit");
+    if (sitb) sitb.addEventListener("click", () => send({ t: "sitGm", on: !table.youAreGm }));
+  }
+
   function renderSettingsSeats() {
     const box = $("set-seats");
     if (!box || !table) return;
@@ -1250,6 +1516,13 @@
       const row = document.createElement("div");
       row.className = "set-row";
       row.innerHTML = `<span><b>${escapeHtml(seatLabel(s))}</b> <small>${s.character ? escapeHtml(s.player) + " · " : ""}${s.present ? "present" : "absent"}${s.id === mySeat ? " · you" : ""}</small></span>`;
+      if (s.claimed) {
+        const fr = document.createElement("button");
+        fr.type = "button"; fr.className = "ghost"; fr.textContent = "Free seat";
+        fr.title = "Unlock this seat so the next device to pick it can take it";
+        fr.addEventListener("click", () => send({ t: "freeSeat", id: s.id }));
+        row.appendChild(fr);
+      }
       const del = document.createElement("button");
       del.type = "button"; del.className = "ghost danger"; del.textContent = "Remove seat";
       del.addEventListener("click", async () => {
