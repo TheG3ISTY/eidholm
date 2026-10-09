@@ -561,6 +561,8 @@ async function updatePartyFile(env, message, mutate) {
   }
 
   const result = mutate(data);
+  const removedName = typeof data.__removed === "string" ? data.__removed : null;
+  delete data.__removed;
 
   const put = await fetch(url, {
     method: "PUT",
@@ -577,7 +579,7 @@ async function updatePartyFile(env, message, mutate) {
 
   // The Codex and the GM see the change immediately, and every open screen refreshes.
   await caches.default.delete(new Request(`https://eidholm-state.cache/${env.GITHUB_BRANCH}/${path}`));
-  await tableCall(env, { t: "setParty", data }).catch(() => {});
+  await tableCall(env, { t: "setParty", data, removed: removedName }).catch(() => {});
   return { ok: true, ...result };
 }
 
@@ -598,10 +600,12 @@ async function deleteCharacter(env, name) {
   if (!name) throw httpError("Which character?", 400);
   let removed;
   return updatePartyFile(env, `session: remove character ${name} (via game settings)`, (data) => {
+    data.__removed = true;
     const i = data.party.findIndex((m) => sameName(m.name, name));
     if (i < 0) throw httpError(`No character called "${name}" in the party file.`, 404);
     removed = data.party[i].name;
     data.party.splice(i, 1);
+    data.__removed = removed;
     return { removed };
   });
 }
@@ -704,6 +708,11 @@ export class Table extends DurableObject {
         // The party file was just committed from Settings; it is now the live truth.
         const p = parsePartyFile(JSON.stringify(msg.data || {}));
         state.live = { loaded: true, list: p.list, clock: { minutes: clockMinutes(p.data) }, dirty: 0 };
+        if (msg.removed) {
+          for (const s of state.seats) {
+            if (sameName(s.character, msg.removed)) { addEvent(state, `${msg.removed} is struck from the game.`, s); s.character = ""; }
+          }
+        }
         await this.commit(state);
         const payload = JSON.stringify({ t: "party-changed" });
         for (const ws of this.ctx.getWebSockets()) { try { ws.send(payload); } catch {} }

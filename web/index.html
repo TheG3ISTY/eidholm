@@ -1171,7 +1171,7 @@
       <p class="muted">Removes the seat for everyone, right now. The scene and the party file are untouched.</p>
       <div id="set-seats"></div>
       <h3 class="set-h">Characters in the party file</h3>
-      <p class="muted">Deletes the permanent sheet from <code>characters/party.json</code> with a commit, so it can always be recovered from the repo history.</p>
+      <p class="muted">Deletes the character from the game and from <code>characters/party.json</code> with a commit, so it can always be recovered from the repo history. Also available on each card in the Party tab.</p>
       <div id="set-party"><p class="muted">Reading the repo…</p></div>
       <div class="set-foot"><button type="button" class="ghost" id="admin-seal">Seal settings</button></div>`;
     $("admin-seal").addEventListener("click", () => { sealSettings(); renderSettings(); });
@@ -1418,7 +1418,7 @@
       <div class="ebar">
         <button type="button" class="ghost" data-act="add">+ Field</button>
         <span class="emsg"></span>
-        ${isNew ? "" : '<button type="button" class="ghost" data-act="revert">Revert</button>'}
+        ${isNew ? "" : '<button type="button" class="ghost danger" data-act="delete">Delete</button><button type="button" class="ghost" data-act="revert">Revert</button>'}
         <button type="button" class="ghost" data-act="save">${isNew ? "Create" : "Save"}</button>
       </div>`;
     const rows = card.querySelector(".erows");
@@ -1428,6 +1428,15 @@
     card.addEventListener("input", () => { editorDirty = true; card.classList.add("dirty"); });
     card.querySelector('[data-act="add"]').addEventListener("click", () => {
       const r = fieldRow("", "", "auto"); rows.appendChild(r); r.querySelector("input").focus();
+    });
+    const del = card.querySelector('[data-act="delete"]');
+    if (del) del.addEventListener("click", async () => {
+      const typed = prompt(`This deletes "${original}" from the game and the party file, with a commit (recoverable from the repo history).\n\nType the name to confirm:`);
+      if (typed === null) return;
+      if (typed.trim().toLowerCase() !== original.toLowerCase()) { alert("The name didn't match. Nothing was deleted."); return; }
+      del.disabled = true; del.textContent = "Deleting…";
+      try { await adminCall("delete-character", { name: original }); codexState = null; renderCodex(true); }
+      catch (err) { if (err.message !== "locked") { alert(err.message); del.disabled = false; del.textContent = "Delete"; } }
     });
     const rv = card.querySelector('[data-act="revert"]');
     if (rv) rv.addEventListener("click", () => { card.replaceWith(characterEditor(member)); });
