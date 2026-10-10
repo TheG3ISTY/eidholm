@@ -23,8 +23,8 @@
           "marks": 1
         },
         "survival": {
-          "rank": 1,
-          "marks": 1
+          "rank": 2,
+          "marks": 0
         },
         "small_melee": {
           "rank": 1,
@@ -44,7 +44,7 @@
         },
         "unarmored": {
           "rank": 1,
-          "marks": 0
+          "marks": 1
         },
         "large_melee": {
           "rank": 1,
@@ -134,7 +134,7 @@
       "purse": 3500,
       "scars": [],
       "created": "2026-10-09",
-      "hp": 32,
+      "hp": 35,
       "pool": 18.29,
       "luckUsed": 0,
       "enduranceUsed": false,
