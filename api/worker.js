@@ -2327,6 +2327,8 @@ function buildConversation(state, { referee = null } = {}) {
       { const nudge = referee ? refereeNote(state, referee) : rollReminder(state, acts); if (nudge) content += "\n\n" + nudge; }
       content += `\n\nAt the table now: ${present.join(", ") || "nobody"}.` +
         (absent.length ? ` Absent (elsewhere, do not narrate them acting): ${absent.join(", ")}.` : "");
+      const stale = repeatedPhrases(state);
+      if (stale.length) content += `\n\n(You keep repeating yourself: ${stale.map((x) => `"${x.phrase}" (in ${x.count} of your last replies)`).join(", ")}. Retire these words and the motif behind them now: don't say them, don't paraphrase them, move on to something new.)`;
       if (acts.some((m) => m.kind === "act")) content += "\n\n" + YOUR_TURN;
     }
     out.push({ role: "user", content });
@@ -2467,6 +2469,32 @@ function refereeNoteCore(state, referee) {
   return "(The referee called no rolls this round: narrate what happens. If something now comes at a character, an attack, a trap, a spell, a grab, describe it coming and end your reply there, unresolved: the dice decide it next round. Don't call request_rolls; the dice are the referee's this round.)";
 }
 
+// Phrases the GM keeps coming back to across its recent replies ("the offering must be
+// complete"). A small model copies itself; naming the phrases breaks the loop.
+function repeatedPhrases(state, { replies = 6, n = 5, min = 3, max = 3 } = {}) {
+  const recent = state.messages.filter((m) => m.kind === "gm").slice(-replies).map((m) => m.text);
+  if (recent.length < min) return [];
+  const words = (t) => String(t).toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/\*/g, "").replace(/\[\[scene:[^\]]*\]\]/g, " ").replace(/[^a-z0-9'\s-]/g, " ").split(/\s+/).filter(Boolean);
+  const counts = new Map();
+  for (const t of recent) {
+    const w = words(t), seen = new Set();
+    for (let i = 0; i + n <= w.length; i++) {
+      const g = w.slice(i, i + n);
+      if (g.filter((x) => x.length >= 4).length < 2) continue;   // skip "and the of a" filler
+      const k = g.join(" ");
+      if (!seen.has(k)) { seen.add(k); counts.set(k, (counts.get(k) || 0) + 1); }
+    }
+  }
+  const out = [];
+  for (const [k, c] of [...counts].filter(([, c]) => c >= min).sort((a, b) => b[1] - a[1])) {
+    const kw = k.split(" ");
+    if (out.some((o) => kw.filter((x) => o.phrase.split(" ").includes(x)).length >= 2)) continue;   // one per motif
+    out.push({ phrase: k, count: c });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 // Said every round, louder after rounds of none: the small model tends to narrate past the dice.
 const ROLL_DROUGHT = 3;
 function rollReminder(state, acts = []) {
@@ -2527,6 +2555,7 @@ function buildSystemPrompt(state, sel, party) {
 - Plain prose: no bold, no italics for emphasis, no headings in your replies.
 - Second person plural when addressing the group, by character name when addressing one. Present tense. Vivid but economical: usually 2 to 5 paragraphs, then hand control back with a situation the table can act on.
 - Never decide what player characters think, say, or choose.
+- NO REFRAINS. Never repeat a line, an omen, a whisper or a chant from your earlier replies; a motif said once has done its work. When the players leave a place or walk away from a thread, let it go: nothing follows them, calls after them or keeps whispering, unless they go back to it or a later scene earns it.
 - PACE. Every reply must change the situation: something is found, someone acts or arrives, a door opens or closes, a price is named, a threat moves. Never two replies in a row of only atmosphere, omens or a cryptic voice. Be concrete: name people, places, objects and what they want. When the players look for something, they find something real (or the roll says what it costs them). Answer part of every mystery as you raise the next. A scene reaches a choice, a conflict or a discovery within three or four rounds.
 - DON'T RETELL THE PLAYERS' ACTIONS. They know what they wrote. Never rephrase their action or their words back to them, and never write new lines of dialogue or new decisions for their characters. Start from the world's response: what happens because of what they did, what the people there say and do back, what changes. A question a player asks gets its answer from the NPC in this same reply. Every reply moves the story forward.
 - Players may join or leave mid-session; "(at the table)" lines tell you when. Weave arrivals and departures into the fiction plausibly.
