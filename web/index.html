@@ -111,6 +111,7 @@
   .foe .bar i { display: block; height: 100%; background: var(--danger); }
   .foe.down { opacity: 0.45; }
   .chip .hp { color: var(--glass); }
+  .pts { color: var(--ember); }
   .chip .hp.low { color: var(--danger); }
   /* roster strip */
   .roster {
@@ -2239,13 +2240,14 @@
     const S = R.stats || {}, SK = R.skills || {}, RK = R.ranks || [], MK = R.marks || [];
     const me = seatById(mySeat);
     const player = c.player ? " · " + escapeHtml(c.player) : "";
-    let h = `<div class="card sheet" data-sheet="${escapeHtml(c.name)}"><h3>${escapeHtml(c.name)}<small>LEVEL ${d.level}${player}${mine ? " · YOURS" : ""}</small></h3>`;
+    let h = `<div class="card sheet" data-sheet="${escapeHtml(c.name)}"><h3>${escapeHtml(c.name)}<small>LEVEL ${d.level}${player}${mine ? " · YOURS" : ""}${d.unspent > 0 ? ` · <span class="pts">${d.unspent} POINT${d.unspent === 1 ? "" : "S"} TO SPEND</span>` : ""}</small></h3>`;
     const state = c.dead ? '<span class="bad">DEAD</span>'
       : c.dying ? (c.dying.stable ? '<span class="bad">UNCONSCIOUS · STABLE</span>' : `<span class="bad">DYING · saves ${c.dying.s}✓ ${c.dying.f}✗</span>`)
       : `HP ${c.hp}/${d.maxHp}`;
     h += `<div class="vit"><span>${state}</span><span>AC ${d.ac}</span><span>Resonance ${+(+c.pool).toFixed(2)}/${d.maxPool} · tier ${d.maxTier}</span><span>Spell DC ${d.spellDc}${d.spellDcRanged !== d.spellDc ? "/" + d.spellDcRanged : ""}</span>` +
       `<span>${+(+c.purse).toFixed(2)} cv</span><span>Lucky breaks ${Math.max(0, d.luckyBreaks - (c.luckUsed || 0))}/${d.luckyBreaks}</span>` +
       `<span>Initiative ${signed(d.initiative)}</span><span>Carry ${d.carryKg} kg</span>${d.critOn === 19 ? "<span>Crits 19–20</span>" : ""}</div>`;
+    h += `<h4>STATS${d.unspent > 0 ? ` · <span class="pts">${d.unspent} POINT${d.unspent === 1 ? "" : "S"} TO SPEND</span>${mine ? " · USE THE +" : ""}` : ""}</h4>`;
     h += '<div class="stats">';
     for (const k of Object.keys(S)) {
       const v = statVal(c, k), canRaise = mine && d.unspent > 0 && c.capstone !== k && v < 10 && cost(v + 1) - cost(v) <= d.unspent && !c.dead;
@@ -2253,7 +2255,6 @@
         (mine && d.unspent > 0 && c.capstone !== k ? `<button type="button" data-raise="${k}" ${canRaise ? "" : "disabled"} title="${v === 9 ? "The step to 10 costs 2" : "Spend a point"}">+</button>` : "") + "</div>";
     }
     h += "</div>";
-    if (mine && d.unspent > 0) h += `<div class="notice">${d.unspent} stat point${d.unspent === 1 ? "" : "s"} to spend. Use the + on a stat.</div>`;
     if (mine && d.level >= 50 && !c.capstone) {
       h += '<div class="notice">Level 50: choose your capstone. One stat becomes 13, with its ability:<br>' +
         Object.keys(S).map((k) => `<button type="button" class="ghost" data-cap="${k}" title="${escapeHtml((R.capstones || {})[k]?.[1] || "")}">${escapeHtml(S[k])}: ${escapeHtml((R.capstones || {})[k]?.[0] || "")}</button>`).join("") + "</div>";
