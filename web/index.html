@@ -2024,6 +2024,12 @@
       send({ t: "rollAll", seatId: mySeat });
       return;
     }
+    // Testing commands: only with Settings unsealed or the GM login on this device; never listed for players.
+    if (["money", "demigod", "godmode", "arena"].includes(c) && (admin || table.gmRole)) {
+      if (!mySheet()) return note("TEST", "<p>Sit at your seat with a living character first.</p>");
+      send({ t: "test", seatId: mySeat, what: c });
+      return;
+    }
     if (c === "help" || !c) return note("COMMANDS", helpHtml());
     if (c === "table") {
       const ans = new Map(pending().map((m) => [m.seatId, m.kind]));
@@ -2062,8 +2068,16 @@
     } else note("COMMANDS", "<p>Unknown command <code>/" + escapeHtml(cmd) + "</code>.</p>" + helpHtml());
   }
 
+  const TEST_HELP = [
+    ["/money", "+10,000 cv"],
+    ["/demigod", "every skill to Expert (the levels and stat points come with it), HP and Resonance full"],
+    ["/godmode", "every skill to Master and every spellbook spell"],
+    ["/arena", "a level-appropriate opponent on the tracker, and the fight starts"],
+  ];
   function helpHtml() {
-    return "<ul>" + HELP.map(([k, v]) => "<li><code>" + k + "</code> " + v + "</li>").join("") + "</ul>" +
+    const test = admin || (table && table.gmRole)
+      ? '<p class="muted">Testing (Settings unsealed or GM login only; players never see these):</p><ul>' + TEST_HELP.map(([k, v]) => "<li><code>" + k + "</code> " + v + "</li>").join("") + "</ul>" : "";
+    return "<ul>" + HELP.map(([k, v]) => "<li><code>" + k + "</code> " + v + "</li>").join("") + "</ul>" + test +
       '<p class="muted">Commands are only shown on your screen, never cost tokens, and the GM never sees them.</p>';
   }
 
