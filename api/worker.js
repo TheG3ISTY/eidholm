@@ -1112,7 +1112,7 @@ export class Table extends DurableObject {
       const s = seat(id);
       if (!s) throw new Error("That seat no longer exists.");
       if (att.admin || (s.key && msg.key && s.key === msg.key)) return s;
-      throw new Error(s.key ? "That seat belongs to another device. The GM can free it in Settings." : "Sit down first: pick this seat on the seat screen.");
+      throw new Error(s.key ? "That seat belongs to another device. The GM can free it in Settings." : "This device isn't sitting in that seat any more (the GM freed it). Pick it again on the seat screen.");
     };
     const gmOnly = () => {
       if (!(att.admin || att.gmRole) || !att.gmSeat) throw new Error("Only the GM, in the GM seat, can do that.");

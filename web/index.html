@@ -523,6 +523,7 @@
   let seatKeys = {};
   try { seatKeys = JSON.parse(store.get("localStorage", "eidholm.keys") || "{}") || {}; } catch { seatKeys = {}; }
   let claiming = "";
+  let seatChecked = false;   // this connection has confirmed our seat key with the server
   let gmEntry = false;   // the GM came in through the seat screen without taking a player seat
   // The GM login (runs the table; less than Settings). Per tab, like Settings.
   let gmCreds = null;
@@ -605,10 +606,10 @@
   }
 
   // Sitting down in an existing seat asks the server for its key.
+  // A stored key is checked by the server too: after the GM frees a seat it is stale.
   function sit(id) {
-    if (seatKeys[id]) return takeSeat(id);
     claiming = id;
-    send({ t: "claim", seatId: id, key: "" });
+    send({ t: "claim", seatId: id, key: seatKeys[id] || "" });
   }
 
   function takeSeat(id) {
@@ -629,9 +630,10 @@
   function route() {
     if (!table) return;
     const st = table.seats.find((s) => s.id === mySeat);
-    // A seat this device has no key for (or a seat from before keys existed) is claimed first.
-    if (st && !seatKeys[st.id] && !claiming) {
-      if (!st.claimed || admin) { claiming = st.id; send({ t: "claim", seatId: st.id, key: "" }); }
+    // Our seat is confirmed with the server once per connection: a stored key may be stale
+    // (the GM freed the seat, or another device took it since). No key: claim it if it's free.
+    if (st && !claiming && (!seatKeys[st.id] || !st.claimed || !seatChecked)) {
+      if (seatKeys[st.id] || !st.claimed || admin) { claiming = st.id; send({ t: "claim", seatId: st.id, key: seatKeys[st.id] || "" }); }
       else { mySeat = ""; store.del("localStorage", "eidholm.seat"); }
     }
     const seated = table.seats.some((s) => s.id === mySeat) && !!seatKeys[mySeat];
@@ -656,6 +658,7 @@
     ws = new WebSocket(`${proto}://${location.host}${API}/api/ws?ticket=${encodeURIComponent(ticket)}`);
     ws.onopen = () => {
       retry = 0; $("conn").classList.add("live");
+      seatChecked = false; claiming = "";
       // An unsealed GM proves it again on every (re)connection to see GM dice.
       if (admin) ws.send(JSON.stringify({ t: "admin", user: admin.user, pass: admin.pass }));
       if (gmCreds) ws.send(JSON.stringify({ t: "gmLogin", user: gmCreds.user, pass: gmCreds.pass }));
@@ -676,7 +679,9 @@
       else if (m.t === "joined") {
         if (m.key) { seatKeys[m.seatId] = m.key; store.set("localStorage", "eidholm.keys", JSON.stringify(seatKeys)); }
         claiming = "";
+        if (m.seatId === mySeat || !mySeat) seatChecked = true;
         takeSeat(m.seatId);
+        seatChecked = true;
       }
       else if (m.t === "error") {
         if (gmPosting && /^Not posted/.test(m.text) && $("gm-text")) {
@@ -685,6 +690,12 @@
           gmDeskSig = ""; renderGmDesk();
         }
         gmPosting = null;
+        // A seat we thought was ours belongs to another device now: forget its key, pick again.
+        if (claiming && /already taken on another device/.test(m.text)) {
+          delete seatKeys[claiming]; store.set("localStorage", "eidholm.keys", JSON.stringify(seatKeys));
+          if (mySeat === claiming) { mySeat = ""; store.del("localStorage", "eidholm.seat"); }
+          claiming = ""; seatChecked = true; route();
+        }
         pushError(m.text);
       }
       else if (m.t === "party-changed") partyChanged();
