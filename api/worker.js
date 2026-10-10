@@ -1341,7 +1341,7 @@ export class Table extends DurableObject {
         const what = String(msg.what || "");
         if (what === "money") {
           sheet.purse = round2((sheet.purse || 0) + 10000);
-          addEvent(state, `[test] ${sheet.name} gains 10,000 cv (purse: ${sheet.purse} cv).`, s);
+          addEvent(state, `${sheet.name} gains 10,000 cv (purse: ${sheet.purse} cv).`, s);
         } else if (what === "demigod" || what === "godmode") {
           const rank = what === "godmode" ? 6 : 5;
           for (const k of Object.keys(SKILLS)) {
@@ -1356,7 +1356,7 @@ export class Table extends DurableObject {
           }
           const d = derive(sheet);
           sheet.hp = d.maxHp; sheet.pool = d.maxPool;
-          addEvent(state, `[test] ${sheet.name} is raised to ${RANKS[rank]} in every skill: level ${d.level}, ${d.unspent} stat points to spend${learned ? `, ${learned} spells learned` : ""}.`, s);
+          addEvent(state, `${sheet.name} is raised to ${RANKS[rank]} in every skill: level ${d.level}, ${d.unspent} stat points to spend${learned ? `, ${learned} spells learned` : ""}.`, s);
         } else if (what === "arena") {
           const lvl = derive(sheet).level;
           const names = ["Lattice-forged duelist", "Arena brute", "Clockwork gladiator", "Rust-cult champion", "Salvage-rig fighter"];
@@ -1364,9 +1364,9 @@ export class Table extends DurableObject {
           const dice = `${1 + Math.floor(lvl / 10)}d8${fmtMod(Math.floor(lvl / 5))}`;
           const foe = { name, hp: 10 + 5 * lvl, maxHp: 10 + 5 * lvl, ac: Math.min(20, 12 + Math.floor(lvl / 6)), atk: 3 + Math.floor(lvl / 4), dmg: dice };
           state.foes = [...(state.foes || []).filter((f) => f.hp > 0 && f.name !== name), foe];
-          state.scene = { ...(state.scene || {}), mode: "combat", where: "a sparring arena (test)", present: [name] };
+          state.scene = { ...(state.scene || {}), mode: "combat", where: "a sparring arena", present: [name] };
           state.messages.push({ id: state.nextId++, kind: "event", sub: "arena", round: state.round, seatId: s.id, ts: Date.now(),
-            text: `[test] The arena opens: ${sheet.name} (level ${lvl}) faces a ${name}.`, foe: name });
+            text: `The arena opens: ${sheet.name} (level ${lvl}) faces a ${name}.`, foe: name });
           markDirty(state);
           if (state.gmMode === "ai" && !isResolving(state)) return this.resolve(state);
         } else throw new Error("Unknown command.");
@@ -2310,7 +2310,7 @@ function buildConversation(state, { referee = null } = {}) {
     if (!acts.some(isAnswer) && !gm && !acts.some((m) => m.sub === "opening" || m.sub === "arena")) continue;
 
     const lines = acts.map((m) => {
-      if (m.kind === "event" && m.sub === "arena") return `- (from the table's GM, a test fight outside the story) An ARENA fight starts now: ${m.text.replace(/^\[test\] /, "")} The foe is on the tracker. Describe the ring and the foe in two sentences, then start the fight: the foe moves first and its attack is coming. Never act for the player character.`;
+      if (m.kind === "event" && m.sub === "arena") return `- (from the table's GM, a test fight outside the story) An ARENA fight starts now: ${m.text} The foe is on the tracker. Describe the ring and the foe in two sentences, then start the fight: the foe moves first and its attack is coming. Never act for the player character.`;
       if (m.kind === "event") return m.sub === "opening" ? openingLine(state, m) : `- (at the table) ${m.text}`;
       const who = m.character ? `${m.character} (played by ${m.author})` : m.author;
       if (m.kind === "roll") return `- ${who} rolls ${rollLine(m)}`;
