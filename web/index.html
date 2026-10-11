@@ -1263,11 +1263,13 @@
       const dice = ["check", "save", "attack", "death"].includes(r.type) ? "d20" : (r.dice || "d20");
       const dis = [...(r.dis || []), ...(r.autoDis || [])];
       const net = r.adv?.length && !dis.length ? "advantage" : dis.length && !r.adv?.length ? "disadvantage" : (r.adv?.length && dis.length ? "adv + dis cancel" : "");
-      const bits = [dice + fmtMod(r.mod)];
-      if (r.dc != null) bits.push("DC " + r.dc);
-      if (r.ac != null) bits.push("AC " + r.ac);
-      if (net) bits.push(net);
-      if (r.damage) bits.push("then " + r.damage.dice + fmtMod(r.damage.mod) + " on a hit");
+      // A first cast (learning by casting) is a straight d8, nothing else: no modifier, DC or advantage.
+      const learn = r.learning && r.spellTier;
+      const bits = learn ? ["d8 · first cast", `miscasts on ${r.spellTier === 1 ? "1" : "1-" + r.spellTier}`] : [dice + fmtMod(r.mod)];
+      if (!learn && r.dc != null) bits.push("DC " + r.dc);
+      if (!learn && r.ac != null) bits.push("AC " + r.ac);
+      if (!learn && net) bits.push(net);
+      if (r.damage) bits.push("then " + r.damage.dice + fmtMod(r.damage.mod) + (learn ? " if it holds" : " on a hit"));
       b.innerHTML = `<span class="n">${i + 1}</span><b>${escapeHtml(r.label)}</b><small>${escapeHtml(bits.join(" · "))}</small>`;
       if (r.type === "death") bits.push("10+ holds on");
       if (r.spellTier) bits.push("tier " + r.spellTier + " cant");
