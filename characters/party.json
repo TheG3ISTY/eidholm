@@ -36,7 +36,7 @@
         },
         "heavy_armor": {
           "rank": 5,
-          "marks": 0
+          "marks": 1
         },
         "light_armor": {
           "rank": 5,
@@ -48,11 +48,11 @@
         },
         "canting": {
           "rank": 5,
-          "marks": 0
+          "marks": 1
         },
         "ranged_canting": {
           "rank": 5,
-          "marks": 0
+          "marks": 1
         },
         "artifice": {
           "rank": 5,
@@ -166,6 +166,10 @@
         {
           "name": "Mend",
           "tier": 1
+        },
+        {
+          "name": "Query Flame",
+          "tier": 3
         }
       ],
       "debts": [],
@@ -173,7 +177,7 @@
       "scars": [],
       "created": "2026-10-11",
       "hp": 252,
-      "pool": 44,
+      "pool": 34,
       "luckUsed": 0,
       "enduranceUsed": false,
       "dying": null,
