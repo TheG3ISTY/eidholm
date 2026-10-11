@@ -185,7 +185,7 @@ Armor is worn in **five slots: head, hands, body, legs, feet**, one piece each. 
 
 Shields are **held, never worn.** A shield needs a hand, a direction, and a moment of attention, so no build can stack a two-handed weapon with a shield. The single exception is the **Strength 13 capstone** (Titan's grip).
 
-**Two hands.** What a character holds is marked on the sheet (*Take up* / *Put away*): a two-handed weapon takes both hands, a one-handed weapon or a raised shield takes one, and nothing more fits. Titan's grip makes a two-handed weapon take one hand. Starting weapons and shields are in hand, as far as two hands allow.
+**Two hands.** What a character holds is marked on the sheet (*Take up* / *Put away*): a two-handed weapon takes both hands, a one-handed weapon or a raised shield takes one, and nothing more fits. Titan's grip makes a two-handed weapon take one hand. Starting weapons are in hand, as far as two hands allow.
 
 - **Against ranged attacks (cants and projectiles alike):** a **raised** shield (in hand) absorbs everything coming from the direction it faces, into its own pool of **500 to 1,500**, by quality. When the pool is spent, it **shatters**: broken until repaired, then full again. Smashing a real shield takes a sustained barrage: rare and dramatic.
 - **The pool refills by itself:** 1/24 of it per in-game hour (about 4.17%), so empty to full takes a day. A shattered shield doesn't refill until it's repaired.
@@ -210,8 +210,8 @@ A fresh character starts with **50 cv**, clothes, a pack, and **3 items** of the
 | Weapons | Armor | Tools |
 |---|---|---|
 | Dagger (small melee) | Leather set (light: all five slots) | Medic's satchel (Medicine) |
-| Baton (small melee) | Battered mail set (heavy: body, legs, head) | Pick-and-wire roll (Thievery) |
-| Sword (medium melee) | Battered lattice-shield, pool 500 (heavy armor) | Field kit: rope, tarp, flint (Survival) |
+| Baton (small melee) | Battered mail set (heavy: all five slots) | Pick-and-wire roll (Thievery) |
+| Sword (medium melee) | | Field kit: rope, tarp, flint (Survival) |
 | Mace (medium melee) | | Tinker's case (Creation) |
 | Greatsword (large melee) | | Salvage gauge (Artifice) |
 | Halberd (large melee) | | Focus bead (Canting; focus +1, worn) |
@@ -221,7 +221,7 @@ Every item points at a skill: what you carry is where you start learning.
 
 **Two tier-1 spells**, picked at creation from the spellbook: learned, like any spell on the sheet.
 
-- **Armor:** an armor set is **one pick**, and only one set can be picked. The **leather set** is complete light armor, +2 AC. The **battered mail set** is heavy and incomplete, +4 AC (coif, hauberk and chausses, old and dented but whole): the gloves and boots that finish it are found in play. Worn from the start.
+- **Armor:** an armor set is **one pick**, and only one set can be picked. The **leather set** is complete light armor, +2 AC. The **battered mail set** is complete heavy armor, +6 AC (coif, gauntlets, hauberk, chausses and sabatons, old and dented but whole). Worn from the start. **Shields are not starting gear**: they are bought, found or earned in play.
 - **Weapons:** dagger, baton and throwing knives 1d4; mace and bow 1d6; sword, crossbow and the cracked energy staff 1d8; halberd 1d10; greatsword 2d6. Greatswords, halberds, bows, crossbows and staves need two hands.
 - The kit is picked on the **creation screen**, along with stats and backstory. The GM never builds a sheet.
 

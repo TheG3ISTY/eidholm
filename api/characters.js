@@ -65,10 +65,9 @@ export const STARTER_ITEMS = [
   { id: "leather_set", name: "Leather set", kind: "set", armor: "light_armor", ac: 2, pieces: [
     piece("Leather cap", "light_armor", "head"), piece("Leather gloves", "light_armor", "hands"), piece("Leather jack", "light_armor", "body"),
     piece("Leather breeches", "light_armor", "legs"), piece("Leather boots", "light_armor", "feet")] },
-  { id: "battered_mail_set", name: "Battered mail set", kind: "set", armor: "heavy_armor", ac: 4, pieces: [
-    piece("Battered coif", "heavy_armor", "head"), piece("Battered hauberk", "heavy_armor", "body"),
-    piece("Battered chausses", "heavy_armor", "legs")] },
-  { id: "lattice_shield", name: "Battered lattice-shield", kind: "shield", skill: "heavy_armor", shieldPool: 500 },
+  { id: "battered_mail_set", name: "Battered mail set", kind: "set", armor: "heavy_armor", ac: 6, pieces: [
+    piece("Battered coif", "heavy_armor", "head"), piece("Battered gauntlets", "heavy_armor", "hands"), piece("Battered hauberk", "heavy_armor", "body"),
+    piece("Battered chausses", "heavy_armor", "legs"), piece("Battered sabatons", "heavy_armor", "feet")] },
   { id: "medic_satchel", name: "Medic's satchel", kind: "tool", skill: "medicine" },
   { id: "pick_roll", name: "Pick-and-wire roll", kind: "tool", skill: "thievery" },
   { id: "field_kit", name: "Field kit (rope, tarp, flint)", kind: "tool", skill: "survival" },
