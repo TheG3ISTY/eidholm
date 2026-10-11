@@ -1049,7 +1049,7 @@ export class Table extends DurableObject {
           const { before, ...q } = r;
           const sheet = sheetFor(state, state.seats.find((x) => x.id === r.seatId));
           const m = computeMod(sheet, r);
-          const view = { ...q, mod: m.total, modFrom: m.from, autoDis: m.autoDis };
+          const view = { ...q, mod: m.total, modFrom: m.from, autoDis: m.autoDis, dmgPreview: (!r.parent && (!r.saveSpell || (state.foes || []).some((f) => f.hp > 0)) && damageDice(state, r)) || undefined };
           return canSee ? view : { ...view, dc: r.dc == null ? null : "?", ac: r.ac == null ? null : "?" };
         }),
       party: state.live?.loaded ? state.live.list.map((c) => (isSheet(c) ? { ...c, d: derive(c) } : c)) : null,
@@ -1293,6 +1293,13 @@ export class Table extends DurableObject {
           req.pinpoint = true;
         }
         for (const req of owed) performRequest(state, req, s);
+        // /roll rolls everything: damage a hit just unlocked too.
+        if (msg.t === "rollAll") {
+          for (let more = owedBy(state, s.id); more.length; more = owedBy(state, s.id)) {
+            more.sort((a, b) => a.order - b.order);
+            for (const req of more) performRequest(state, req, s);
+          }
+        }
         // Someone who could still spend a lucky break gets a moment before the GM answers.
         const sheet = sheetFor(state, s);
         const d20 = owed.some((r) => ["check", "save", "attack", "death"].includes(r.type));
@@ -1434,6 +1441,9 @@ export class Table extends DurableObject {
         const builtOn = state.requests.some((r) => r !== req && r.seatId === s.id && r.round === state.round && r.status === "rolled" &&
           (r.seq || 0) > (req.seq || 0) && r.before && r.after && JSON.stringify(r.before) !== JSON.stringify(r.after));
         if (builtOn) throw new Error("Too late for a lucky break on that: something after it already changed your sheet.");
+        // Damage already rolled off this hit has landed on someone: the hit stands.
+        if (state.requests.some((r) => r.parent === req.rid && r.status === "rolled")) throw new Error("Too late for a lucky break on that: its damage has already landed.");
+        state.requests = state.requests.filter((r) => r.parent !== req.rid);
         // Undo the roll and everything that came from it, then roll again. The new result stands.
         if (req.before) restoreSheet(sheet, req.before);
         state.messages = state.messages.filter((x) => x.rid !== m.rid);
@@ -1889,6 +1899,14 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
     return;
   }
 
+  // A damage roll unlocked by a hit (or a cast that worked): its own button, its own click.
+  if (req.parent) {
+    if (req.saveSpell) saveSpellHits(state, req, sheet, seat);
+    else spellDamage(state, req, sheet, seat, req.crit, req.pinpoint ? (sides) => sides : undefined);
+    finishRequest(state, req, sheet);
+    return;
+  }
+
   if (req.type === "check" || req.type === "save" || req.type === "attack") {
     const m = computeMod(sheet, req);
     const adv = req.adv || [];
@@ -1936,8 +1954,7 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
       const d = derive(sheet);
       if (req.saveSpell) addEvent(state, `${req.spell}'s targets save against DC ${req.skill === "ranged_canting" ? d.spellDcRanged : d.spellDc}.`, seat, { rid: req.rid });
       castWorked(state, req, sheet, seat, tell);
-      if (req.type === "attack" && req.damage) spellDamage(state, req, sheet, seat, false);
-      if (req.saveSpell) saveSpellHits(state, req, sheet, seat);
+      unlockDamage(state, req, false);
       if (!req.marked) { awardMarks(state, sheet, req, seat); req.marked = true; }
       finishRequest(state, req, sheet);
       return;
@@ -1966,7 +1983,7 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
     push(r, { rtype: req.type, label: req.label, dc: req.dc, ac: req.ac, adv, dis, outcome, modFrom: m.from, spellTier: req.spellTier || undefined, spellDc, pinpoint: req.pinpoint || undefined });
 
     if (sheet && worked && req.spell) castWorked(state, req, sheet, seat, tell);
-    if (sheet && worked && req.saveSpell) saveSpellHits(state, req, sheet, seat);
+    if (sheet && worked && req.saveSpell) unlockDamage(state, req, false);
     if (sheet && req.concentration && outcome === "failure" && sheet.holding) {
       tell([`${sheet.name} loses hold of ${sheet.holding.name}.`]);
       sheet.holding = null;
@@ -1981,7 +1998,7 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
     }
 
     if (req.type === "attack" && req.damage && outcome && outcome !== "miss" && outcome !== "miscant") {
-      spellDamage(state, req, sheet, seat, outcome === "critical hit", best);
+      unlockDamage(state, req, outcome === "critical hit");
     }
     // A failed save against harm: the damage lands on the sheet.
     if (sheet && req.type === "save" && req.failDamage && outcome === "failure") {
@@ -2033,13 +2050,42 @@ function castWorked(state, req, sheet, seat, tell) {
   markDirty(state);
 }
 
+// What a request will roll for damage once it lands, or null: an attack's damage dice, or the
+// dice in a save spell's text when there are foes on the tracker for it to hit.
+function damageDice(state, req) {
+  if (req.type === "attack" && req.damage?.dice) return String(req.damage.dice);
+  if (!req.saveSpell) return null;
+  const dice = String(req.spellText || "").match(/\b(\d+d\d+)\b/);
+  return dice ? dice[1] : null;
+}
+
+// A hit (or a cast that worked) doesn't roll its damage by itself: it puts a damage roll on the
+// player's rail, right where the attack was, to be rolled with its own click.
+function unlockDamage(state, req, crit) {
+  if (!damageDice(state, req)) return;
+  if (req.saveSpell && !(state.foes || []).some((f) => f.hp > 0)) return;
+  const sheet = sheetFor(state, state.seats.find((x) => x.id === req.seatId));
+  const strength = sheet && req.type === "attack" && MELEE_SKILLS.includes(req.skill) ? statMod(sheet, "strength") : 0;
+  state.requests = state.requests.filter((r) => r.parent !== req.rid);
+  let dice = damageDice(state, req);
+  if (crit) dice = dice.replace(/(\d*)d(\d+)/g, (_, n, dd) => `${(Number(n) || 1) * 2}d${dd}`);
+  if (req.type === "attack") dice += fmtMod((Number(req.damage.mod) || 0) + strength);
+  state.requests.push({
+    seatId: req.seatId, type: "damage", parent: req.rid, label: `${req.label}: damage`, dice,
+    damage: req.damage ? { ...req.damage } : undefined, strength, crit: !!crit || undefined, pinpoint: req.pinpoint || undefined,
+    saveSpell: req.saveSpell || undefined, spellText: req.spellText, spell: req.spell, skill: req.skill, target: req.target,
+    mod: 0, dc: null, ac: null, adv: [], dis: [], marked: true,
+    rid: "r" + (state.nextRid++), round: state.round, order: (req.order || 0) + 0.5, status: "pending",
+  });
+}
+
 // Damage from a player's attack (weapon or spell): rolled, shown, and taken off the foe it targets.
 function spellDamage(state, req, sheet, seat, crit, best) {
   const base = { round: state.round, seatId: seat.id, author: seat.player, character: seat.character, rid: req.rid };
   const dice = crit ? String(req.damage.dice).replace(/(\d*)d(\d+)/g, (_, n, dd) => `${(Number(n) || 1) * 2}d${dd}`) : req.damage.dice;
-  const strength = sheet && MELEE_SKILLS.includes(req.skill) ? statMod(sheet, "strength") : 0;
+  const strength = req.strength ?? (sheet && MELEE_SKILLS.includes(req.skill) ? statMod(sheet, "strength") : 0);
   const dr = rollDice(`${dice}${fmtMod((Number(req.damage.mod) || 0) + strength)}`, best);
-  state.messages.push({ id: state.nextId++, kind: "roll", ...base, rtype: "damage", label: `${req.label}: damage`, crit, modFrom: strength ? `Strength ${signed(strength)}` : null, pinpoint: req.pinpoint || undefined,
+  state.messages.push({ id: state.nextId++, kind: "roll", ...base, rtype: "damage", label: req.parent ? req.label : `${req.label}: damage`, crit, modFrom: strength ? `Strength ${signed(strength)}` : null, pinpoint: req.pinpoint || undefined,
     expr: dr.expr, total: dr.total, parts: dr.parts, nat: dr.nat, mode: dr.mode, ts: Date.now() });
   const live = (state.foes || []).filter((f) => f.hp > 0);
   const foe = (req.target ? findFoe(live, req.target) : null) || (live.length === 1 ? live[0] : null);
@@ -2052,18 +2098,17 @@ function saveSpellHits(state, req, sheet, seat) {
   const text = String(req.spellText || "");
   const dice = text.match(/\b(\d+d\d+)\b/);
   if (!dice) return;
+  const dr = rollDice(dice[1]);
+  const dmg = dr.total;
+  state.messages.push({ id: state.nextId++, kind: "roll", round: state.round, seatId: seat.id, author: seat.player, character: seat.character, rid: req.rid,
+    rtype: "damage", label: `${req.spell}: damage`, expr: dr.expr, total: dr.total, parts: dr.parts, nat: dr.nat, mode: dr.mode, ts: Date.now() });
   const live = (state.foes || []).filter((f) => f.hp > 0);
-  if (!live.length) return;
   const area = /\b(burst|circle|dome|area|rains?|storm|every enemy|everyone|all)\b/i.test(text);
   const one = req.target ? findFoe(live, req.target) : null;
   const targets = area ? live : one ? [one] : live.length === 1 ? live : [];
   if (!targets.length) return;
   const d = derive(sheet);
   const dc = req.skill === "ranged_canting" ? d.spellDcRanged : d.spellDc;
-  const dr = rollDice(dice[1]);
-  const dmg = dr.total;
-  state.messages.push({ id: state.nextId++, kind: "roll", round: state.round, seatId: seat.id, author: seat.player, character: seat.character, rid: req.rid,
-    rtype: "damage", label: `${req.spell}: damage`, expr: dr.expr, total: dr.total, parts: dr.parts, nat: dr.nat, mode: dr.mode, ts: Date.now() });
   const half = /\bhalf\b/i.test(text);
   for (const foe of targets) {
     const bonus = Number.isFinite(foe.save) ? foe.save : Math.max(0, Math.floor((foe.ac - 10) / 2));

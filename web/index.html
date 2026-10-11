@@ -158,6 +158,7 @@
   .rbtn:hover:not(:disabled) { background: var(--brass); color: var(--bg); }
   .rbtn:hover:not(:disabled) small { color: var(--bg); }
   .rbtn:disabled { opacity: 0.45; cursor: default; }
+  .rbtn.locked { border-style: dashed; }
   .rbtn b { font-family: var(--display); font-size: 17px; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; hyphens: auto; }
   .rbtn small { overflow-wrap: anywhere; }
   .rbtn small { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); letter-spacing: 0.04em; }
@@ -1289,7 +1290,7 @@
       if (!learn && r.dc != null) bits.push("DC " + r.dc);
       if (!learn && r.ac != null) bits.push("AC " + r.ac);
       if (!learn && net) bits.push(net);
-      if (r.damage) bits.push("then " + r.damage.dice + fmtMod(r.damage.mod) + (learn ? " if it holds" : " on a hit"));
+      if (r.parent && r.crit) bits.push("critical: dice doubled");
       b.innerHTML = `<span class="n">${i + 1}</span><b>${escapeHtml(r.label)}</b><small>${escapeHtml(bits.join(" · "))}</small>`;
       if (r.type === "death") bits.push("10+ holds on");
       if (r.spellTier) bits.push("tier " + r.spellTier + " cant");
@@ -1297,6 +1298,15 @@
       if (why.length) b.title = why.join("\n");
       b.addEventListener("click", () => send({ t: "rollRequest", rid: r.rid }));
       box.appendChild(b);
+      // Its damage waits underneath, locked until the hit (or the cast) lands.
+      if (r.dmgPreview) {
+        const lk = document.createElement("button");
+        lk.type = "button"; lk.className = "rbtn locked"; lk.disabled = true;
+        const when = learn ? "unlocks if it holds" : r.saveSpell ? "unlocks if the cast works" : "unlocks on a hit";
+        const mod = r.type === "attack" && r.damage ? fmtMod(r.damage.mod) : "";
+        lk.innerHTML = `<span class="n">🔒</span><b>${escapeHtml(r.label)}: damage</b><small>${escapeHtml(r.dmgPreview + mod + " · " + when)}</small>`;
+        box.appendChild(lk);
+      }
       const me2 = mySheet();
       if (r.type === "attack" && me2 && me2.capstone === "agility" && table.fight != null && me2.pinpointFight !== table.fight) {
         const pp = document.createElement("button");
