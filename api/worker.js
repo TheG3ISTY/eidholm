@@ -1374,6 +1374,28 @@ export class Table extends DurableObject {
         return this.commit(state);
       }
 
+      case "renewHold":
+      case "releaseHold": {
+        const s = mine(msg.seatId);
+        const sheet = sheetFor(state, s);
+        if (!isSheet(sheet) || !sheet.holding) throw new Error("You aren't holding a spell.");
+        const name = sheet.holding.name;
+        if (msg.t === "releaseHold") {
+          sheet.holding = null; sheet.concentration = 0;
+          addEvent(state, `${sheet.name} lets ${name} go.`, s);
+        } else {
+          const cost = sheet.holding.tier ? SPELL_COST[sheet.holding.tier] : 0;
+          if (sheet.pool < cost) throw new Error(`Renewing ${name} takes ${cost} Resonance; ${sheet.name} has ${round2(sheet.pool)}.`);
+          sheet.pool = round2(sheet.pool - cost);
+          sheet.holding.expired = false;
+          if (typeof sheet.holding.duration === "number" && state.live?.clock) sheet.holding.until = state.live.clock.minutes + sheet.holding.duration;
+          if (sheet.holding.scene != null) sheet.holding.scene = state.marks?.scene || 0;
+          addEvent(state, `${sheet.name} renews ${name}${cost ? ` (${cost} Resonance)` : ""}.`, s);
+        }
+        markDirty(state);
+        return this.commit(state);
+      }
+
       case "equip": {
         const s = mine(msg.seatId);
         const sheet = sheetFor(state, s);
@@ -1602,7 +1624,7 @@ export class Table extends DurableObject {
       for (const c of state.live?.list || []) {
         if (!isSheet(c) || !c.holding || c.holding.until != null || c.holding.scene != null) continue;
         const dur = spellDuration(findSpell(ctx.book, c.holding.name)?.text);
-        if (typeof dur === "number") { c.holding.until = state.live.clock.minutes; markDirty(state); }
+        if (typeof dur === "number") { c.holding.until = state.live.clock.minutes; c.holding.duration = dur; c.holding.tier = findSpell(ctx.book, c.holding.name)?.tier; markDirty(state); }
       }
       // What was just rolled: the GM may not ask for the same roll again in its answer.
       ctx.rolled = state.messages.filter((m) => m.round === round && m.kind === "roll" && m.label)
@@ -1616,9 +1638,13 @@ export class Table extends DurableObject {
         // A spell a player says they cast always gets its roll, whatever the referee missed.
         if (referee) {
           referee.requests = dropWrongSpells(state, round, ctx, referee.requests);
+          ctx.needFoes = fightTargets(referee.requests, ctx);
+          referee.needFoes = ctx.needFoes;
           const { requests: casts, problems: castProblems } = castsNotCalled(state, round, ctx, referee.requests);
           referee.requests = [...referee.requests, ...casts];
           referee.castProblems = castProblems;
+          ctx.needFoes = fightTargets(referee.requests, ctx);
+          referee.needFoes = ctx.needFoes;
         }
       }
       const messages = [
@@ -1665,7 +1691,7 @@ export class Table extends DurableObject {
       if (!prev || norm(prev.where) !== norm(tagged.scene.where) || (tagged.scene.mode === "combat") !== (prev.mode === "combat")) {
         fresh.marks = { scene: (fresh.marks?.scene || 0) + 1, done: {} };
         for (const c of fresh.live?.list || []) {
-          if (isSheet(c) && c.holding && c.holding.scene != null) { addEvent(fresh, `${c.name}'s ${c.holding.name} ends with the scene.`); c.holding = null; c.concentration = 0; markDirty(fresh); }
+          if (isSheet(c) && c.holding && c.holding.scene != null && !c.holding.expired) holdRunsOut(fresh, c);
         }
       }
       if (prev?.mode === "combat" && tagged.scene.mode !== "combat") fresh.foes = [];
@@ -1681,6 +1707,11 @@ export class Table extends DurableObject {
       id: fresh.nextId++, kind: "gm", round, text: tagged.text, scene: tagged.scene, ts: Date.now(),
       model: result.model, usage: result.usage, human: !!result.human,
     });
+    // Attacking someone is a fight, whatever the GM's scene tag said.
+    if ((result.requests || []).some((q) => q.type === "attack") || ((fresh.foes || []).some((f) => f.hp > 0) && (result.foeOps || []).some((o) => o.add))) {
+      if (!fresh.scene) fresh.scene = { mode: "combat", where: "", present: [] };
+      if (fresh.scene.mode !== "combat") { fresh.scene.mode = "combat"; fresh.marks = { scene: (fresh.marks?.scene || 0) + 1, done: {} }; }
+    }
     // Downed foes leave the tracker once the GM has answered the round they fell in.
     fresh.foes = (fresh.foes || []).filter((f) => !(f.hp <= 0 && f.downRound && f.downRound < round));
     for (const op of result.foeOps || []) applyFoeOp(fresh, op);
@@ -1729,7 +1760,7 @@ export class Table extends DurableObject {
     // Anyone hurt while holding a spell owes an Endurance save to keep it.
     for (const s of fresh.seats.filter((x) => x.present)) {
       const c = sheetFor(fresh, s);
-      if (c && c.holding && c.concentration && !c.dying && !c.dead) {
+      if (c && c.holding && !c.holding.expired && c.concentration && !c.dying && !c.dead) {
         fresh.requests.push({ seatId: s.id, type: "save", stat: "endurance", label: `Concentration: keep ${c.holding.name} going`, mod: 0, dc: c.concentration, ac: null, adv: [], dis: [], concentration: true, rid: "r" + (fresh.nextRid++), round: round + 1, order: order++, status: "pending" });
         c.concentration = 0;
         markDirty(fresh);
@@ -1906,6 +1937,7 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
       if (req.saveSpell) addEvent(state, `${req.spell}'s targets save against DC ${req.skill === "ranged_canting" ? d.spellDcRanged : d.spellDc}.`, seat, { rid: req.rid });
       castWorked(state, req, sheet, seat, tell);
       if (req.type === "attack" && req.damage) spellDamage(state, req, sheet, seat, false);
+      if (req.saveSpell) saveSpellHits(state, req, sheet, seat);
       if (!req.marked) { awardMarks(state, sheet, req, seat); req.marked = true; }
       finishRequest(state, req, sheet);
       return;
@@ -1934,6 +1966,7 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
     push(r, { rtype: req.type, label: req.label, dc: req.dc, ac: req.ac, adv, dis, outcome, modFrom: m.from, spellTier: req.spellTier || undefined, spellDc, pinpoint: req.pinpoint || undefined });
 
     if (sheet && worked && req.spell) castWorked(state, req, sheet, seat, tell);
+    if (sheet && worked && req.saveSpell) saveSpellHits(state, req, sheet, seat);
     if (sheet && req.concentration && outcome === "failure" && sheet.holding) {
       tell([`${sheet.name} loses hold of ${sheet.holding.name}.`]);
       sheet.holding = null;
@@ -1985,7 +2018,7 @@ function castWorked(state, req, sheet, seat, tell) {
   // A lasting spell is held: one at a time; a new one lets go of the old.
   if (req.held) {
     if (sheet.holding && !sameName(sheet.holding.name, req.spell)) tell([`${sheet.name} lets go of ${sheet.holding.name}.`]);
-    sheet.holding = { name: req.spell };
+    sheet.holding = { name: req.spell, tier: req.spellTier || undefined, duration: req.duration ?? undefined };
     if (typeof req.duration === "number" && state.live?.clock) sheet.holding.until = state.live.clock.minutes + req.duration;
     if (req.duration === "scene") sheet.holding.scene = state.marks?.scene || 0;
     sheet.concentration = 0;
@@ -2008,8 +2041,35 @@ function spellDamage(state, req, sheet, seat, crit, best) {
   const dr = rollDice(`${dice}${fmtMod((Number(req.damage.mod) || 0) + strength)}`, best);
   state.messages.push({ id: state.nextId++, kind: "roll", ...base, rtype: "damage", label: `${req.label}: damage`, crit, modFrom: strength ? `Strength ${signed(strength)}` : null, pinpoint: req.pinpoint || undefined,
     expr: dr.expr, total: dr.total, parts: dr.parts, nat: dr.nat, mode: dr.mode, ts: Date.now() });
-  const foe = req.target ? findFoe(state.foes, req.target) : null;
-  if (foe && foe.hp > 0) hurtFoe(state, foe, Math.max(0, dr.total), seat);
+  const live = (state.foes || []).filter((f) => f.hp > 0);
+  const foe = (req.target ? findFoe(live, req.target) : null) || (live.length === 1 ? live[0] : null);
+  if (foe) hurtFoe(state, foe, Math.max(0, dr.total), seat);
+}
+
+// A save spell that deals damage ("6d6, half on a successful Agility save") against foes on the
+// tracker: each target saves against the caster's DC, and the damage comes off their HP.
+function saveSpellHits(state, req, sheet, seat) {
+  const text = String(req.spellText || "");
+  const dice = text.match(/\b(\d+d\d+)\b/);
+  if (!dice) return;
+  const live = (state.foes || []).filter((f) => f.hp > 0);
+  if (!live.length) return;
+  const area = /\b(burst|circle|dome|area|rains?|storm|every enemy|everyone|all)\b/i.test(text);
+  const one = req.target ? findFoe(live, req.target) : null;
+  const targets = area ? live : one ? [one] : live.length === 1 ? live : [];
+  if (!targets.length) return;
+  const d = derive(sheet);
+  const dc = req.skill === "ranged_canting" ? d.spellDcRanged : d.spellDc;
+  const dmg = rollDice(dice[1]).total;
+  const half = /\bhalf\b/i.test(text);
+  for (const foe of targets) {
+    const bonus = Number.isFinite(foe.save) ? foe.save : Math.max(0, Math.floor((foe.ac - 10) / 2));
+    const sv = rollDice(`d20${fmtMod(bonus)}`);
+    const saved = sv.total >= dc;
+    const taken = saved ? (half ? Math.floor(dmg / 2) : 0) : dmg;
+    addEvent(state, `${foe.name} ${saved ? "saves" : "fails its save"} against ${req.spell} (${sv.total} vs DC ${dc}).`, seat);
+    if (taken > 0) hurtFoe(state, foe, taken, seat);
+  }
 }
 
 // Remember when a request was rolled and what it left the sheet like, so a
@@ -2151,12 +2211,19 @@ function advanceClock(state, minutes) {
   live.clock.max = Math.max(furthest, to);
   markDirty(state);
   for (const c of live.list) {
-    if (isSheet(c) && c.holding?.until != null && c.holding.until <= to) {
-      addEvent(state, `${c.name}'s ${c.holding.name} runs its course and fades.`);
-      c.holding = null; c.concentration = 0;
-    }
+    if (isSheet(c) && c.holding?.until != null && c.holding.until <= to && !c.holding.expired) holdRunsOut(state, c);
   }
   if (dawns) addEvent(state, dawns === 1 ? `Dawn breaks: ${clockLabel(live.clock).split(",")[0]}.` : `${dawns} dawns pass. It is now ${clockLabel(live.clock)}.`);
+}
+
+// A held spell's time is up: the player chooses to renew it (its Resonance again) or let it go.
+function holdRunsOut(state, c) {
+  c.holding.expired = true;
+  c.concentration = 0;
+  const cost = c.holding.tier ? SPELL_COST[c.holding.tier] : null;
+  const seat = state.seats.find((x) => sameName(x.character, c.name));
+  addEvent(state, `${c.name}'s ${c.holding.name} has run its course. Renew it${cost ? ` (${cost} Resonance)` : ""} or let it go.`, seat);
+  markDirty(state);
 }
 
 // The GM's update_sheet calls, applied once its answer is in.
@@ -2481,6 +2548,20 @@ async function refereeTurn(env, model, state, ctx) {
   return { requests: [], usage, foeAttacks };
 }
 
+// Who the players are attacking that isn't on the tracker yet: attacking someone starts a fight.
+function fightTargets(requests, ctx) {
+  const live = (ctx.foes || []).filter((f) => f.hp > 0);
+  const out = [];
+  for (const q of requests) {
+    const hostile = q.type === "attack" || (q.saveSpell && /\b\d+d\d+\b/.test(q.spellText || ""));
+    if (!hostile) continue;
+    if (q.target && findFoe(live, q.target)) continue;
+    if (!q.target && live.length) continue;
+    out.push(q.target || "the enemy");
+  }
+  return [...new Set(out)];
+}
+
 // The spells each player names in this round's actions (by seat).
 function spellsNamed(state, round, ctx) {
   const out = new Map();
@@ -2540,7 +2621,9 @@ function refereeNote(state, referee) {
     ? ` Already rolled by the server, narrate exactly these: ${referee.foeAttacks.map((a) => a.text).join(" ")}` : "";
   const cant = (referee.castProblems || []).length
     ? ` A cast that can't happen, say so in the story: ${referee.castProblems.join("; ")}.` : "";
-  return refereeNoteCore(state, referee).replace(/\)$/, hits + cant + ")");
+  const fight = (referee.needFoes || []).length
+    ? ` This is a fight now: the players are attacking ${referee.needFoes.join(", ")}. Put them and everyone else fighting on the tracker with the foes tool in this reply (real HP and AC), and tag the scene as combat.` : "";
+  return refereeNoteCore(state, referee).replace(/\)$/, hits + cant + fight + ")");
 }
 function refereeNoteCore(state, referee) {
   if (referee.requests.length) {
@@ -3011,6 +3094,7 @@ const GM_TOOLS_NO_REQUESTS = DICE_TOOLS.filter((t) => t.function.name !== "reque
 function spellRoll(req, entry) {
   if (!entry) return "";
   if (req.held) req.duration = spellDuration(entry.text);
+  req.spellText = String(entry.text || "").slice(0, 240);
   const roll = String(entry.roll || "");
   if (/vs\s*AC/i.test(roll)) {
     if (req.ac == null) return `${req.label}: ${entry.name} is an attack (${roll}); give the target's target_ac.`;
@@ -3344,7 +3428,8 @@ async function gmTurn(env, model, messages, ctx = {}) {
         continue;
       }
       // A fight with nobody on the tracker: the foes go on it before the answer stands.
-      if (!trackerAsked && i < MAX_GM_TOOL_ROUNDS && parseSceneTag(msg.content).scene?.mode === "combat" && !(ctx.foes || []).some((f) => f.hp > 0)) {
+      const fighting = parseSceneTag(msg.content).scene?.mode === "combat" || (ctx.needFoes || []).length || requests.some((q) => q.type === "attack");
+      if (!trackerAsked && i < MAX_GM_TOOL_ROUNDS && fighting && !(ctx.foes || []).some((f) => f.hp > 0)) {
         trackerAsked = true;
         convo.push({ role: "assistant", content: msg.content });
         convo.push({ role: "user", content: "(System: your scene tag says this is a fight, but no foe is on the tracker, so nobody can see their HP and no hit can land. Call the foes tool now with every enemy in the fight (name, hp, ac, attack_bonus, damage_dice), then write your answer again.)" });

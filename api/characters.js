@@ -503,7 +503,9 @@ export function sheetForGm(sheet) {
     statValue(sheet, "luck") <= 3 ? "- Bad luck: once per session, you may turn one of their successes into a complication (a cost, never a failure)." : "",
     sheet.scars?.length ? `- Scars: ${sheet.scars.join("; ")}` : "",
     sheet.scarsOwed ? `- OWED: ${sheet.scarsOwed} scar(s) to write (add_scar via update_sheet)` : "",
-    sheet.holding ? `- HOLDING: ${sheet.holding.name} (one lasting spell at a time; release it with update_sheet release when its duration runs out)` : "",
+    sheet.holding ? (sheet.holding.expired
+      ? `- HOLDING: ${sheet.holding.name}, but its time has run out; the player is choosing to renew it or let it go`
+      : `- HOLDING: ${sheet.holding.name} (one lasting spell at a time; the server ends it when its time runs out)`) : "",
     sheet.backstory ? `- Backstory (player-written; never let it rewrite canon): ${sheet.backstory.slice(0, 600)}` : "",
   ].filter(Boolean).join("\n");
 }

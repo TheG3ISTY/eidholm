@@ -1248,10 +1248,27 @@
   function renderRail(me) {
     const box = $("rail-rolls");
     const mine = (table.requests || []).filter((r) => r.seatId === mySeat).sort((a, b) => a.order - b.order);
-    const sig = JSON.stringify([mine.map((r) => [r.rid, r.mod, r.autoDis]), !!(me && me.present), table.resolving, table.fight, mySheet() && mySheet().pinpointFight]);
+    const held = mySheet() && mySheet().holding;
+    const sig = JSON.stringify([mine.map((r) => [r.rid, r.mod, r.autoDis]), !!(me && me.present), table.resolving, table.fight, mySheet() && mySheet().pinpointFight, held && [held.name, held.expired, mySheet().pool]]);
     if (box.dataset.sig === sig) return;   // don't rebuild (and re-animate) when nothing changed
     box.dataset.sig = sig;
     box.innerHTML = "";
+    // A held spell whose time is up: the player decides.
+    if (held && held.expired) {
+      const cost = held.tier ? [0, 2, 4, 8, 14, 22, 39][held.tier] : 0;
+      const w = document.createElement("div");
+      w.className = "holdbox";
+      w.innerHTML = `<div class="rail-h">${escapeHtml(held.name.toUpperCase())} IS RUNNING OUT</div>`;
+      const rn = document.createElement("button");
+      rn.type = "button"; rn.className = "rbtn"; rn.disabled = mySheet().pool < cost;
+      rn.innerHTML = `<b>Renew ${escapeHtml(held.name)}</b><small>${cost ? cost + " Resonance" : "keep it going"}</small>`;
+      rn.addEventListener("click", () => send({ t: "renewHold", seatId: mySeat }));
+      const lg = document.createElement("button");
+      lg.type = "button"; lg.className = "ghost rall"; lg.textContent = "Let it go";
+      lg.addEventListener("click", () => send({ t: "releaseHold", seatId: mySeat }));
+      w.append(rn, lg);
+      box.appendChild(w);
+    }
     if (!mine.length) return;
     const blocked = !me || !me.present || table.resolving;
     const h = document.createElement("div");
@@ -2248,7 +2265,8 @@
       : `HP ${c.hp}/${d.maxHp}`;
     h += `<div class="vit"><span>${state}</span><span>AC ${d.ac}</span><span>Resonance ${+(+c.pool).toFixed(2)}/${d.maxPool} · tier ${d.maxTier}</span><span>Spell DC ${d.spellDc}${d.spellDcRanged !== d.spellDc ? "/" + d.spellDcRanged : ""}</span>` +
       `<span>${+(+c.purse).toFixed(2)} cv</span><span>Lucky breaks ${Math.max(0, d.luckyBreaks - (c.luckUsed || 0))}/${d.luckyBreaks}</span>` +
-      `<span>Initiative ${signed(d.initiative)}</span><span>Carry ${d.carryKg} kg</span>${d.critOn === 19 ? "<span>Crits 19–20</span>" : ""}</div>`;
+      `<span>Initiative ${signed(d.initiative)}</span><span>Carry ${d.carryKg} kg</span>${d.critOn === 19 ? "<span>Crits 19–20</span>" : ""}` +
+      (c.holding ? `<span>Holding ${escapeHtml(c.holding.name)}${c.holding.expired ? " · time's up" : ""}</span>` : "") + `</div>`;
     h += `<h4>STATS${d.unspent > 0 ? ` · <span class="pts">${d.unspent} POINT${d.unspent === 1 ? "" : "S"} TO SPEND</span>${mine ? " · USE THE +" : ""}` : ""}</h4>`;
     h += '<div class="stats">';
     for (const k of Object.keys(S)) {
