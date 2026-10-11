@@ -26,7 +26,7 @@ import {
   derive, normalize, createSheet, raiseStat, takeCapstone, addMark, takeDamage, heal, stabilize, deathSave,
   statMod, skillBonus, skillRank, equipped, clockLabel, parseElapsed, dawnsBetween, passTime, sheetForGm, findSheet,
 } from "./characters.js";
-import { parseSpellbook, findSpell, miscantOn, learningFails, START_SPELLS } from "./spells.js";
+import { parseSpellbook, findSpell, spellsInAction, miscantOn, learningFails, START_SPELLS } from "./spells.js";
 
 const STATE_FILES = {
   canon: "world/worldbuilding.md",
@@ -1607,12 +1607,20 @@ export class Table extends DurableObject {
       let referee = null;
       if (state.messages.some((m) => m.round === round && m.kind === "act")) {
         try { referee = await refereeTurn(this.env, model, state, ctx); } catch (err) { console.log("referee: no decision,", err.message); referee = null; }   // the GM decides, as before
+        // A spell a player says they cast always gets its roll, whatever the referee missed.
+        if (referee) {
+          const { requests: casts, problems: castProblems } = castsNotCalled(state, round, ctx, referee.requests);
+          referee.requests = [...referee.requests, ...casts];
+          referee.castProblems = castProblems;
+        }
       }
       const messages = [
         { role: "system", content: buildSystemPrompt(repo, sel, partyBlock(state, repo)) },
         ...buildConversation(state, { referee }),
       ];
       result = await gmTurn(this.env, model, messages, { ...ctx, noRequests: !!referee });
+      // No referee this round: the GM decided, and any cast it forgot is still rolled.
+      if (!referee) result.requests = [...result.requests, ...castsNotCalled(state, round, ctx, result.requests).requests];
       if (referee) {
         result.requests = [...referee.requests, ...result.requests];
         result.foeAttacks = [...(referee.foeAttacks || []), ...(result.foeAttacks || [])];
@@ -2452,11 +2460,39 @@ async function refereeTurn(env, model, state, ctx) {
   return { requests: [], usage, foeAttacks };
 }
 
+// Casts named in this round's actions that nobody called a roll for: added by the server.
+function castsNotCalled(state, round, ctx, called) {
+  const requests = [], problems = [];
+  for (const m of state.messages.filter((x) => x.round === round && x.kind === "act")) {
+    const seat = state.seats.find((x) => x.id === m.seatId);
+    const sheet = seat ? sheetFor(state, seat) : null;
+    if (!isSheet(sheet) || sheet.dead || sheet.dying) continue;
+    const own = sheet.spells || [];
+    if (/\b(fuse|fuses|fusing|fusion)\b|\bweav\w*\b.*\binto\b/i.test(m.text)) continue;   // a fusion is the GM's call
+    const named = spellsInAction(m.text, [...own, ...(ctx.book || []).filter((b) => !findSpell(own, b.name) || findSpell(own, b.name).name !== b.name)]);
+    for (const sp of named) {
+      if (called.some((q) => q.seatId === seat.id && ((q.spell && findSpell([sp], q.spell)) || (q.fusion || []).some((f) => findSpell([sp], f))))) continue;
+      const known = findSpell(own, sp.name);
+      const entry = findSpell(ctx.book || [], sp.name);
+      const foe = (ctx.foes || []).find((f) => f.hp > 0);
+      const attack = /vs\s*AC/i.test(entry?.roll || "");
+      const args = { rolls: [{ character: sheet.name, type: attack ? "attack" : "check", label: `Cast ${sp.name}`, stat: "resonance",
+        spell: sp.name, learning: !known, ...(attack ? { target: foe?.name, target_ac: foe?.ac ?? 12 } : {}) }] };
+      const got = aiRequests(args, ctx);
+      requests.push(...got.requests);
+      problems.push(...got.problems);
+    }
+  }
+  return { requests, problems };
+}
+
 // What the GM is told the referee decided.
 function refereeNote(state, referee) {
   const hits = (referee.foeAttacks || []).length
     ? ` Already rolled by the server, narrate exactly these: ${referee.foeAttacks.map((a) => a.text).join(" ")}` : "";
-  return refereeNoteCore(state, referee).replace(/\)$/, hits + ")");
+  const cant = (referee.castProblems || []).length
+    ? ` A cast that can't happen, say so in the story: ${referee.castProblems.join("; ")}.` : "";
+  return refereeNoteCore(state, referee).replace(/\)$/, hits + cant + ")");
 }
 function refereeNoteCore(state, referee) {
   if (referee.requests.length) {
@@ -3240,7 +3276,7 @@ async function gmTurn(env, model, messages, ctx = {}) {
   const foeAttacks = [];
   ctx.foes = [...(ctx.foes || [])];   // grows as the GM adds foes this turn
   const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
-  let corrected = false;
+  let corrected = false, trackerAsked = false;
   for (let i = 0; i <= MAX_GM_TOOL_ROUNDS; i++) {
     const data = await mistralRequest(env, {
       model, temperature: 0.8, max_tokens: 1000, messages: convo,
@@ -3256,6 +3292,13 @@ async function gmTurn(env, model, messages, ctx = {}) {
         corrected = true;
         convo.push({ role: "assistant", content: msg.content });
         convo.push({ role: "user", content: "(System: you asked for a roll in your text, but the players only get buttons from the request_rolls tool. Call request_rolls now for every roll you meant, then write your answer again, without the outcome.)" });
+        continue;
+      }
+      // A fight with nobody on the tracker: the foes go on it before the answer stands.
+      if (!trackerAsked && i < MAX_GM_TOOL_ROUNDS && parseSceneTag(msg.content).scene?.mode === "combat" && !(ctx.foes || []).some((f) => f.hp > 0)) {
+        trackerAsked = true;
+        convo.push({ role: "assistant", content: msg.content });
+        convo.push({ role: "user", content: "(System: your scene tag says this is a fight, but no foe is on the tracker, so nobody can see their HP and no hit can land. Call the foes tool now with every enemy in the fight (name, hp, ac, attack_bonus, damage_dice), then write your answer again.)" });
         continue;
       }
       return { reply: msg.content, usage, rolls, requests, remember, sheetOps, luckSpent, foeOps, foeAttacks };

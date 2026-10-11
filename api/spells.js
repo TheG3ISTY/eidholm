@@ -34,9 +34,53 @@ export function isLasting(text) {
   return /\*\*Held\.\*\*/.test(String(text || ""));
 }
 
+// Names are matched forgivingly: case, spacing, doubled letters and a typo or two
+// ("Querry Flame" is Query Flame). Exact matches always win.
+export function spellKey(name) {
+  return String(name || "").toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(.)\1+/g, "$1");
+}
+function editDistance(a, b) {
+  if (Math.abs(a.length - b.length) > 2) return 3;
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  }
+  return d[a.length][b.length];
+}
 export function findSpell(list, name) {
   const k = String(name || "").trim().toLowerCase();
-  return k ? (list || []).find((s) => String(s.name || "").trim().toLowerCase() === k) : undefined;
+  if (!k) return undefined;
+  const all = list || [];
+  const exact = all.find((s) => String(s.name || "").trim().toLowerCase() === k);
+  if (exact) return exact;
+  const key = spellKey(k);
+  const loose = all.find((s) => spellKey(s.name) === key);
+  if (loose || key.length < 6) return loose;
+  const near = all.map((s) => [s, editDistance(spellKey(s.name), key)]).filter(([, d]) => d <= 2).sort((a, b) => a[1] - b[1]);
+  return near.length === 1 || (near.length > 1 && near[0][1] < near[1][1]) ? near[0][0] : undefined;
+}
+
+// Spells a player's action says they cast: a casting word and a spell's name (typos allowed).
+const CAST_WORDS = /\b(cast|casts|casting|cant|cants|canting|channel|channels|invoke|invokes|weave|weaves|unleash|unleashes|counter|counters|throw|throws|hurl|hurls|fire|fires|use|uses|try|tries|attempt|attempts)\b/i;
+export function spellsInAction(text, list) {
+  const t = String(text || "");
+  if (!CAST_WORDS.test(t)) return [];
+  const words = t.split(/[^A-Za-z0-9']+/).filter(Boolean);
+  const out = [];
+  for (const s of list || []) {
+    const n = String(s.name || "").split(/\s+/).length;
+    for (let i = 0; i + n <= words.length; i++) {
+      const cand = words.slice(i, i + n).join(" ");
+      if (findSpell([s], cand) !== s) continue;
+      // A one-word name that is also an ordinary word ("mend", "hush") counts only as a name:
+      // capitalised, or right after a casting word ("cast mend").
+      if (n === 1 && !/^[A-Z]/.test(words[i]) && !(i > 0 && CAST_WORDS.test(words[i - 1]))) continue;
+      if (!out.includes(s)) out.push(s);
+      break;
+    }
+  }
+  return out;
 }
 
 // Which natural rolls miscant. Luck 13 takes away only the 1.
