@@ -1,7 +1,186 @@
 {
   "world_clock": "Day 1, Cycle of Ash",
   "location": null,
-  "party": [],
+  "party": [
+    {
+      "name": "Freya",
+      "player": "TheG3ISTY",
+      "backstory": "I trained under a Deepgreen warden until the night we walked into a feverish grove. Only I walked out. I still dream its dreams some nights, and they aren't mine.",
+      "stats": {
+        "strength": 10,
+        "perception": 10,
+        "endurance": 10,
+        "charisma": 10,
+        "intelligence": 10,
+        "agility": 9,
+        "luck": 2,
+        "resonance": 10
+      },
+      "capstone": null,
+      "skills": {
+        "small_melee": {
+          "rank": 5,
+          "marks": 0
+        },
+        "medium_melee": {
+          "rank": 5,
+          "marks": 0
+        },
+        "large_melee": {
+          "rank": 5,
+          "marks": 0
+        },
+        "ranged": {
+          "rank": 5,
+          "marks": 0
+        },
+        "heavy_armor": {
+          "rank": 5,
+          "marks": 0
+        },
+        "light_armor": {
+          "rank": 5,
+          "marks": 0
+        },
+        "unarmored": {
+          "rank": 5,
+          "marks": 0
+        },
+        "canting": {
+          "rank": 5,
+          "marks": 0
+        },
+        "ranged_canting": {
+          "rank": 5,
+          "marks": 0
+        },
+        "artifice": {
+          "rank": 5,
+          "marks": 0
+        },
+        "survival": {
+          "rank": 5,
+          "marks": 0
+        },
+        "medicine": {
+          "rank": 5,
+          "marks": 0
+        },
+        "creation": {
+          "rank": 5,
+          "marks": 0
+        },
+        "thievery": {
+          "rank": 5,
+          "marks": 0
+        },
+        "performance": {
+          "rank": 5,
+          "marks": 1
+        }
+      },
+      "items": [
+        {
+          "name": "Cracked energy staff",
+          "kind": "weapon",
+          "skill": "ranged_canting",
+          "damage": "1d8",
+          "twoHanded": true,
+          "quality": "Crude",
+          "focus": 1,
+          "tier": 1,
+          "legality": "Legal",
+          "equipped": true
+        },
+        {
+          "name": "Battered coif",
+          "kind": "armor",
+          "armor": "heavy_armor",
+          "slot": "head",
+          "ac": 1,
+          "tier": 1,
+          "quality": "Standard",
+          "legality": "Legal",
+          "equipped": true
+        },
+        {
+          "name": "Battered gauntlets",
+          "kind": "armor",
+          "armor": "heavy_armor",
+          "slot": "hands",
+          "ac": 1,
+          "tier": 1,
+          "quality": "Standard",
+          "legality": "Legal",
+          "equipped": true
+        },
+        {
+          "name": "Battered hauberk",
+          "kind": "armor",
+          "armor": "heavy_armor",
+          "slot": "body",
+          "ac": 2,
+          "tier": 1,
+          "quality": "Standard",
+          "legality": "Legal",
+          "equipped": true
+        },
+        {
+          "name": "Battered chausses",
+          "kind": "armor",
+          "armor": "heavy_armor",
+          "slot": "legs",
+          "ac": 1,
+          "tier": 1,
+          "quality": "Standard",
+          "legality": "Legal",
+          "equipped": true
+        },
+        {
+          "name": "Battered sabatons",
+          "kind": "armor",
+          "armor": "heavy_armor",
+          "slot": "feet",
+          "ac": 1,
+          "tier": 1,
+          "quality": "Standard",
+          "legality": "Legal",
+          "equipped": true
+        },
+        {
+          "name": "Focus bead",
+          "kind": "focus",
+          "skill": "canting",
+          "focus": 1,
+          "tier": 1,
+          "quality": "Standard",
+          "legality": "Legal",
+          "equipped": true
+        }
+      ],
+      "spells": [
+        {
+          "name": "Spark Query",
+          "tier": 1
+        },
+        {
+          "name": "Mend",
+          "tier": 1
+        }
+      ],
+      "debts": [],
+      "purse": 50,
+      "scars": [],
+      "created": "2026-10-11",
+      "hp": 252,
+      "pool": 44,
+      "luckUsed": 0,
+      "enduranceUsed": false,
+      "dying": null,
+      "dead": false,
+      "scarsOwed": 0
+    }
+  ],
   "clock": {
     "minutes": 360,
     "max": 360,
