@@ -1609,6 +1609,7 @@ export class Table extends DurableObject {
         try { referee = await refereeTurn(this.env, model, state, ctx); } catch (err) { console.log("referee: no decision,", err.message); referee = null; }   // the GM decides, as before
         // A spell a player says they cast always gets its roll, whatever the referee missed.
         if (referee) {
+          referee.requests = dropWrongSpells(state, round, ctx, referee.requests);
           const { requests: casts, problems: castProblems } = castsNotCalled(state, round, ctx, referee.requests);
           referee.requests = [...referee.requests, ...casts];
           referee.castProblems = castProblems;
@@ -1620,7 +1621,10 @@ export class Table extends DurableObject {
       ];
       result = await gmTurn(this.env, model, messages, { ...ctx, noRequests: !!referee });
       // No referee this round: the GM decided, and any cast it forgot is still rolled.
-      if (!referee) result.requests = [...result.requests, ...castsNotCalled(state, round, ctx, result.requests).requests];
+      if (!referee) {
+        result.requests = dropWrongSpells(state, round, ctx, result.requests);
+        result.requests = [...result.requests, ...castsNotCalled(state, round, ctx, result.requests).requests];
+      }
       if (referee) {
         result.requests = [...referee.requests, ...result.requests];
         result.foeAttacks = [...(referee.foeAttacks || []), ...(result.foeAttacks || [])];
@@ -2458,6 +2462,33 @@ async function refereeTurn(env, model, state, ctx) {
     convo.push({ role: "user", content: "Fix those rolls, or call no_roll if none is really needed." });
   }
   return { requests: [], usage, foeAttacks };
+}
+
+// The spells each player names in this round's actions (by seat).
+function spellsNamed(state, round, ctx) {
+  const out = new Map();
+  for (const m of state.messages.filter((x) => x.round === round && x.kind === "act")) {
+    const seat = state.seats.find((x) => x.id === m.seatId);
+    const sheet = seat ? sheetFor(state, seat) : null;
+    if (!isSheet(sheet)) continue;
+    const named = spellsInAction(m.text, [...(sheet.spells || []), ...(ctx.book || [])]);
+    out.set(seat.id, [...(out.get(seat.id) || []), ...named]);
+  }
+  return out;
+}
+
+// A player who names the spell they cast gets that spell, not a look-alike: a roll for a
+// different spell ("Spark Query" for "Query Flame") is dropped. Fusions stay.
+function dropWrongSpells(state, round, ctx, requests) {
+  const named = spellsNamed(state, round, ctx);
+  return requests.filter((q) => {
+    const list = named.get(q.seatId);
+    if (!q.spell || q.fusion || !list?.length) return true;
+    if (list.some((sp) => findSpell([sp], q.spell) || sameName(sp.name, q.spell))) return true;
+    // Also described in plain words ("mend the knife"): its whole name is in the action.
+    const said = state.messages.filter((x) => x.round === round && x.kind === "act" && x.seatId === q.seatId).map((x) => x.text.toLowerCase()).join(" ");
+    return said.includes(String(q.spell).toLowerCase());
+  });
 }
 
 // Casts named in this round's actions that nobody called a roll for: added by the server.
