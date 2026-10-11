@@ -2636,6 +2636,29 @@ function refereeNoteCore(state, referee) {
   return "(The referee called no rolls this round: narrate what happens. If something now comes at a character, an attack, a trap, a spell, a grab, describe it coming and end your reply there, unresolved: the dice decide it next round. Don't call request_rolls; the dice are the referee's this round.)";
 }
 
+// The GM's narration handing a player character an item or coin ("He presses a small bead into
+// Freya's palm"): returns who received it, or "".
+function handedOver(text, party) {
+  const t = String(text || "").replace(/\*/g, "");
+  const names = (party || []).filter(isSheet).map((c) => c.name).filter(Boolean);
+  if (!names.length) return "";
+  const who = `(${names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")}|you|your|her|him|his|them|their)`;
+  const verbs = "(press(?:es|ed)?|hand(?:s|ed)?|give(?:s|n)?|gave|toss(?:es|ed)?|pass(?:es|ed)?|slip(?:s|ped)?|thrust(?:s)?|drop(?:s|ped)?|tuck(?:s|ed)?|place(?:s|d)?|push(?:es|ed)?|offer(?:s|ed)?|flick(?:s|ed)?)";
+  const into = new RegExp(`\\b${verbs}\\b[^.!?]{0,80}?\\b(?:into|in|to|onto)\\s+${who}(?:'s|’s)?\\s+(?:\\w+\\s+){0,2}(?:palm|palms|hand|hands|grip|fingers|pocket|pack|lap)\\b`, "i");
+  const direct = new RegExp(`\\b${verbs}\\s+${who}\\s+(?:a|an|the|this|some|his|her|its|\\d+)\\b`, "i");
+  let m = t.match(into);
+  if (!m) {
+    const d = t.match(direct);
+    // "gives you a long look", "tosses her a grin": gestures, not items
+    const after = d ? t.slice(d.index + d[0].length, d.index + d[0].length + 30) : "";
+    if (d && !/^\s*(?:\w+\s+){0,2}?(look|glance|nod|smile|grin|moment|second|minute|chance|warning|answer|shrug|wink|hand|reason|name|choice|clue|hint|nudge|break|stare|frown|scowl|once-over|word|warning)s?\b/i.test(after)) m = d;
+  }
+  if (!m) return "";
+  const named = names.find((n) => new RegExp(`\\b${n}\\b`, "i").test(m[0]));
+  const present = names.length === 1 ? names[0] : named;
+  return present || "a player character";
+}
+
 // Phrases the GM keeps coming back to across its recent replies ("the offering must be
 // complete"). A small model copies itself; naming the phrases breaks the loop.
 function repeatedPhrases(state, { replies = 6, n = 5, min = 3, max = 3 } = {}) {
@@ -3409,7 +3432,7 @@ async function gmTurn(env, model, messages, ctx = {}) {
   const foeAttacks = [];
   ctx.foes = [...(ctx.foes || [])];   // grows as the GM adds foes this turn
   const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
-  let corrected = false, trackerAsked = false;
+  let corrected = false, trackerAsked = false, itemsAsked = false;
   for (let i = 0; i <= MAX_GM_TOOL_ROUNDS; i++) {
     const data = await mistralRequest(env, {
       model, temperature: 0.8, max_tokens: 1000, messages: convo,
@@ -3426,6 +3449,17 @@ async function gmTurn(env, model, messages, ctx = {}) {
         convo.push({ role: "assistant", content: msg.content });
         convo.push({ role: "user", content: "(System: you asked for a roll in your text, but the players only get buttons from the request_rolls tool. Call request_rolls now for every roll you meant, then write your answer again, without the outcome.)" });
         continue;
+      }
+      // Something handed to a player character in the story but not put on their sheet.
+      if (!itemsAsked && i < MAX_GM_TOOL_ROUNDS) {
+        const given = handedOver(msg.content, ctx.party || []);
+        const logged = sheetOps.some((o) => o.add_item || o.purse > 0);
+        if (given && !logged) {
+          itemsAsked = true;
+          convo.push({ role: "assistant", content: msg.content });
+          convo.push({ role: "user", content: `(System: your reply hands ${given} something, but no update_sheet add_item (or purse, for coin) was made, so it isn't on their sheet and they can't use it. Call update_sheet now for everything given to a player character (add_item with name, kind, tier, quality; focus for a focus), then write your answer again.)` });
+          continue;
+        }
       }
       // A fight with nobody on the tracker: the foes go on it before the answer stands.
       const fighting = parseSceneTag(msg.content).scene?.mode === "combat" || (ctx.needFoes || []).length || requests.some((q) => q.type === "attack");
