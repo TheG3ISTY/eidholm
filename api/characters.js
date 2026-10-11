@@ -346,7 +346,7 @@ export function takeDamage(sheet, amount, opts = {}) {
   const overflow = amount - sheet.hp;
   sheet.hp = Math.max(0, sheet.hp - amount);
   // Holding a spell under pressure: damage calls for an Endurance save (DC 10 or half the damage).
-  if (sheet.hp > 0 && sheet.holding) sheet.concentration = Math.max(sheet.concentration || 0, Math.max(10, Math.floor(amount / 2)));
+  if (sheet.hp > 0 && sheet.holding && !sheet.holding.expired) sheet.concentration = Math.max(sheet.concentration || 0, Math.max(10, Math.floor(amount / 2)));
   if (sheet.hp > 0) return out;
   if (sheet.holding) { out.push(`${sheet.name} lets go of ${sheet.holding.name}.`); sheet.holding = null; sheet.concentration = 0; }
 

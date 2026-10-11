@@ -1620,11 +1620,11 @@ export class Table extends DurableObject {
       ctx.party = state.live?.loaded ? state.live.list : [];
       ctx.book = parseSpellbook(repo.spells);
       ctx.foes = (state.foes || []).filter((f) => f.hp > 0);
-      // Spells held from before durations were tracked: their time is up at the next tick of the clock.
+      // Spells held without an end time (from before durations were tracked, or set by hand): they get one full duration from now.
       for (const c of state.live?.list || []) {
         if (!isSheet(c) || !c.holding || c.holding.until != null || c.holding.scene != null) continue;
         const dur = spellDuration(findSpell(ctx.book, c.holding.name)?.text);
-        if (typeof dur === "number") { c.holding.until = state.live.clock.minutes; c.holding.duration = dur; c.holding.tier = findSpell(ctx.book, c.holding.name)?.tier; markDirty(state); }
+        if (typeof dur === "number") { c.holding.until = state.live.clock.minutes + dur; c.holding.duration = dur; c.holding.tier = findSpell(ctx.book, c.holding.name)?.tier; markDirty(state); }
       }
       // What was just rolled: the GM may not ask for the same roll again in its answer.
       ctx.rolled = state.messages.filter((m) => m.round === round && m.kind === "roll" && m.label)
