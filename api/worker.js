@@ -2060,7 +2060,10 @@ function saveSpellHits(state, req, sheet, seat) {
   if (!targets.length) return;
   const d = derive(sheet);
   const dc = req.skill === "ranged_canting" ? d.spellDcRanged : d.spellDc;
-  const dmg = rollDice(dice[1]).total;
+  const dr = rollDice(dice[1]);
+  const dmg = dr.total;
+  state.messages.push({ id: state.nextId++, kind: "roll", round: state.round, seatId: seat.id, author: seat.player, character: seat.character, rid: req.rid,
+    rtype: "damage", label: `${req.spell}: damage`, expr: dr.expr, total: dr.total, parts: dr.parts, nat: dr.nat, mode: dr.mode, ts: Date.now() });
   const half = /\bhalf\b/i.test(text);
   for (const foe of targets) {
     const bonus = Number.isFinite(foe.save) ? foe.save : Math.max(0, Math.floor((foe.ac - 10) / 2));
