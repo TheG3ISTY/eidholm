@@ -112,6 +112,9 @@
   .foe.down { opacity: 0.45; }
   .chip .hp { color: var(--glass); }
   .pts { color: var(--ember); }
+  .items.slots li .slot { flex: 0 0 92px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: var(--ink-dim); }
+  .items.slots li.empty .muted { font-style: italic; }
+  .items.slots li > span { flex: 1; }
   .chip .hp.low { color: var(--danger); }
   /* roster strip */
   .roster {
@@ -2289,15 +2292,44 @@
         `<td class="r">${need ? `${sk.marks || 0}/${need}<span class="bar"><span style="width:${pct}%"></span></span>` : "mastered"}</td></tr>`;
     }
     h += "</table>";
-    h += "<h4>CARRYING</h4>";
-    h += (c.items || []).length ? '<ul class="items">' + c.items.map((it, i) => {
-      const tags = [it.broken ? "BROKEN" : "", it.equipped ? (it.kind === "weapon" || it.kind === "shield" ? "in hand" : "worn") : "", it.twoHanded ? "two hands" : "", it.focus ? "focus +" + it.focus + " tier" : "", it.kind === "armor" ? (it.slot || "body") + " · " + (it.armor === "heavy_armor" ? "heavy" : "light") : "", it.tier ? "tier " + it.tier : "", it.quality, it.legality && it.legality !== "Legal" ? it.legality : "",
+    // Equipped, slot by slot (empty slots shown), then everything else carried.
+    const items = (c.items || []).map((it, i) => [it, i]);
+    const row = ([it, i], slot) => {
+      const tags = [it.broken ? "BROKEN" : "", !slot && it.equipped ? (it.kind === "weapon" || it.kind === "shield" ? "in hand" : "worn") : "", it.twoHanded ? "two hands" : "", it.focus ? "focus +" + it.focus + " tier" : "", it.kind === "armor" ? (slot ? "" : (it.slot || "body") + " · ") + (it.armor === "heavy_armor" ? "heavy" : "light") : "", it.tier ? "tier " + it.tier : "", it.quality, it.legality && it.legality !== "Legal" ? it.legality : "",
         it.ac ? "AC +" + it.ac : "", it.damage ? it.damage : "", it.shieldPool ? "shield " + Math.floor(it.shieldLeft ?? it.shieldPool) + "/" + it.shieldPool : ""].filter(Boolean).join(" · ");
       const held = it.kind === "weapon" || it.kind === "shield";
       const wear = mine && ["armor", "shield", "device", "weapon", "focus"].includes(it.kind)
         ? `<button type="button" class="ghost" data-equip="${i}">${held ? (it.equipped ? "Put away" : "Take up") : (it.equipped ? "Take off" : "Wear")}</button>` : "";
-      return `<li><span>${escapeHtml(it.name)} <small>${escapeHtml(tags)}</small></span>${wear}</li>`;
-    }).join("") + "</ul>" : '<p class="muted">Nothing.</p>';
+      return `<li>${slot ? `<small class="slot">${slot}</small>` : ""}<span>${escapeHtml(it.name)} <small>${escapeHtml(tags)}</small></span>${wear}</li>`;
+    };
+    const empty = (slot) => `<li class="empty">${`<small class="slot">${slot}</small>`}<span class="muted">empty</span></li>`;
+    const worn = items.filter(([it]) => it.equipped);
+    const used = new Set();
+    let eqh = "";
+    for (const sl of ["head", "hands", "body", "legs", "feet"]) {
+      const on = worn.filter(([it]) => it.kind === "armor" && (it.slot || "body") === sl);
+      on.forEach((x) => used.add(x[1]));
+      eqh += on.length ? on.map((x) => row(x, sl.toUpperCase())).join("") : empty(sl.toUpperCase());
+    }
+    // Two hands: a two-hander takes both (one with the Strength capstone).
+    const inHand = worn.filter(([it]) => it.kind === "weapon" || it.kind === "shield");
+    let hands = 0;
+    for (const x of inHand) {
+      used.add(x[1]);
+      const two = x[0].twoHanded && c.capstone !== "strength";
+      eqh += row(x, two ? "BOTH HANDS" : hands === 0 ? "MAIN HAND" : "OFF HAND");
+      hands += two ? 2 : 1;
+    }
+    if (hands < 1) eqh += empty("MAIN HAND");
+    if (hands < 2) eqh += empty("OFF HAND");
+    const foci = worn.filter(([it]) => it.kind === "focus");
+    foci.forEach((x) => used.add(x[1]));
+    eqh += foci.length ? foci.map((x) => row(x, "FOCUS")).join("") : (inHand.some(([it]) => it.focus) ? "" : empty("FOCUS"));
+    for (const x of worn.filter((x) => !used.has(x[1]))) eqh += row(x, "WORN");
+    h += '<h4>EQUIPPED</h4><ul class="items slots">' + eqh + "</ul>";
+    const pack = items.filter(([it]) => !it.equipped);
+    h += `<h4>INVENTORY${pack.length ? " · " + pack.length + " ITEM" + (pack.length === 1 ? "" : "S") : ""}</h4>`;
+    h += pack.length ? '<ul class="items">' + pack.map((x) => row(x)).join("") + "</ul>" : '<p class="muted">Nothing else carried.</p>';
     h += "<h4>SPELLS</h4>";
     h += (c.spells || []).length ? '<ul class="items">' + [...c.spells].sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name)).map((sp) =>
       `<li><span>${escapeHtml(sp.name)} <small>tier ${sp.tier}${sp.custom ? " · own working" : ""}${sp.text ? " · " + escapeHtml(sp.text) : ""}</small></span></li>`).join("") + "</ul>"
