@@ -26,7 +26,7 @@ import {
   derive, normalize, createSheet, raiseStat, takeCapstone, addMark, takeDamage, heal, stabilize, deathSave,
   statMod, skillBonus, skillRank, equipped, clockLabel, parseElapsed, dawnsBetween, passTime, sheetForGm, findSheet,
 } from "./characters.js";
-import { parseSpellbook, findSpell, spellsInAction, miscantOn, learningFails, START_SPELLS } from "./spells.js";
+import { parseSpellbook, findSpell, spellsInAction, spellDuration, miscantOn, learningFails, START_SPELLS } from "./spells.js";
 
 const STATE_FILES = {
   canon: "world/worldbuilding.md",
@@ -1598,6 +1598,12 @@ export class Table extends DurableObject {
       ctx.party = state.live?.loaded ? state.live.list : [];
       ctx.book = parseSpellbook(repo.spells);
       ctx.foes = (state.foes || []).filter((f) => f.hp > 0);
+      // Spells held from before durations were tracked: their time is up at the next tick of the clock.
+      for (const c of state.live?.list || []) {
+        if (!isSheet(c) || !c.holding || c.holding.until != null || c.holding.scene != null) continue;
+        const dur = spellDuration(findSpell(ctx.book, c.holding.name)?.text);
+        if (typeof dur === "number") { c.holding.until = state.live.clock.minutes; markDirty(state); }
+      }
       // What was just rolled: the GM may not ask for the same roll again in its answer.
       ctx.rolled = state.messages.filter((m) => m.round === round && m.kind === "roll" && m.label)
         .map((m) => `${m.seatId}|${String(m.label).trim().toLowerCase()}`);
@@ -1658,6 +1664,9 @@ export class Table extends DurableObject {
       const norm = (x) => String(x || "").trim().toLowerCase();
       if (!prev || norm(prev.where) !== norm(tagged.scene.where) || (tagged.scene.mode === "combat") !== (prev.mode === "combat")) {
         fresh.marks = { scene: (fresh.marks?.scene || 0) + 1, done: {} };
+        for (const c of fresh.live?.list || []) {
+          if (isSheet(c) && c.holding && c.holding.scene != null) { addEvent(fresh, `${c.name}'s ${c.holding.name} ends with the scene.`); c.holding = null; c.concentration = 0; markDirty(fresh); }
+        }
       }
       if (prev?.mode === "combat" && tagged.scene.mode !== "combat") fresh.foes = [];
       fresh.scene = tagged.scene;
@@ -1721,7 +1730,7 @@ export class Table extends DurableObject {
     for (const s of fresh.seats.filter((x) => x.present)) {
       const c = sheetFor(fresh, s);
       if (c && c.holding && c.concentration && !c.dying && !c.dead) {
-        fresh.requests.push({ seatId: s.id, type: "save", stat: "endurance", label: `Hold ${c.holding.name}`, mod: 0, dc: c.concentration, ac: null, adv: [], dis: [], concentration: true, rid: "r" + (fresh.nextRid++), round: round + 1, order: order++, status: "pending" });
+        fresh.requests.push({ seatId: s.id, type: "save", stat: "endurance", label: `Concentration: keep ${c.holding.name} going`, mod: 0, dc: c.concentration, ac: null, adv: [], dis: [], concentration: true, rid: "r" + (fresh.nextRid++), round: round + 1, order: order++, status: "pending" });
         c.concentration = 0;
         markDirty(fresh);
       }
@@ -1977,6 +1986,8 @@ function castWorked(state, req, sheet, seat, tell) {
   if (req.held) {
     if (sheet.holding && !sameName(sheet.holding.name, req.spell)) tell([`${sheet.name} lets go of ${sheet.holding.name}.`]);
     sheet.holding = { name: req.spell };
+    if (typeof req.duration === "number" && state.live?.clock) sheet.holding.until = state.live.clock.minutes + req.duration;
+    if (req.duration === "scene") sheet.holding.scene = state.marks?.scene || 0;
     sheet.concentration = 0;
   }
   // Overclock: a d4 after it works. 1 runs the minute then breaks; 2-3 as written; 4 runs two minutes.
@@ -2139,6 +2150,12 @@ function advanceClock(state, minutes) {
   live.clock.minutes = to;
   live.clock.max = Math.max(furthest, to);
   markDirty(state);
+  for (const c of live.list) {
+    if (isSheet(c) && c.holding?.until != null && c.holding.until <= to) {
+      addEvent(state, `${c.name}'s ${c.holding.name} runs its course and fades.`);
+      c.holding = null; c.concentration = 0;
+    }
+  }
   if (dawns) addEvent(state, dawns === 1 ? `Dawn breaks: ${clockLabel(live.clock).split(",")[0]}.` : `${dawns} dawns pass. It is now ${clockLabel(live.clock)}.`);
 }
 
@@ -2993,6 +3010,7 @@ const GM_TOOLS_NO_REQUESTS = DICE_TOOLS.filter((t) => t.function.name !== "reque
 // Returns a problem to send back, or "".
 function spellRoll(req, entry) {
   if (!entry) return "";
+  if (req.held) req.duration = spellDuration(entry.text);
   const roll = String(entry.roll || "");
   if (/vs\s*AC/i.test(roll)) {
     if (req.ac == null) return `${req.label}: ${entry.name} is an attack (${roll}); give the target's target_ac.`;

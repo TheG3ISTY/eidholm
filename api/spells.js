@@ -28,6 +28,17 @@ export function parseSpellbook(md) {
   return out;
 }
 
+// How long a held spell lasts, read from its text: minutes, "scene", or null (until let go).
+const WORD_NUM = { a: 1, an: 1, one: 1, two: 2, three: 3, ten: 10 };
+export function spellDuration(text) {
+  const t = String(text || "").toLowerCase();
+  if (/\bfor the scene\b/.test(t)) return "scene";
+  const m = t.match(/\bfor (an|a|one|two|three|ten|\d+) (minute|hour|day)s?\b/);
+  if (!m) return null;
+  const n = WORD_NUM[m[1]] ?? Number(m[1]);
+  return n * { minute: 1, hour: 60, day: 1440 }[m[2]];
+}
+
 // A held spell lasts only while the canter holds it: one at a time (concentration).
 // Marked in the spellbook's text with **Held.**
 export function isLasting(text) {
