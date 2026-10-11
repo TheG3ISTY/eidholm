@@ -20,7 +20,7 @@
       "skills": {
         "canting": {
           "rank": 5,
-          "marks": 0
+          "marks": 1
         },
         "survival": {
           "rank": 5,
@@ -158,13 +158,13 @@
       "purse": 3500,
       "scars": [],
       "created": "2026-10-09",
-      "hp": 252,
-      "pool": 44,
+      "hp": 242,
+      "pool": 34,
       "luckUsed": 0,
       "enduranceUsed": false,
       "dying": "",
       "dead": false,
-      "scarsOwed": 0,
+      "scarsOwed": 1,
       "holding": {
         "name": "Glimmer"
       },
