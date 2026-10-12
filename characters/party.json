@@ -198,10 +198,10 @@
       "scars": [],
       "created": "2026-10-11",
       "hp": 230,
-      "pool": 12.11,
+      "pool": 44,
       "luckUsed": 0,
       "enduranceUsed": false,
-      "dying": null,
+      "dying": "",
       "dead": false,
       "scarsOwed": 1
     }
