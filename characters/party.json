@@ -90,7 +90,7 @@
           "focus": 1,
           "tier": 1,
           "legality": "Legal",
-          "equipped": true
+          "equipped": false
         },
         {
           "name": "Battered coif",
@@ -155,6 +155,24 @@
           "tier": 1,
           "quality": "Standard",
           "legality": "Legal",
+          "equipped": false
+        },
+        {
+          "name": "Black oak staff",
+          "kind": "focus",
+          "focus": 2,
+          "tier": 2,
+          "quality": "Fine",
+          "legality": "Licensed",
+          "equipped": false
+        },
+        {
+          "name": "Superior focus bead",
+          "kind": "focus",
+          "focus": 3,
+          "tier": 3,
+          "quality": "Standard",
+          "legality": "Licensed",
           "equipped": true
         }
       ],
@@ -177,7 +195,7 @@
       "scars": [],
       "created": "2026-10-11",
       "hp": 252,
-      "pool": 36.84,
+      "pool": 36.93,
       "luckUsed": 0,
       "enduranceUsed": false,
       "dying": null,
@@ -186,8 +204,8 @@
     }
   ],
   "clock": {
-    "minutes": 386,
-    "max": 386,
-    "label": "Day 1, 06:26"
+    "minutes": 387,
+    "max": 387,
+    "label": "Day 1, 06:27"
   }
 }
