@@ -76,7 +76,7 @@
         },
         "performance": {
           "rank": 5,
-          "marks": 1
+          "marks": 2
         }
       },
       "items": [
@@ -173,11 +173,11 @@
         }
       ],
       "debts": [],
-      "purse": 50,
+      "purse": 10050,
       "scars": [],
       "created": "2026-10-11",
       "hp": 252,
-      "pool": 34.46,
+      "pool": 36.84,
       "luckUsed": 0,
       "enduranceUsed": false,
       "dying": null,
@@ -186,8 +186,8 @@
     }
   ],
   "clock": {
-    "minutes": 360,
-    "max": 360,
-    "label": "Day 1, 06:00"
+    "minutes": 386,
+    "max": 386,
+    "label": "Day 1, 06:26"
   }
 }
