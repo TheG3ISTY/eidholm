@@ -20,7 +20,7 @@
       "skills": {
         "small_melee": {
           "rank": 5,
-          "marks": 0
+          "marks": 1
         },
         "medium_melee": {
           "rank": 5,
@@ -164,7 +164,7 @@
           "tier": 2,
           "quality": "Fine",
           "legality": "Licensed",
-          "equipped": true,
+          "equipped": false,
           "skill": "ranged_canting",
           "damage": "1d8",
           "twoHanded": true
@@ -176,6 +176,17 @@
           "tier": 3,
           "quality": "Standard",
           "legality": "Licensed",
+          "equipped": true
+        },
+        {
+          "name": "Monofilament blade",
+          "kind": "weapon",
+          "tier": 3,
+          "quality": "Standard",
+          "legality": "Restricted",
+          "skill": "small_melee",
+          "damage": "1d6",
+          "note": "A jagged, humming blade taken from the Rustfather's Enforcer",
           "equipped": true
         }
       ],
@@ -195,6 +206,10 @@
         {
           "name": "Bulwark",
           "tier": 3
+        },
+        {
+          "name": "Overclock",
+          "tier": 2
         }
       ],
       "debts": [],
@@ -202,7 +217,7 @@
       "scars": [],
       "created": "2026-10-11",
       "hp": 217,
-      "pool": 26,
+      "pool": 12,
       "luckUsed": 0,
       "enduranceUsed": false,
       "dying": "",
