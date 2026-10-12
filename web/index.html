@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Eidholm</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -173,11 +173,6 @@
   .idle-out { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); min-height: 1.3em; text-align: center; }
   .idle-out b { color: var(--glass); font-size: 20px; font-weight: 500; }
   @media (max-width: 560px) {
-    #rail { width: 76px; padding: 10px 6px; }
-    .rbtn { padding: 6px; }
-    .rbtn b { font-size: 13px; }
-    .rbtn small { font-size: 9px; }
-    .rail-h { font-size: 9px; letter-spacing: 0.1em; }
     #idle-roll { padding: 6px 2px; font-size: 12px; }
   }
   .turn { max-width: 720px; margin: 0 auto 22px; }
@@ -409,6 +404,68 @@
     font-family: var(--mono); font-size: 11px; letter-spacing: 0.2em; color: var(--glass); margin-bottom: 6px;
   }
 
+
+  /* ---------- phone ---------- */
+  #phone-nav, .tray-handle { display: none; }
+  @media (max-width: 700px) {
+    body { font-size: 17px; }
+    #game { padding-bottom: calc(58px + env(safe-area-inset-bottom)); }
+    header.bar { padding: 8px 12px; flex-wrap: nowrap; }
+    .brand { font-size: 18px; }
+    header.bar .controls > *:not(#conn):not(#clock-stamp) { display: none !important; }
+    #clock-stamp { font-size: 11px; }
+    .roster { padding: 6px 12px; }
+    .foes { padding: 6px 12px; }
+    .stage { flex-direction: column; }
+    #log { padding: 18px 14px 10px; order: 1; }
+    /* the roll tray: a bar above the input that opens upward */
+    #rail { order: 2; width: auto; border-right: 0; border-top: 1px solid var(--line); padding: 0; max-height: 52vh; gap: 0; justify-content: flex-start; background: var(--panel); }
+    #rail.collapsed > :not(.tray-handle) { display: none; }
+    #rail:not(.collapsed) { padding-bottom: 10px; }
+    #rail-rolls, #rail .idle { padding: 0 12px; }
+    #rail .idle { grid-template-columns: 1fr 90px; align-items: center; padding-top: 10px; margin-top: 4px; }
+    #rail .idle .idle-out { grid-column: 1 / -1; }
+    .tray-handle { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; background: transparent; border: 0; color: var(--ink-dim);
+      font-family: var(--mono); font-size: 13px; letter-spacing: 0.06em; padding: 11px 14px; cursor: pointer; text-align: left; }
+    .tray-handle.owed { color: var(--ember); }
+    .tray-handle .chev { transition: transform 0.15s; }
+    #rail:not(.collapsed) .tray-handle .chev { transform: rotate(180deg); }
+    .rbtn { padding: 10px 12px; }
+    .rbtn b { font-size: 17px; }
+    .rbtn small { font-size: 11px; }
+    .input { padding: 8px 12px; }
+    .input-inner { gap: 6px; }
+    #msg { font-size: 16px; }   /* 16px keeps iOS from zooming in on focus */
+    .field { font-size: 16px; }
+    .btn { padding: 10px 14px; }
+    /* other views take the stage's place */
+    #game.view-other .roster, #game.view-other .foes, #game.view-other .stage, #game.view-other .input { display: none !important; }
+    #phone-view { flex: 1; overflow-y: auto; padding: 14px 12px 24px; -webkit-overflow-scrolling: touch; }
+    #phone-view .view-h { font-family: var(--mono); font-size: 11px; letter-spacing: 0.2em; color: var(--ember); margin: 6px 0 10px; }
+    #phone-view .sheet { margin-bottom: 14px; }
+    #phone-view .pfoes { display: grid; gap: 12px; padding: 0 0 16px; }
+    #phone-view .pfoes .foe { min-width: 0; font-size: 14px; }
+    #phone-view .pfoes .foe .bar { height: 7px; }
+    #phone-view .menu { display: grid; gap: 6px; margin-bottom: 18px; }
+    #phone-view .menu button { display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; background: var(--bg-2); border: 1px solid var(--line); color: var(--ink);
+      font-family: var(--display); font-size: 19px; font-weight: 600; padding: 12px 14px; border-radius: 2px; cursor: pointer; }
+    #phone-view .menu button small { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); font-weight: 400; }
+    #phone-view .facts { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); display: grid; gap: 4px; margin-bottom: 14px; }
+    #phone-nav { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; background: rgba(12,11,10,0.96); border-top: 1px solid var(--line);
+      padding-bottom: env(safe-area-inset-bottom); backdrop-filter: blur(6px); }
+    #phone-nav button { flex: 1; position: relative; display: grid; justify-items: center; gap: 2px; background: transparent; border: 0; color: var(--ink-dim); cursor: pointer;
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; padding: 8px 0 9px; border-top: 2px solid transparent; }
+    #phone-nav button .ico { font-size: 18px; line-height: 1; }
+    #phone-nav button.on { color: var(--ink); border-top-color: var(--ember); }
+    #phone-nav .dot { position: absolute; top: 7px; left: calc(50% + 10px); width: 7px; height: 7px; border-radius: 50%; background: var(--ember); }
+    /* typing: the keyboard needs the room, so the bar steps aside */
+    body.typing #phone-nav { display: none; }
+    body.typing #game { padding-bottom: 0; }
+    /* the codex and the creation screen take the whole phone */
+    #codex { width: 100vw; border-left: 0; }
+    .tabs button { padding: 10px 10px; }
+  }
+
   @media (max-width: 560px) {
     body { font-size: 17px; }
     .gate-card h1 { font-size: 40px; }
@@ -474,6 +531,7 @@
 
   <div class="stage">
     <aside id="rail" aria-label="Your rolls">
+      <button type="button" id="tray-handle" class="tray-handle" aria-expanded="false"></button>
       <div id="rail-rolls"></div>
       <div class="idle">
         <button type="button" id="idle-roll" title="Just rolling, for fun. Only you see it; it never counts.">🎲 <span id="idle-die">d20</span></button>
@@ -496,6 +554,14 @@
     <div class="hint">Enter to act · Shift+Enter new line · /roll rolls what the GM asked for · OOC: talks to the table · /help</div>
   </form>
   <div id="gmdesk" hidden></div>
+  <!-- Phone only: the other views, and the bar that switches between them. -->
+  <div id="phone-view" hidden></div>
+  <nav id="phone-nav" aria-label="Views">
+    <button type="button" data-view="story" class="on"><span class="ico">✦</span>Story<i class="dot" hidden></i></button>
+    <button type="button" data-view="sheet"><span class="ico">◈</span>Sheet<i class="dot" hidden></i></button>
+    <button type="button" data-view="party"><span class="ico">⚔</span>Party<i class="dot" hidden></i></button>
+    <button type="button" data-view="more"><span class="ico">☰</span>More</button>
+  </nav>
 </section>
 
 <div class="scrim" id="scrim"></div>
@@ -1047,7 +1113,7 @@
       const owes = (id) => (table.requests || []).some((r) => r.seatId === id);
       const waitingOn = table.seats.filter((s) => s.present && (!answered.has(s.id) || owes(s.id))).map(seatLabel);
       if ((table.requests || []).some((r) => r.seatId === mySeat) && !pend.length) {
-        w.textContent = "The GM wants rolls from you. Use the buttons on the left, or /roll for all of them.";
+        w.textContent = isPhone() ? "The GM wants rolls from you: they're in the dice tray below." : "The GM wants rolls from you. Use the buttons on the left, or /roll for all of them.";
       } else if (pend.length) {
         w.innerHTML = waitingOn.length
           ? `Waiting on <b>${waitingOn.map(escapeHtml).join(", ")}</b>. `
@@ -1086,6 +1152,99 @@
       renderBegin();
       if ($("reveal-toggle")) $("reveal-toggle").checked = !!table.revealGmRolls;
     }
+    renderPhone();
+  }
+
+  // ================= the phone layout =================
+  // One page for every screen: under 700px wide the rail becomes a dice tray above the input,
+  // and a bottom bar switches between the story, your sheet, the party and everything else.
+  const phoneMQ = window.matchMedia("(max-width: 700px)");
+  const isPhone = () => phoneMQ.matches;
+  let phoneView = "story", phoneSig = "", trayOwed = 0, trayOpenByHand = null, storySeen = 0;
+  function setView(v) {
+    phoneView = v;
+    phoneSig = "";
+    document.querySelectorAll("#phone-nav button").forEach((b) => b.classList.toggle("on", b.dataset.view === v));
+    $("game").classList.toggle("view-other", isPhone() && v !== "story");
+    $("phone-view").hidden = !isPhone() || v === "story";
+    if (v === "story") { const l = $("log"); requestAnimationFrame(() => { l.scrollTop = l.scrollHeight; }); }
+    renderPhone();
+    $("phone-view").scrollTop = 0;
+  }
+  document.querySelectorAll("#phone-nav button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
+  $("msg").addEventListener("focus", () => document.body.classList.add("typing"));
+  $("msg").addEventListener("blur", () => setTimeout(() => document.body.classList.remove("typing"), 120));
+  phoneMQ.addEventListener("change", () => setView(isPhone() ? phoneView : "story"));
+  $("tray-handle").addEventListener("click", () => {
+    const rail = $("rail");
+    rail.classList.toggle("collapsed");
+    trayOpenByHand = !rail.classList.contains("collapsed");
+    $("tray-handle").setAttribute("aria-expanded", String(trayOpenByHand));
+  });
+
+  function renderPhone() {
+    if (!table) return;
+    const rail = $("rail");
+    if (!isPhone()) { rail.classList.remove("collapsed"); $("game").classList.remove("view-other"); $("phone-view").hidden = true; return; }
+    // The dice tray: opens by itself when new rolls are owed, closes when they're done.
+    const mine = (table.requests || []).filter((r) => r.seatId === mySeat);
+    const held = mySheet() && mySheet().holding && mySheet().holding.expired ? 1 : 0;
+    const owed = mine.length + held;
+    if (owed > trayOwed) { rail.classList.remove("collapsed"); trayOpenByHand = null; }
+    if (owed === 0 && trayOwed > 0 && trayOpenByHand !== true) rail.classList.add("collapsed");
+    if (trayOwed === 0 && owed === 0 && trayOpenByHand === null && !rail.dataset.init) { rail.classList.add("collapsed"); rail.dataset.init = "1"; }
+    trayOwed = owed;
+    const h = $("tray-handle");
+    h.classList.toggle("owed", owed > 0);
+    h.innerHTML = `<span>🎲 ${owed ? `${owed} roll${owed === 1 ? "" : "s"} owed` : held ? "a spell is running out" : "Dice"}</span><span class="chev">▲</span>`;
+    // Badges: something new in the story, rolls owed, points to spend.
+    const lastGm = (table.messages || []).filter((m) => m.kind === "gm").reduce((mx, m) => Math.max(mx, m.id), 0);
+    if (phoneView === "story") storySeen = lastGm;
+    const dot = (v, on) => { const d = document.querySelector(`#phone-nav [data-view="${v}"] .dot`); if (d) d.hidden = !on; };
+    dot("story", phoneView !== "story" && (lastGm > storySeen || owed > 0));
+    dot("sheet", !!(mySheet() && mySheet().d && mySheet().d.unspent > 0));
+    dot("party", (table.foes || []).some((f) => f.hp > 0) && phoneView !== "party");
+    $("game").classList.toggle("view-other", phoneView !== "story");
+    $("phone-view").hidden = phoneView === "story";
+    if (phoneView === "story") return;
+    const v = $("phone-view");
+    // Don't rebuild under someone's thumb when nothing changed.
+    const sig = JSON.stringify([phoneView, table.party, table.foes, table.clock, table.admin, table.gmRole, table.tier, table.saved, table.spendTotal, mySeat]);
+    if (sig === phoneSig) return;
+    const keep = v.scrollTop;
+    phoneSig = sig;
+    if (phoneView === "sheet") {
+      const c = mySheet();
+      if (c && c.d) { v.innerHTML = renderSheet(c); wireSheetControls(v); }
+      else {
+        v.innerHTML = `<div class="view-h">YOUR CHARACTER</div><p class="muted">${table.party ? "You don't have a character sheet yet." : "Loading the party…"}</p>`;
+        if (table.party) { const b = document.createElement("button"); b.type = "button"; b.className = "btn"; b.textContent = "Create character"; b.addEventListener("click", openCreate); v.appendChild(b); }
+      }
+    } else if (phoneView === "party") {
+      const foes = (table.foes || []);
+      let html = "";
+      if (foes.length) html += `<div class="view-h">THE FIGHT</div><div class="pfoes">` +
+        foes.map((f) => `<div class="foe${f.hp <= 0 ? " down" : ""}"><div class="fn"><span>${escapeHtml(f.name)}</span><small>${f.hp <= 0 ? "down" : `${f.hp}/${f.maxHp} HP`}</small></div><div class="bar"><i style="width:${Math.max(0, Math.min(100, Math.round(100 * f.hp / (f.maxHp || 1))))}%"></i></div></div>`).join("") + "</div>";
+      const sheets = (table.party || []).filter((c) => c && c.stats && c.d);
+      const others = sheets.filter((c) => !(mySheet() && mySheet().name === c.name));
+      html += `<div class="view-h">THE PARTY</div>` + (others.length ? others.map(renderSheet).join("") : '<p class="muted">Nobody else at the table has a character yet.</p>');
+      v.innerHTML = html;
+      wireSheetControls(v);
+    } else if (phoneView === "more") {
+      const gm = table.admin || table.gmRole;
+      const tabs = [["table", "Table", "seats, who is here"], ["people", "People", "who you've met"], ["log", "Log", "the campaign so far"], ["rules", "Rules", ""], ["canon", "World", ""],
+        ...(gm ? [["gm", "Game Master", "the main quest"]] : []), ["settings", "Settings", gm ? "" : "GM only"]];
+      const t = totals();
+      v.innerHTML = `<div class="view-h">CODEX</div><div class="menu" id="pm-tabs"></div><div class="view-h">THIS TABLE</div>
+        <div class="facts">${table.clock ? `<span>⧗ ${escapeHtml(table.clock)}${table.partyUnsaved ? " · sheets unsaved" : ""}</span>` : ""}${$("saved-stamp").textContent ? `<span>${escapeHtml($("saved-stamp").textContent)}</span>` : ""}${admin ? `<span>${t.tokens.toLocaleString()} tok · $${t.usd.toFixed(4)} all time · model ${escapeHtml(table.tier || "small")}</span>` : ""}</div>
+        <div class="menu" id="pm-acts"></div>`;
+      const add = (box, label, sub, fn) => { const b = document.createElement("button"); b.type = "button"; b.innerHTML = `<span>${escapeHtml(label)}</span><small>${escapeHtml(sub || "")}</small>`; b.addEventListener("click", fn); $(box).appendChild(b); };
+      for (const [k, label, sub] of tabs) add("pm-tabs", label, sub, () => openTab(k));
+      if (admin) add("pm-acts", `Model: ${table.tier === "large" ? "Large" : "Small"}`, "tap to switch", () => document.querySelector(`.seg button[data-tier="${table.tier === "large" ? "small" : "large"}"]`).click());
+      add("pm-acts", "Export", "the scene as Markdown", () => $("export").click());
+      add("pm-acts", "Lock", "leave and forget the password here", () => $("lock").click());
+    }
+    v.scrollTop = keep;
   }
 
   // ================= the GM desk (human GM, in the GM seat) =================
