@@ -26,7 +26,7 @@ import {
   derive, normalize, createSheet, raiseStat, takeCapstone, addMark, takeDamage, heal, stabilize, deathSave,
   statMod, skillBonus, skillRank, equipped, clockLabel, parseElapsed, dawnsBetween, passTime, sheetForGm, findSheet,
 } from "./characters.js";
-import { parsePlotPoints, questFromArgs, randomQuest, currentBeat, moveQuest, questView, questFileText, parseQuestFile, questBlock, PLANNER_PROMPT, PLANNER_TOOL, QUEST_TOOL } from "./quest.js";
+import { parsePlotPoints, questFromArgs, villainFromArgs, randomQuest, currentBeat, moveQuest, questView, questFileText, parseQuestFile, questBlock, PLANNER_PROMPT, PLANNER_TOOL, QUEST_TOOL } from "./quest.js";
 import { parseSpellbook, findSpell, spellsInAction, spellDuration, miscantOn, learningFails, START_SPELLS } from "./spells.js";
 
 const STATE_FILES = {
@@ -1141,6 +1141,9 @@ export class Table extends DurableObject {
     const party = (state.live?.list || []).filter(isSheet).filter((c) => !c.dead)
       .map((c) => `- ${c.name}: ${c.backstory ? clean(c.backstory, 800, true) : "(no backstory)"}`).join("\n") || "(no characters yet)";
     const log = String(repo.log || "").slice(-3000);
+    // The canon's fixed figures: the villain is never one of them.
+    let canon = [];
+    try { canon = (parseCast(repo.cast) || []).filter((c) => c.pillar).map((c) => c.name); } catch {}
     const input = `## PLOT POINTS\n${points.map((p) => `${p.id} (${p.kind}) · ${p.title}: ${p.text}`).join("\n")}\n\n## THE PARTY\n${party}\n\n` +
       `## WHAT HAS HAPPENED SO FAR\n${log.trim() || "(nothing yet: a new story)"}\n\n` + (brief ? `## THE TABLE'S GM WANTS\n${brief}\n\n` : "") +
       `## THE WORLD\n${stripDev(repo.canon || "").slice(0, 14000)}`;
@@ -1156,7 +1159,7 @@ export class Table extends DurableObject {
       if (!call) break;
       let args = {};
       try { args = typeof call.function.arguments === "string" ? JSON.parse(call.function.arguments) : call.function.arguments || {}; } catch {}
-      const { quest, problems } = questFromArgs(args, points);
+      const { quest, problems } = questFromArgs(args, points, { canon });
       if (quest) return { quest: { ...quest, dirty: Date.now() }, usage };
       convo.push({ role: "assistant", content: "", tool_calls: [call] });
       convo.push({ role: "tool", tool_call_id: call.id, name: "build_quest", content: JSON.stringify({ problems }) });
@@ -1735,6 +1738,7 @@ export class Table extends DurableObject {
       const cast = gateCast(parseCast(mergeCast(repo.cast, state.cast, { sessionNo: 0, endOfSession: false }) ?? repo.cast), state);
       const sel = selectContext({ library, cast, scene: state.scene, recent: recentText(state) });
       ctx.library = library; ctx.cast = cast;
+      try { ctx.pillars = (parseCast(repo.cast) || []).filter((c) => c.pillar).map((c) => c.name); } catch { ctx.pillars = []; }
       ctx.party = state.live?.loaded ? state.live.list : [];
       ctx.book = parseSpellbook(repo.spells);
       ctx.foes = (state.foes || []).filter((f) => f.hp > 0);
@@ -1835,7 +1839,14 @@ export class Table extends DurableObject {
     for (const op of result.foeOps || []) applyFoeOp(fresh, op);
     // The GM moved the main quest on (its tab shows it; the players never do).
     for (const op of (result.questOps || []).slice(0, 1)) {
-      try { moveQuest(fresh.quest, op.beat, { reason: op.reason, note: op.note }); fresh.quest.dirty = Date.now(); } catch {}
+      if (!fresh.quest) break;
+      if (op.villain && !fresh.quest.villain?.name) {
+        const at = currentBeat(fresh.quest)?.index ?? 0;
+        const turn = fresh.quest.beats.findIndex((b, i) => i > at && i < fresh.quest.beats.length - 1 && b.kind === "turn");
+        fresh.quest.villain = { ...op.villain, revealAt: turn > 0 ? turn : Math.max(at + 1, Math.floor(fresh.quest.beats.length * 2 / 3)) };
+        fresh.quest.dirty = Date.now();
+      }
+      try { if (op.beat !== "none") { moveQuest(fresh.quest, op.beat, { reason: op.reason, note: op.note }); fresh.quest.dirty = Date.now(); } } catch {}
     }
     // Foes' attacks on player characters: rolled already, applied now.
     for (const a of result.foeAttacks || []) {
@@ -3584,6 +3595,23 @@ function parseSheetOp(args, party, book = []) {
   return { op };
 }
 
+// The GM's quest tool call, checked: one per answer; a villain only when the story has none.
+function questToolCall(args, ctx, done) {
+  if (!ctx.quest) return { error: "There is no main quest." };
+  if (done.length) return { error: "Once per answer." };
+  const beat = ["done", "skip", "none"].includes(args.beat) ? args.beat : null;
+  if (!beat) return { error: "beat must be done, skip or none." };
+  let villain = null;
+  if (args.villain && !ctx.quest.villain?.name) {
+    const v = villainFromArgs(args.villain, ctx.pillars || []);
+    if (!v.villain) return { error: v.problems.join(" ") };
+    villain = v.villain;
+  }
+  if (beat === "none" && !villain) return { error: ctx.quest.villain?.name ? "The story already has its villain; keep them." : "Give the villain, or move the beat with done or skip." };
+  if (beat !== "none" && !currentBeat(ctx.quest)) return { error: "The quest is already played through." };
+  return { op: { beat, villain, reason: clean(args.reason, 200), note: clean(args.next_note, 400) } };
+}
+
 // One GM turn. The GM may call roll_dice any number of times; each call is
 // answered by the server's real dice, and the GM narrates from those numbers.
 async function gmTurn(env, model, messages, ctx = {}) {
@@ -3686,11 +3714,11 @@ async function gmTurn(env, model, messages, ctx = {}) {
         continue;
       }
       if (call.function?.name === "quest") {
-        const ok = ctx.quest && currentBeat(ctx.quest) && !questOps.length && ["done", "skip"].includes(args.beat);
-        if (ok) questOps.push({ beat: args.beat, reason: clean(args.reason, 200), note: clean(args.next_note, 400) });
-        convo.push({ role: "tool", tool_call_id: call.id, name: "quest", content: JSON.stringify(ok
-          ? { moved: args.beat, note: "Recorded. Keep playing the scene; the next beat comes in its own time." }
-          : { error: !ctx.quest ? "There is no main quest." : !currentBeat(ctx.quest) ? "The quest is already played through." : questOps.length ? "Once per answer." : "beat must be done or skip." }) });
+        const out = questToolCall(args, ctx, questOps);
+        if (out.op) questOps.push(out.op);
+        convo.push({ role: "tool", tool_call_id: call.id, name: "quest", content: JSON.stringify(out.op
+          ? { recorded: [out.op.villain ? `villain: ${out.op.villain.name}` : "", out.op.beat !== "none" ? out.op.beat : ""].filter(Boolean), note: "Recorded. Keep playing the scene; the next beat comes in its own time." }
+          : { error: out.error }) });
         continue;
       }
       if (call.function?.name === "foe_attack") {

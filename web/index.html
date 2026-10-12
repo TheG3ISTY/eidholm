@@ -298,6 +298,9 @@
   .beat .note, .beat .txt { grid-column: 2; font-size: 14px; }
   .beat .txt { color: var(--ink-dim); }
   .beat.now { border-color: var(--ember); }
+  .villain { border-color: var(--ember-dim); }
+  .villain b { font-family: var(--display); font-size: 19px; }
+  .villain .kv { margin-top: 8px; }
   .beat.now .mk { color: var(--ember); }
   .beat.done, .beat.skipped { opacity: 0.55; }
   .beat.skipped b { text-decoration: line-through; }
@@ -1521,6 +1524,16 @@
     head.innerHTML = `<div class="quest-head">${escapeHtml(q.title)}</div><p class="small">${escapeHtml(q.premise)}</p>
       <p class="muted small">${q.at < q.beats.length ? `Beat ${q.at + 1} of ${q.beats.length}` : "Played through"} · ${played} played${q.by === "random" ? " · built at random (the model couldn't)" : ""}${q.unsaved ? " · changes since the last save" : ""}</p>`;
     root.appendChild(head);
+    const v = q.villain;
+    const vil = document.createElement("div");
+    vil.className = "card villain";
+    vil.innerHTML = v && v.name
+      ? `<div class="rail-h">THE VILLAIN</div><b>${escapeHtml(v.name)}</b> <span class="muted small">${escapeHtml(v.role || "")}${v.faction ? " · " + escapeHtml(v.faction) : ""}</span>
+        <div class="kv small">${[["Looks", v.face], ["Wants", v.want], ["Works through", v.method], ["Secret", v.secret], ["Weakness", v.weakness],
+          ["Revealed", Number.isInteger(v.revealAt) && q.beats[v.revealAt] ? `beat ${v.revealAt + 1} (${q.beats[v.revealAt].id})` : ""]]
+          .filter(([, x]) => x).map(([k, x]) => `<span class="muted">${k}</span><span>${escapeHtml(x)}</span>`).join("")}</div>`
+      : `<div class="rail-h">THE VILLAIN</div><p class="muted small">None yet. The GM is told to invent one and record it; or rebuild the quest.</p>`;
+    root.appendChild(vil);
     const bar = document.createElement("div"); bar.className = "quest-bar";
     const live = q.at < q.beats.length;
     const b1 = btn("Mark done", () => send({ t: "questMove", move: "done" }), "The party has played through this beat");
@@ -1535,8 +1548,9 @@
       const now = i === q.at;
       const row = document.createElement("div");
       row.className = "beat " + (now ? "now" : b.status);
+      const unmask = v && v.name && v.revealAt === i ? ' <span class="id">· VILLAIN REVEALED</span>' : "";
       row.innerHTML = `<span class="mk">${now ? "▶ " + (i + 1) : (i + 1) + " " + mark[b.status]}</span>
-        <div><span class="id">${escapeHtml(b.id)}</span><b>${escapeHtml(b.title)}</b></div>
+        <div><span class="id">${escapeHtml(b.id)}</span><b>${escapeHtml(b.title)}</b>${unmask}</div>
         ${b.note ? `<div class="note">${escapeHtml(b.note)}</div>` : ""}
         ${now ? `<div class="txt">${escapeHtml(b.text)}</div>` : ""}
         ${b.reason ? `<div class="txt">${escapeHtml(b.status === "skipped" ? "Skipped: " : "")}${escapeHtml(b.reason)}</div>` : ""}`;
