@@ -65,11 +65,11 @@ A freeform cant that works goes on the sheet as the caster's own spell, **learne
 
 Luck 13 removes only the natural 1, never the rest. Backlash always follows the tier (see Characters).
 
-Every spell rolls **Resonance + Canting** (or **Ranged canting** for anything thrown at a target), against a DC or the target's AC; that roll is also where a miscant shows.
+Every spell rolls **Attunement + Canting** (or **Ranged canting** for anything thrown at a target), against a DC or the target's AC; that roll is also where a miscant shows.
 
 **Held spells.** A spell marked **Held.** lasts only while the canter holds it, and a canter holds **one** at a time: casting another held spell lets go of the first. Taking damage while holding calls for an **Endurance save, DC 10 or half the damage** (whichever is higher), or the spell drops. Dropping to 0 HP lets go of it. It ends when its time runs out.
 
-**Spell save DC = 8 + Resonance modifier + Canting bonus** (Ranged canting for ranged cants). When a spell says "vs Agility save" or the like, the caster's roll only decides whether it miscants; the targets roll their save against the caster's DC. A fresh Resonance 5 canter has DC 8; a Resonance 10 Legend has DC 20.
+**Spell save DC = 8 + Attunement modifier + Canting bonus** (Ranged canting for ranged cants). When a spell says "vs Agility save" or the like, the caster's roll only decides whether it miscants; the targets roll their save against the caster's DC. A fresh Resonance 5 canter has DC 8; a Resonance 10 Legend has DC 20.
 
 ## Tier 1 · 2 Resonance
 
@@ -79,7 +79,7 @@ The first handshakes. What a Choir novice learns first, what a hedge-witch etche
 |---|---|---|
 | **Spark Query** | "A fireball is a query." A thrown mote of fire, 2d6; sets loose things alight. | Ranged canting vs AC |
 | **Mend** | Repairs a broken Common item, or a small break: a strap, a lock spring, a cracked lens. | DC 12 |
-| **Stitch** | Closes a wound: heals 1d8 + Resonance modifier. The Choir's oldest kindness. | DC 10 |
+| **Stitch** | Closes a wound: heals 1d8 + Attunement modifier. The Choir's oldest kindness. | DC 10 |
 | **Kindle Ward** | A thin personal ward on one person; soaks the next 5 damage, for the scene. **Held.** | DC 10 |
 | **Listen** | Hear the Lattice nearby: active devices, cants being cast, minds of glass, within 30 m. | vs whatever hides |
 | **Jolt** | A touch of raw Lattice: 1d10 to a person, or a device stops working for a round. | vs AC |
@@ -95,7 +95,7 @@ What the trade actually runs on: a guild engineer's daily cants, a League duelis
 | Spell | What it does | Roll |
 |---|---|---|
 | **Ember Lance** | A spear of white fire in a straight line, 3d8. | Ranged canting vs AC |
-| **Graft** | Heals 2d8 + Resonance modifier, and stops bleeding or one poison. | DC 12 |
+| **Graft** | Heals 2d8 + Attunement modifier, and stops bleeding or one poison. | DC 12 |
 | **Seal** | Locks a door, chest or hatch with a spoken phoneme; only the caster opens it, or someone who beats DC 15 with Thievery or Canting. | DC 12 |
 | **Grip** | Moves an object up to 50 kg at a distance, or pins one person in place for a round. | DC 12, or vs Strength save |
 | **Shiver** | The Lattice drags at a target: on a failed Endurance save they lose their next action. | vs Endurance save |
@@ -113,7 +113,7 @@ Where it gets dangerous: from here up, a miscant scars. Academy graduates, dioce
 |---|---|---|
 | **Query Flame** | The real fireball: a 6 m burst, 6d6, half on a successful Agility save. | vs Agility save |
 | **Chain Arc** | Lightning jumps between up to 3 targets, 4d8 each; devices it touches shut down for a round. | Ranged canting vs AC |
-| **Restore** | Heals 4d8 + Resonance modifier, or ends one lingering harm: blinded, deafened, paralysed by a cant. | DC 14 |
+| **Restore** | Heals 4d8 + Attunement modifier, or ends one lingering harm: blinded, deafened, paralysed by a cant. | DC 14 |
 | **Unweave** | Ends any cant of tier 3 or lower; higher tiers become a contest. | DC 14, or vs the caster |
 | **Lattice Step** | Step through the Weave to anywhere in sight within 100 m, with one willing person. | DC 14 |
 | **Bulwark** | A 6 m dome that stops ranged attacks from every side and soaks 120 damage, for a minute. **Held.** | DC 14 |
@@ -131,7 +131,7 @@ Masters: League Speakers, champion duelists, cathedral priests, the combines' be
 |---|---|---|
 | **Caldera Rite** | A pillar of fire falls from above: 10 m radius, 10d6, half on a successful Agility save; the ground keeps burning for a minute. | vs Agility save |
 | **Stormcall** | A storm over 200 m for a minute; each round the caster drops one bolt where they choose, 6d10. **Held.** | Ranged canting vs AC |
-| **Rebuild** | Heals 8d8 + Resonance modifier and regrows a lost hand, eye or finger. It cannot touch the dead. | DC 16 |
+| **Rebuild** | Heals 8d8 + Attunement modifier and regrows a lost hand, eye or finger. It cannot touch the dead. | DC 16 |
 | **Gate Pair** | A doorway for a minute between here and any place within 50 km the caster has stood. **Held.** | DC 16 |
 | **Heavy Shield** | One held lattice-shield becomes impossibly heavy: on a failed Strength save the bearer drops it. It isn't broken; it can be picked up again once the cant fades, after a minute. | vs Strength save |
 | **Glass Sleep** | Every non-sapient device within 50 m stops for ten minutes. **Held.** | DC 16 |
@@ -155,7 +155,7 @@ Grandmasters, and the ceiling for anyone without the capstone. District-sized: o
 | **Long Gate** | Carries up to 20 people to anywhere on the continent the caster has stood. | DC 18 |
 | **Fortress Ward** | A 30 m dome nothing crosses, ranged or melee, soaking 1,000 damage, for an hour. **Held.** | DC 18 |
 | **Wordbreak** | Every cant within 50 m ends, up to tier 5. Tier 6 does not notice. | DC 18 |
-| **Lattice Prison** | One creature is shut out of the world in a lattice cell for a day; a Resonance save every hour to break out. **Held.** | vs Resonance save |
+| **Lattice Prison** | One creature is shut out of the world in a lattice cell for a day; an Attunement save every hour to break out. **Held.** | vs Attunement save |
 | **Witness** | See the last day of a place as if standing there through it. The Lattice remembers. | DC 18 |
 | **Thousand Faces** | Up to 50 people see whatever the caster wants, for ten minutes. **Held.** | vs Perception save |
 | **Dread Choir** | Every enemy within 50 m flees for a minute on a failed Charisma save. **Held.** | vs Charisma save |
@@ -163,7 +163,7 @@ Grandmasters, and the ceiling for anyone without the capstone. District-sized: o
 
 ## Tier 6: world-altering
 
-There are no standard tier-6 spells. Only a canter with **Resonance 13** can cast at this tier, and every one of them **writes their own**.
+There are no standard tier-6 spells. Only a canter with **Attunement 13** can cast at this tier, and every one of them **writes their own**.
 
 ### Writing one
 

@@ -183,7 +183,7 @@ export function characterTopics(title) {
   const t = title.toLowerCase();
   if (/^eidholm|^stats|^modifiers|^origin|^the clock/.test(t)) return ["core"];
   if (/^luck|^lattice-shields|^dying/.test(t)) return ["war"];
-  if (/^resonance|^miscants/.test(t)) return ["weave"];
+  if (/^(attunement|resonance)|^miscants/.test(t)) return ["weave"];
   if (/^scars/.test(t)) return ["death", "war"];
   if (/^starting kit|^allocation|^at creation/.test(t)) return ["creation"];
   return ["index"];

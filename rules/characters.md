@@ -19,9 +19,9 @@ Eight stats, each from 1 to 10.
 | **Intelligence** | Intelligence | knowledge, investigation, medicine, Artifice |
 | **Agility** | Dexterity | stealth, reflexes, Armor Class, initiative, finesse, blocking |
 | **Luck** | none | never rolled on its own: rerolls, critical range, fortune |
-| **Resonance** | none | Canting: how much Lattice a mind can carry; resisting another's cant |
+| **Attunement** | none | Canting: how much Lattice a mind can carry; resisting another's cant |
 
-**Saving throws:** Strength, Agility, Endurance, Intelligence, Perception, Charisma, and Resonance (against cants and Lattice effects). Luck never saves.
+**Saving throws:** Strength, Agility, Endurance, Intelligence, Perception, Charisma, and Attunement (against cants and Lattice effects). Luck never saves.
 
 ### Modifiers
 
@@ -51,7 +51,7 @@ Eight stats, each from 1 to 10.
 | **Intelligence 13** | Masterwork | The true artificer: everything you make with Creation comes out **one quality step above** what the roll gave (Crude → Standard → Fine → Exceptional → **Masterwork**). Masterwork quality exists only through this capstone: nothing else makes it. You also work any lattice device on first touch with no skill penalty. |
 | **Agility 13** | Pinpoint | Once per combat encounter, **choose the face of every die** in one of your attacks, however many dice it has. A chosen 20 is a natural 20. |
 | **Luck 13** | Never fumble | No critical failures: a natural 1 is just a 1 (it adds your modifier and can still miss), never an automatic miss, and **a natural 1 never miscants.** It removes the critical failure only: the wider miscant range of a freeform cant's first cast still applies, and the d8 for learning by casting has no critical failure to remove. |
-| **Resonance 13** | Tier 6 | The only way to cast **tier 6** spells. Nothing else unlocks them: no focus, device, gear, ritual, assist or mind of glass. |
+| **Attunement 13** | Tier 6 | The only way to cast **tier 6** spells. Nothing else unlocks them: no focus, device, gear, ritual, assist or mind of glass. |
 
 ## Derived numbers
 
@@ -84,21 +84,21 @@ All are recalculated from the **current** sheet (raising Endurance raises HP for
 - **Bad luck:** at Luck 3 or below, once per session the GM may turn a success into a complication (a cost, never a failure).
 - **Capstone (13):** no critical failures, ever (see above).
 
-## Resonance and Canting
+## Attunement, Resonance and Canting
 
-**Resonance is capacity, not risk.** A strong Canter casts more, not more dangerously.
+**Attunement** is the stat; **Resonance** is the pool it fills, spent on every cast. **Attunement is capacity, not risk.** A strong Canter casts more, not more dangerously.
 
 | | |
 |---|---|
-| **Pool** | Resonance × 4 (a 10 holds 44; a 13 holds 52) |
+| **Pool** | Attunement × 4 (a 10 holds 44; a 13 holds 52) |
 | **Recovery** | **12.5% of the maximum pool per in-game hour**, rest or no rest (empty to full in 8 hours) |
-| **What raises what** | Resonance raises the pool only. Gear can raise the pool **and** the recovery rate. Gear never raises the Resonance stat itself. |
+| **What raises what** | Attunement raises the pool only. Gear can raise the pool **and** the recovery rate. Gear never raises the Attunement stat itself. |
 | **Spell cost** | tier 1: 2 · tier 2: 4 · tier 3: 8 · tier 4: 14 · tier 5: 22 · **tier 6: 39** |
-| **Highest tier** | Resonance ÷ 2, rounded down, **plus the best focus worn or in hand**: a Common focus +1, Guild +2, Superior +3 (so a Resonance 2–3 canter casts tier 1 with a bead). Never above tier 5. **Tier 6: Resonance 13 only, period**; no focus opens it. |
+| **Highest tier** | Attunement ÷ 2, rounded down, **plus the best focus worn or in hand**: a Common focus +1, Guild +2, Superior +3 (so an Attunement 2–3 canter casts tier 1 with a bead). Never above tier 5. **Tier 6: Attunement 13 only, period**; no focus opens it. |
 
 ### Miscants
 
-A **natural 1** on a Canting roll is a miscant. Freeform cants and learning by casting carry wider ranges: see the **Spells** page. Backlash depends **only on the spell's tier**, never on the caster's Resonance:
+A **natural 1** on a Canting roll is a miscant. Freeform cants and learning by casting carry wider ranges: see the **Spells** page. Backlash depends **only on the spell's tier**, never on the caster's Attunement:
 
 | Tier | Backlash |
 |---|---|
@@ -162,7 +162,7 @@ Marks reset after each rank-up; taking one skill from Untrained to Legend costs 
 The GM names a stat and (if one fits) a skill for every roll it asks for; the game adds both bonuses from the sheet.
 
 - **Melee attacks:** Strength (Agility for daggers and other finesse weapons); melee damage adds the Strength modifier automatically.
-- **Ranged attacks:** Perception. **Cants:** Resonance. **Blocking with a shield:** Agility + Heavy armor.
+- **Ranged attacks:** Perception. **Cants:** Attunement. **Blocking with a shield:** Agility + Heavy armor.
 - **Checks and saves:** whichever stat the moment calls for. Luck is never rolled.
 
 ## Armor

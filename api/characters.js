@@ -7,7 +7,7 @@ import { rollDice } from "./dice.js";
 export const STATS = ["strength", "perception", "endurance", "charisma", "intelligence", "agility", "luck", "resonance"];
 export const STAT_LABEL = {
   strength: "Strength", perception: "Perception", endurance: "Endurance", charisma: "Charisma",
-  intelligence: "Intelligence", agility: "Agility", luck: "Luck", resonance: "Resonance",
+  intelligence: "Intelligence", agility: "Agility", luck: "Luck", resonance: "Attunement",
 };
 
 export const SKILLS = {
@@ -179,7 +179,7 @@ export function derive(sheet) {
     carryKg: statValue(sheet, "strength") * 10,
     maxPool: R * 4 + gearPool,
     recovery: RECOVERY_PER_HOUR + gearRecovery,     // fraction of the max pool per hour
-    // Resonance ÷ 2, plus the best focus worn or in hand (+1 to +3). Tier 6 is the capstone's alone.
+    // Attunement ÷ 2, plus the best focus worn or in hand (+1 to +3). Tier 6 is the capstone's alone.
     focus: equipped(sheet).reduce((m, i) => Math.max(m, Math.trunc(Number(i.focus) || 0)), 0),
     maxTier: sheet.capstone === "resonance" ? 6
       : Math.min(5, Math.floor(R / 2) + equipped(sheet).reduce((m, i) => Math.max(m, Math.trunc(Number(i.focus) || 0)), 0)),
@@ -327,7 +327,7 @@ export function takeCapstone(sheet, stat) {
   return `${sheet.name} reaches the capstone: ${STAT_LABEL[stat]} 13, ${CAPSTONES[stat][0]}.`;
 }
 
-// Raising Endurance or Resonance raises the maximum, and the current value with it.
+// Raising Endurance or Attunement raises the maximum, and the current value with it.
 function settleCaps(sheet, before) {
   const d = derive(sheet);
   if (before && !sheet.dying && !sheet.dead) {

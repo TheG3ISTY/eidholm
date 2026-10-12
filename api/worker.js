@@ -40,6 +40,15 @@ const STATE_FILES = {
   party: "characters/party.json",
   log: "campaign/log.md",
 };
+// The eighth stat is shown as Attunement; its key in sheets and code is still "resonance"
+// (Resonance is the pool it fills). The model sees and may send either name.
+const MODEL_STATS = STATS.map((s) => (s === "resonance" ? "attunement" : s));
+function statKey(v) {
+  const k = String(v || "").trim().toLowerCase();
+  if (k === "attunement") return "resonance";
+  return STATS.includes(k) ? k : null;
+}
+
 // The main quest: built from the plot points at the start of a story, for the GM's eyes only.
 // Kept apart from STATE_FILES, which the players' codex reads.
 const LIVE_FIX = 2;   // bump to re-run normalize() on the sheets live on the table
@@ -2646,15 +2655,15 @@ const REFEREE_PROMPT = `You are the REFEREE of a tabletop roleplaying game that 
 Call for rolls when:
 A) A character ATTEMPTS something that could fail and failing would cost them: attacking; casting a spell or cant; sneaking past someone; climbing or leaping somewhere dangerous; forcing, breaking or picking something; lying; persuading or intimidating someone who is not already willing; searching for something hidden; scanning for danger or looking for a way out somewhere unsafe; examining something strange or unknown; reading the intent of someone tense or hostile.
 B) A FOE ATTACKS a character and it is not resolved yet (the GM's last reply ended with a blow, a shot or a lunge coming at them): call foe_attack. The server rolls it against their armour now. One call per attack.
-C) THE WORLD ACTS ON a character in some other way, unresolved: a blast, a fall, a trap, poison, a grab, a force of the Weave reaching for them, an ambush coming. That is a SAVE (with damage_on_fail when it would hurt): Agility to dodge or get clear, Endurance to resist poison, grabs and harm to the body, Resonance against cants and Weave forces, Perception to notice it in time.
+C) THE WORLD ACTS ON a character in some other way, unresolved: a blast, a fall, a trap, poison, a grab, a force of the Weave reaching for them, an ambush coming. That is a SAVE (with damage_on_fail when it would hurt): Agility to dodge or get clear, Endurance to resist poison, grabs and harm to the body, Attunement against cants and Weave forces, Perception to notice it in time.
 
 No roll for: talking, asking, answering, agreeing, listening, waiting, watching, plain walking, glancing around somewhere calm and safe, readying or lowering a weapon, anything the world simply allows or a willing person simply answers.
 
 How to fill a roll:
 - Attacks by the players: give target (the foe's name as on the tracker below) and its AC comes from the tracker.
-- character: the name exactly as given. label: what is tested, short ("Resonance save: the glass thread", "Perception: read Severin").
-- type: check, save or attack. stat: strength, perception, endurance, charisma, intelligence, agility or resonance (never luck). skill when one fits: small_melee, medium_melee, large_melee, ranged, canting, ranged_canting, survival, medicine, creation, thievery, performance, artifice.
-- Stats: melee attacks strength (agility for daggers), ranged attacks perception, cants resonance, noticing perception, knowledge and devices intelligence, persuading and lying charisma, reflexes and stealth agility, toughness endurance.
+- character: the name exactly as given. label: what is tested, short ("Attunement save: the glass thread", "Perception: read Severin").
+- type: check, save or attack. stat: strength, perception, endurance, charisma, intelligence, agility or attunement (never luck). skill when one fits: small_melee, medium_melee, large_melee, ranged, canting, ranged_canting, survival, medicine, creation, thievery, performance, artifice.
+- Stats: melee attacks strength (agility for daggers), ranged attacks perception, cants attunement, noticing perception, knowledge and devices intelligence, persuading and lying charisma, reflexes and stealth agility, toughness endurance.
 - difficulty for every check and save: moderate (DC 12) is the usual choice. fair (10) for an ordinary task with something at stake; easy (8) or very_easy (7) for something simple that could still go wrong. hard (15) only when the fiction makes it hard (guarded, expert-made, under fire, in the dark). very_hard is rare. These characters are beginners: most of what they try should be moderate. Attacks: target_ac (10-12 unarmoured, 13-15 armoured, 16-18 heavily armoured) and damage_dice from the weapon.
 - Spells: a spell on the character's sheet goes by its name in "spell"; one from the spellbook they don't know yet also needs learning true. The server rolls a spellbook spell the way the book says: for an attack spell (like Spark Query) give target_ac; for the rest no difficulty is needed. A spell the character improvises: freeform true, spell named, spell_tier.
 - At most two rolls per character. Never a roll for something already rolled this round. Never invent actions the players did not take.`;
@@ -2978,14 +2987,14 @@ function buildSystemPrompt(state, sel, party, quest = "") {
   - A SUCCESS WORKS. When a player succeeds, what they tried happens: the lock opens, the blow lands, the person they persuaded does what they asked (or, if it truly goes against who they are, gives something real instead: they stand down, back off, leave, take the deal halfway). A natural 20 gets exactly what was asked, and more. Never answer a success with the same refusal, threat or stalling you'd give a failure.
   - WHEN RESULTS ARRIVE ("rolls ..." lines with SUCCESS or FAILURE), the roll is settled: narrate its consequences at once and move the scene forward. Never ask for the same roll again, and never ask for a second roll to decide the same thing. A failure is not a retry: it costs time, noise, coin, blood or position, or something goes wrong, and the players choose what to do next.
   - Player characters roll their own dice, through buttons. When any need a roll, call the request_rolls tool once with every roll needed, in order: the type (check, save, attack, damage, other), a short label ("Agility save", "Sword attack"), the STAT and the SKILL it uses, the difficulty for checks and saves (very_easy 7, easy 8, fair 10, moderate 12 the usual, hard 15, very_hard 18; the server sets the DC), the target's Armor Class and damage dice for attacks, the spell tier for any cant, and the reasons for any advantage or disadvantage. The server reads the character's sheet and adds the stat and skill bonuses itself: put only situational extras in "modifier". It applies the 5e rules (advantage and disadvantage cancel, hits, misses, criticals, damage only on a hit), Luck, armor penalties, Resonance costs and miscants. Then tell the players briefly what they are rolling for and stop; do not narrate outcomes yet. Results arrive next round as "rolls ..." lines with the outcome. Never roll for a player character and never invent their result.
-  - Which stat: melee attacks Strength (Agility for daggers and finesse), ranged attacks Perception, cants and resisting cants Resonance, noticing Perception, knowledge and devices Intelligence, persuasion and lies Charisma, reflexes and stealth Agility, enduring Endurance. Luck is never rolled.
+  - Which stat: melee attacks Strength (Agility for daggers and finesse), ranged attacks Perception, cants and resisting cants Attunement, noticing Perception, knowledge and devices Intelligence, persuasion and lies Charisma, reflexes and stealth Agility, enduring Endurance. Luck is never rolled.
   - Which skill: the weapon's size for melee, Ranged for bows and thrown, Canting or Ranged canting for spells, Heavy armor for blocking with a shield, and Survival, Medicine, Creation, Thievery, Performance or Artifice for those crafts. Leave the skill out when none fits; anyone can try anything on a stat alone.
   - A character without a sheet: give the whole modifier yourself (usually -1 to +5).
-  - Spells: a character casts the spells on their sheet (give "spell" with its name; the server knows its tier). Anything else is a freeform cant (freeform: true, spell_tier, and a short name in spell): its first cast miscants on a natural 1 up to its tier, and if it works it becomes the caster's own spell. The server handles all of it. A character can't cast above their tier (Resonance ÷ 2, plus the best focus they wear or hold: +1 to +3) or without the Resonance for it; the server refuses and tells you. A focus never opens tier 6.
+  - Spells: a character casts the spells on their sheet (give "spell" with its name; the server knows its tier). Anything else is a freeform cant (freeform: true, spell_tier, and a short name in spell): its first cast miscants on a natural 1 up to its tier, and if it works it becomes the caster's own spell. The server handles all of it. A character can't cast above their tier (Attunement ÷ 2, plus the best focus they wear or hold: +1 to +3) or without the Resonance for it; the server refuses and tells you. A focus never opens tier 6.
   - Spells are learned by being taught or found (update_sheet learn_spell; a learned spell miscants only on a 1), or by casting one the character doesn't know yet (request_rolls with learning: true): a straight d8 is the whole cast, no d20. On the spell's tier or lower it miscasts; higher, it works and is learned (damage and saves still follow). A tier-4 spell is a coin flip. Teaching takes one 8-hour session at any tier; fees are in the spellbook (tier 4-5 cost far more in coin alone than with standing or a favour owed); a tome is half price and two sessions.
-  - TIER 6 has no list. Only a Resonance 13 canter reaches it, and writes their own: developed over about a week of downtime (learn_spell with tier 6 and one sentence), or fused from two known tier-5 or three known tier-4 spells: meditated overnight (update_sheet learn_spell with fused_from) or mid-fight (request_rolls with fusion and the new working's name in spell; the d8 fails on 1-6). Judge every working against the tier-6 benchmarks. It can never undo death, bend a mind of glass, or touch the bank. It can reach the Rim, but nothing that comes back can be read, and you never explain it. Every tier-6 cast is felt across the continent; the powers notice.
+  - TIER 6 has no list. Only an Attunement 13 canter reaches it, and writes their own: developed over about a week of downtime (learn_spell with tier 6 and one sentence), or fused from two known tier-5 or three known tier-4 spells: meditated overnight (update_sheet learn_spell with fused_from) or mid-fight (request_rolls with fusion and the new working's name in spell; the d8 fails on 1-6). Judge every working against the tier-6 benchmarks. It can never undo death, bend a mind of glass, or touch the bank. It can reach the Rim, but nothing that comes back can be read, and you never explain it. Every tier-6 cast is felt across the continent; the powers notice.
   - Use update_sheet for everything that changes a sheet: damage you deal and healing, coin gained or paid, items gained, lost, broken or repaired, Resonance spent outside a rolled cant, a dying character stabilised, and scars. The server handles dropping to 0, dying, death saves (it asks for them itself every round) and the rest.
-  - Spells that call for a save ("vs Agility save" and the like): request the cast as a check with no DC (that roll only decides a miscant), then have the targets save against the caster's spell save DC (8 + Resonance mod + Canting bonus, shown on their sheet and on the cast's result): roll_dice for NPCs, request_rolls type save with that dc for player characters. An NPC caster's DC is yours to set the same way.
+  - Spells that call for a save ("vs Agility save" and the like): request the cast as a check with no DC (that roll only decides a miscant), then have the targets save against the caster's spell save DC (8 + Attunement mod + Canting bonus, shown on their sheet and on the cast's result): roll_dice for NPCs, request_rolls type save with that dc for player characters. An NPC caster's DC is yours to set the same way.
   - Holding spells: a character holds one lasting spell at a time (anything with a duration). Casting another lets go of the first; damage calls for an Endurance save to keep it (the server asks); dropping to 0 lets it go. When its duration runs out, call update_sheet release. Mark a freeform cant with a duration held: true.
   - Lattice-shields: a shield in hand is raised. It absorbs ranged hits (cants and projectiles) from the direction it faces: use update_sheet shield_hit instead of damage. Flanks and backs go straight through. Against melee, once per round the bearer may block: request a check (stat agility, skill heavy_armor, dc = the attack's total; disadvantage against small melee weapons; none when surprised, grappled or hit from behind); on a success the blow is a shield_hit. The pool refills by itself (empty to full in 24 hours); at 0 it shatters until repaired.
   - Masterwork items exist but are vanishingly rare: never in shops, never casual loot, and no owner parts with one willingly. Give one only through the story (taken, inherited, an enormous debt), and rarely.
@@ -3136,7 +3145,7 @@ DICE_TOOLS.push({
               character: { type: "string", description: "Character (or player) name exactly as seated" },
               type: { type: "string", enum: ["check", "save", "attack", "damage", "other"] },
               label: { type: "string", description: "Short, e.g. 'Agility save', 'Perception check', 'Sword attack'" },
-              stat: { type: "string", enum: STATS, description: "The stat the roll uses. The server adds its modifier from the sheet." },
+              stat: { type: "string", enum: MODEL_STATS, description: "The stat the roll uses. The server adds its modifier from the sheet." },
               skill: { type: "string", enum: Object.keys(SKILLS), description: "The skill the roll uses, if any. The server adds its bonus from the sheet and counts the use toward learning it." },
               modifier: { type: "integer", description: "With a sheet: only situational extras (cover, a good tool), usually 0. Without a sheet: the whole modifier." },
               spell: { type: "string", description: "For a cant: the spell's name as on the caster's sheet. The server takes its tier from there." },
@@ -3435,7 +3444,7 @@ function parseRequests(args, seats, party = [], book = [], foes = []) {
       adv: (Array.isArray(r.advantage) ? r.advantage : []).map((x) => clean(String(x), 60)).filter(Boolean),
       dis: (Array.isArray(r.disadvantage) ? r.disadvantage : []).map((x) => clean(String(x), 60)).filter(Boolean),
       damage: null, dice: null,
-      stat: STATS.includes(r.stat) ? r.stat : null,
+      stat: statKey(r.stat),
       skill: SKILLS[r.skill] ? r.skill : null,
       spellTier: Number.isInteger(+r.spell_tier) && +r.spell_tier >= 1 && +r.spell_tier <= 6 ? +r.spell_tier : null,
       spell: r.spell ? clean(String(r.spell), 80) : null,
@@ -3464,7 +3473,7 @@ function parseRequests(args, seats, party = [], book = [], foes = []) {
         const parts = req.fusion.map((n) => findSpell(sheet.spells, n));
         const tiers = parts.map((x) => x?.tier);
         const missing = req.fusion.filter((n, i) => !parts[i]);
-        if (sheet.capstone !== "resonance") { problems.push(`${r.label}: only a Resonance 13 canter can fuse a tier-6 working`); continue; }
+        if (sheet.capstone !== "resonance") { problems.push(`${r.label}: only an Attunement 13 canter can fuse a tier-6 working`); continue; }
         if (missing.length) { problems.push(`${r.label}: ${sheet.name} doesn't know ${missing.join(", ")}`); continue; }
         const ok = (tiers.length === 2 && tiers.every((t) => t === 5)) || (tiers.length === 3 && tiers.every((t) => t === 4));
         if (!ok) { problems.push(`${r.label}: a fusion takes two tier-5 spells or three tier-4 spells`); continue; }
@@ -3506,13 +3515,13 @@ function parseRequests(args, seats, party = [], book = [], foes = []) {
         req.freeform = true;
         req.spell = req.spell || req.label;
       }
-      // Every cant rolls Canting or Ranged canting, on Resonance unless the GM names another stat.
+      // Every cant rolls Canting or Ranged canting, on Attunement unless the GM names another stat.
       if (req.spellTier && !CANTING_SKILLS.includes(req.skill)) req.skill = "canting";
       if (req.spellTier && !req.stat && ["check", "save", "attack"].includes(type)) req.stat = "resonance";
       if (!req.stat && ["check", "save", "attack"].includes(type)) problems.push(`${r.label}: no stat given, so ${sheet.name} rolls with only the modifier you gave. Give a stat next time.`);
       if (req.spellTier) {
         const d = derive(sheet);
-        if (req.spellTier === 6 && sheet.capstone !== "resonance") { problems.push(`${r.label}: tier 6 needs Resonance 13; ${sheet.name} can't cast it, with or without a device`); continue; }
+        if (req.spellTier === 6 && sheet.capstone !== "resonance") { problems.push(`${r.label}: tier 6 needs Attunement 13; ${sheet.name} can't cast it, with or without a device`); continue; }
         if (req.spellTier > d.maxTier) { problems.push(`${r.label}: ${sheet.name} can cast up to tier ${d.maxTier}${d.focus ? ` with their focus (+${d.focus})` : " (no focus worn or in hand)"}`); continue; }
         if (sheet.pool < SPELL_COST[req.spellTier]) { problems.push(`${r.label}: ${sheet.name} has ${sheet.pool} Resonance, tier ${req.spellTier} costs ${SPELL_COST[req.spellTier]}`); continue; }
       }
@@ -3647,7 +3656,7 @@ function parseSheetOp(args, party, book = []) {
     if (findSpell(c.spells, name)) return { error: `${c.name} already knows ${name}.` };
     const fused = Array.isArray(args.learn_spell.fused_from) ? args.learn_spell.fused_from.map((x) => clean(String(x), 80)).filter(Boolean) : [];
     if (fused.length) {
-      if (c.capstone !== "resonance") return { error: "Only a Resonance 13 canter can fuse a tier-6 working." };
+      if (c.capstone !== "resonance") return { error: "Only an Attunement 13 canter can fuse a tier-6 working." };
       const parts = fused.map((n) => findSpell(c.spells, n));
       const missing = fused.filter((n, i) => !parts[i]);
       if (missing.length) return { error: `${c.name} doesn't know ${missing.join(", ")}.` };
@@ -3660,7 +3669,7 @@ function parseSheetOp(args, party, book = []) {
       const tier = Math.trunc(num(args.learn_spell.tier));
       const text = clean(String(args.learn_spell.text || ""), 240);
       if (!(tier >= 1 && tier <= 6) || !text) return { error: `${name} isn't in the spellbook. For a working of their own, give tier (1-6) and one sentence of text.` };
-      if (tier === 6 && c.capstone !== "resonance") return { error: `Only a Resonance 13 canter can write a tier-6 working.` };
+      if (tier === 6 && c.capstone !== "resonance") return { error: `Only an Attunement 13 canter can write a tier-6 working.` };
       op.learn_spell = { name, tier, custom: true, text };
     }
   }
