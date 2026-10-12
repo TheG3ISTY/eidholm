@@ -28,7 +28,7 @@
         },
         "large_melee": {
           "rank": 5,
-          "marks": 0
+          "marks": 1
         },
         "ranged": {
           "rank": 5,
@@ -36,7 +36,7 @@
         },
         "heavy_armor": {
           "rank": 5,
-          "marks": 1
+          "marks": 2
         },
         "light_armor": {
           "rank": 5,
@@ -48,7 +48,7 @@
         },
         "canting": {
           "rank": 5,
-          "marks": 1
+          "marks": 2
         },
         "ranged_canting": {
           "rank": 5,
@@ -76,7 +76,7 @@
         },
         "performance": {
           "rank": 5,
-          "marks": 2
+          "marks": 3
         }
       },
       "items": [
@@ -159,12 +159,15 @@
         },
         {
           "name": "Black oak staff",
-          "kind": "focus",
+          "kind": "weapon",
           "focus": 2,
           "tier": 2,
           "quality": "Fine",
           "legality": "Licensed",
-          "equipped": false
+          "equipped": true,
+          "skill": "ranged_canting",
+          "damage": "1d8",
+          "twoHanded": true
         },
         {
           "name": "Superior focus bead",
@@ -194,18 +197,18 @@
       "purse": 10050,
       "scars": [],
       "created": "2026-10-11",
-      "hp": 252,
-      "pool": 36.93,
+      "hp": 230,
+      "pool": 11.65,
       "luckUsed": 0,
       "enduranceUsed": false,
       "dying": null,
       "dead": false,
-      "scarsOwed": 0
+      "scarsOwed": 1
     }
   ],
   "clock": {
-    "minutes": 387,
-    "max": 387,
-    "label": "Day 1, 06:27"
+    "minutes": 395,
+    "max": 395,
+    "label": "Day 1, 06:35"
   }
 }
