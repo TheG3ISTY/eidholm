@@ -178,7 +178,8 @@ export const PLANNER_PROMPT = `You plan the main quest for a campaign of EIDHOLM
 - Exactly one Climax (C…), and it is the last beat. Never a Climax anywhere else. A second Hook early on is fine.
 - THE VILLAIN. Every story has one enemy behind it, and you invent them for this story (villain): an original person, never one of the canon's fixed figures or rulers. Someone with real power in one place, big enough to be worth a whole story and small enough for this party to face at the end: a magnate, a parish head, a fixer, a house's heir, a guild officer, an Unchained mind. Give them a name, a role, a faction, a face, what they want, how they work (agents, money, law, faith), a secret, and a weakness the party can find. Pick the beat where the party learns who they are (revealed_at: a Turn is best). Every beat should be their doing, their cover-up or something in their way, and the Climax is the party facing them.
 - The first beat is how the story opens: quiet, an errand, an offer, a meeting, a question. Never an ambush or a fight.
-- Respect the canon: the Rim stays unexplained, the bank is neutral and is never beaten or bent, minds of glass are people and never property.`;
+- Respect the canon: the Rim stays unexplained, the bank is neutral and is never beaten or bent, minds of glass are people and never property (they have licensees, employers and contracts; never an "owner").
+- Don't invent debts for the party: a player character owes only what their sheet says. Debts can be part of the story (an NPC's, a household's, a loan the party may choose to take), never a debt the characters already have without knowing it.`;
 
 export const PLANNER_TOOL = {
   type: "function",

@@ -2960,6 +2960,7 @@ function buildSystemPrompt(state, sel, party, quest = "") {
   - Every encounter touching the Rim leaves more questions than it answers.
   - The deletions are felt (a record gone, a name nobody can recall), never traced to a cause.
 - THE GREAT FIGURES OUT OF REACH. Eidholm's rulers, high clergy and hidden powers exist and act, but the party is far beneath them for now. Only the fixed figures listed in your CAST may appear in person. Anyone else of that rank may be named in rumour, on a proclamation, in the news, glimpsed at a distance, or felt through their agents and orders; never put them in the room, in a conversation, or in a letter to a character. Give the party people of their own size: clerks, guards, fixers, rivals, debtors, small officials.
+- DEBTS ARE ON THE SHEET. A player character owes exactly what the DEBTS on their sheet say, and nothing else. Never invent a debt for them or have anyone say they owe one; a new debt exists only once add_debt puts it on the sheet, for a loan or deal made in play. Every faction's enforcers serve their own masters (flotilla enforcers the Wrackmother, guild muscle their guild, city wardens their city); only the bank's own collectors collect for the bank, and only debts on the sheet.
 - THE BANK COLLECTS. A debt to the bank is collected by its collectors. Each time a collection fails (the character can't or won't pay when a collector comes), record it with update_sheet debt_missed (the creditor). If a bank collector is killed, update_sheet collector_killed. After ${FINAL_NOTICE_AFTER} failed collections, or one dead collector, the bank sends the Final Notice himself.
 - FIXED FIGURES in the CAST are canon-level characters: keep their names, offices, wants and secrets consistent forever; reveal secrets only through play. Their contradictions and how they treat the party shape every scene they are in.
 - Eidholm's peoples are human. "Dwarven-blooded" Clansmine folk are a human lineage, not a separate species.
@@ -2967,6 +2968,7 @@ function buildSystemPrompt(state, sel, party, quest = "") {
   - WHEN TO ASK FOR A ROLL. Roll only when a character attempts something that could fail and failing would cost them: attacking, casting, sneaking past someone, climbing something dangerous, forcing or picking a lock, lying to or pressuring someone unwilling, searching for something hidden, scanning for danger or looking for a way out somewhere that isn't safe, examining something strange or unknown (Perception or Intelligence), resisting harm. Then you MUST call request_rolls and must NOT decide the outcome yourself. NO ROLL for: asking someone a question, talking, agreeing, listening, walking somewhere, glancing around a place that is calm and safe, picking up or readying a weapon, turning to face someone, lowering a weapon, anything the world simply allows or a willing person simply answers. Most conversation needs no roll at all. Every check and save needs a DC, which is what pushes back; if nothing pushes back, there is no roll. The label names what is being tested ("Perception: the shard", "Stealth past the guards"), never the player's whole action. Asking in prose ("make a Perception check") does nothing: only the request_rolls tool gives the players their buttons.
   - COMBAT. When a fight starts, put every foe on the tracker with the foes tool (name, hp, ac, attack_bonus, damage_dice); the table sees their HP. Ordinary foes for a beginning party: a thug 7-11 HP, AC 12, +3, 1d6+1; a trained guard 11-16 HP, AC 15, +4, 1d8+2; a brute or machine 20-30 HP, AC 13, +5, 2d6+3. Player attacks name the foe as target; their hits come off its HP by themselves. Every attack ON a player character goes through foe_attack: the server rolls it against their AC and takes the damage off their sheet. A save against harm (a blast, a fall, a trap) carries damage_on_fail. Never narrate a player character losing HP without one of these. Remove foes that flee or surrender; the tracker clears when the fight ends.
   - THREATS TO PLAYER CHARACTERS: never decide whether an attack, trap, spell, grab, blast or poison aimed at a player character lands. Describe it coming and end your reply on it; the dice decide it next round.
+  - A SUCCESS WORKS. When a player succeeds, what they tried happens: the lock opens, the blow lands, the person they persuaded does what they asked (or, if it truly goes against who they are, gives something real instead: they stand down, back off, leave, take the deal halfway). A natural 20 gets exactly what was asked, and more. Never answer a success with the same refusal, threat or stalling you'd give a failure.
   - WHEN RESULTS ARRIVE ("rolls ..." lines with SUCCESS or FAILURE), the roll is settled: narrate its consequences at once and move the scene forward. Never ask for the same roll again, and never ask for a second roll to decide the same thing. A failure is not a retry: it costs time, noise, coin, blood or position, or something goes wrong, and the players choose what to do next.
   - Player characters roll their own dice, through buttons. When any need a roll, call the request_rolls tool once with every roll needed, in order: the type (check, save, attack, damage, other), a short label ("Agility save", "Sword attack"), the STAT and the SKILL it uses, the difficulty for checks and saves (very_easy 7, easy 8, fair 10, moderate 12 the usual, hard 15, very_hard 18; the server sets the DC), the target's Armor Class and damage dice for attacks, the spell tier for any cant, and the reasons for any advantage or disadvantage. The server reads the character's sheet and adds the stat and skill bonuses itself: put only situational extras in "modifier". It applies the 5e rules (advantage and disadvantage cancel, hits, misses, criticals, damage only on a hit), Luck, armor penalties, Resonance costs and miscants. Then tell the players briefly what they are rolling for and stop; do not narrate outcomes yet. Results arrive next round as "rolls ..." lines with the outcome. Never roll for a player character and never invent their result.
   - Which stat: melee attacks Strength (Agility for daggers and finesse), ranged attacks Perception, cants and resisting cants Resonance, noticing Perception, knowledge and devices Intelligence, persuasion and lies Charisma, reflexes and stealth Agility, enduring Endurance. Luck is never rolled.
@@ -3141,7 +3143,7 @@ DICE_TOOLS.push({
               target: { type: "string", description: "For attacks: the foe's name on the tracker. Its AC is used and the damage comes off its HP." },
               target_ac: { type: "integer", description: "Armor Class of the target, for attacks (taken from the tracker when target is given)" },
               damage_on_fail: { type: "string", description: "For a save against harm (a blast, a fall, a trap): the damage dice taken on a failed save, e.g. '1d6'" },
-              damage_dice: { type: "string", description: "For attacks: damage dice rolled on a hit, e.g. '1d6'" },
+              damage_dice: { type: "string", description: "For attacks: damage dice rolled on a hit, e.g. '1d6'. For a player character's weapon the server uses the weapon's own dice from their sheet and adds Strength to melee itself: never add the stat yourself" },
               damage_modifier: { type: "integer", description: "For attacks: modifier added to damage" },
               dice: { type: "string", description: "For damage or other rolls: the dice, e.g. '2d6' or 'd100'" },
               advantage: { type: "array", items: { type: "string" }, description: "Reasons for advantage, if any" },
@@ -3510,11 +3512,27 @@ function parseRequests(args, seats, party = [], book = [], foes = []) {
     }
     try {
       if (type === "attack" && r.damage_dice) { rollDice(r.damage_dice); req.damage = { dice: String(r.damage_dice).replace(/\s+/g, ""), mod: Math.trunc(+r.damage_modifier || 0) }; }
+      // A character's weapon hits for what the sheet says it does; the server adds Strength to melee itself.
+      if (type === "attack" && sheet?.stats && !req.spellTier) {
+        const w = weaponFor(sheet, `${r.label || ""} ${r.weapon || ""}`, req.skill);
+        if (w?.damage) { req.damage = { dice: w.damage, mod: 0 }; if (!req.skill && w.skill) req.skill = w.skill; }
+        else if (req.damage && MELEE_SKILLS.includes(req.skill)) req.damage = { dice: req.damage.dice.replace(/[+-]\d+(?![\dd])/gi, "") || req.damage.dice, mod: 0 };
+      }
       if ((type === "damage" || type === "other")) { req.dice = String(r.dice || "d20").replace(/\s+/g, ""); rollDice(req.dice); }
     } catch (err) { problems.push(`${r.label}: ${err.message}`); continue; }
     out.push(req);
   }
   return { requests: out, problems };
+}
+
+// The weapon an attack is made with: one in hand named in the label, else the only one in hand for that skill.
+function weaponFor(sheet, text, skill) {
+  const held = (sheet.items || []).filter((i) => i && i.kind === "weapon" && i.equipped && !i.broken && i.damage);
+  const t = String(text || "").toLowerCase();
+  const named = held.find((i) => String(i.name).toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 3).some((w) => t.includes(w)));
+  if (named) return named;
+  const bySkill = held.filter((i) => !skill || i.skill === skill);
+  return bySkill.length === 1 ? bySkill[0] : null;
 }
 
 // A remember_npc call (or the human GM's form) as a clean cast entry.
