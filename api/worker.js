@@ -1772,6 +1772,7 @@ export class Table extends DurableObject {
         if (typeof dur === "number") { c.holding.until = state.live.clock.minutes + dur; c.holding.duration = dur; c.holding.tier = findSpell(ctx.book, c.holding.name)?.tier; markDirty(state); }
       }
       // What was just rolled: the GM may not ask for the same roll again in its answer.
+      ctx.takes = takenThisRound(state, round);
       ctx.rolled = state.messages.filter((m) => m.round === round && m.kind === "roll" && m.label)
         .map((m) => `${m.seatId}|${String(m.label).trim().toLowerCase()}`);
       const model = tier === "large" ? this.env.MODEL_LARGE : this.env.MODEL;
@@ -3566,6 +3567,32 @@ function restAsked(state, round) {
   return state.messages.filter((m) => m.round === round && m.kind === "act").reduce((mx, m) => Math.max(mx, restWanted(m.text)), 0);
 }
 
+// What a player says they take this round: "I pick up his monofilament blade", "I grab the shard",
+// "I pocket the key", "I add the blade to my inventory". Gestures and figures of speech are left out.
+function takesIn(text) {
+  const t = String(text || "").replace(/[’]/g, "'");
+  const re = /\b(?:pick(?:s|ed)?\s+up|take|takes|took|grab(?:s|bed)?|snatch(?:es|ed)?|pocket(?:s|ed)?|loot(?:s|ed)?|pry|pries|pried|claim(?:s|ed)?|stash(?:es|ed)?|add(?:s|ed)?|tuck(?:s|ed)?|strip(?:s|ped)?|wrench(?:es|ed)?|yank(?:s|ed)?)\s+(?:up\s+)?(?:the|his|her|their|its|a|an|that|this|both)\s+([a-z][\w' -]{1,40}?)(?=\s*(?:[.,!;:?]|$)|\s+(?:and|from|off|out|leaving|before|then|to|into|with|in|as|so|while|for)\b)/gi;
+  const not = /\b(?:arm|arms|hand|hands|wrist|throat|collar|shoulder|shoulders|head|hair|neck|leg|legs|chin|face|step|steps|breath|look|glance|moment|second|minute|cover|aim|position|shot|seat|turn|chance|risk|stand|lead|hit|swing|note|deal|job|offer|bait|hint|blame|credit|time|lay|measure|offensive|initiative|knee|offer|oath|vow|bet|wager|opportunity|plunge|leap|route|road|path|stairs|door|exit|long way|edge off|floor|stage|pulse)\b/i;
+  const out = [];
+  for (const m of t.matchAll(re)) {
+    const thing = m[1].trim().replace(/\s+/g, " ");
+    if (!thing || not.test(thing)) continue;
+    if (/^(?:add|adds|added|tuck|tucks|tucked)$/i.test(m[0].split(/\s+/)[0]) && !/\b(inventory|pack|belt|bag|sheet|kit|pocket|coat)\b/i.test(t.slice(m.index, m.index + 120))) continue;
+    out.push("the " + thing);
+  }
+  return out;
+}
+
+function takenThisRound(state, round) {
+  const out = [];
+  for (const m of state.messages.filter((x) => x.round === round && x.kind === "act")) {
+    const seat = state.seats.find((x) => x.id === m.seatId);
+    const who = seat ? (sheetFor(state, seat)?.name || label(seat)) : "a player";
+    for (const thing of takesIn(m.text)) out.push({ character: who, thing });
+  }
+  return out.slice(0, 4);
+}
+
 // The weapon an attack is made with: one in hand named in the label, else the only one in hand for that skill.
 function weaponFor(sheet, text, skill) {
   const held = (sheet.items || []).filter((i) => i && i.kind === "weapon" && i.equipped && !i.broken && i.damage);
@@ -3730,6 +3757,14 @@ async function gmTurn(env, model, messages, ctx = {}) {
       if (!itemsAsked && i < MAX_GM_TOOL_ROUNDS) {
         const given = handedOver(msg.content, ctx.party || []);
         const logged = sheetOps.some((o) => o.add_item || o.purse > 0);
+        // A player said they took something (picked it up, looted it): it goes on their sheet too.
+        const took = !logged && (ctx.takes || []).length ? ctx.takes : [];
+        if (!given && took.length) {
+          itemsAsked = true;
+          convo.push({ role: "assistant", content: msg.content });
+          convo.push({ role: "user", content: `(System: ${took.map((t) => `${t.character} says they take ${t.thing}`).join("; ")}, but no update_sheet add_item was made, so it isn't on their sheet and they can't use it. If they got it, call update_sheet add_item for it now (a weapon is kind weapon with its skill and damage dice; armor kind armor with its slot), and let your answer keep it in their hands from now on. If they couldn't take it, your answer must show why. Then write your answer again.)` });
+          continue;
+        }
         if (given && !logged) {
           itemsAsked = true;
           convo.push({ role: "assistant", content: msg.content });
