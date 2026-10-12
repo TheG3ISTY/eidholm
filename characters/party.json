@@ -28,7 +28,7 @@
         },
         "large_melee": {
           "rank": 5,
-          "marks": 1
+          "marks": 2
         },
         "ranged": {
           "rank": 5,
@@ -36,7 +36,7 @@
         },
         "heavy_armor": {
           "rank": 5,
-          "marks": 2
+          "marks": 3
         },
         "light_armor": {
           "rank": 5,
@@ -48,11 +48,11 @@
         },
         "canting": {
           "rank": 5,
-          "marks": 2
+          "marks": 4
         },
         "ranged_canting": {
           "rank": 5,
-          "marks": 1
+          "marks": 2
         },
         "artifice": {
           "rank": 5,
@@ -191,24 +191,35 @@
         {
           "name": "Query Flame",
           "tier": 3
+        },
+        {
+          "name": "Bulwark",
+          "tier": 3
         }
       ],
       "debts": [],
       "purse": 10050,
       "scars": [],
       "created": "2026-10-11",
-      "hp": 230,
-      "pool": 44,
+      "hp": 217,
+      "pool": 26,
       "luckUsed": 0,
       "enduranceUsed": false,
       "dying": "",
       "dead": false,
-      "scarsOwed": 1
+      "scarsOwed": 2,
+      "holding": {
+        "name": "Bulwark",
+        "tier": 3,
+        "duration": 1,
+        "until": 426
+      },
+      "concentration": 0
     }
   ],
   "clock": {
-    "minutes": 365,
-    "max": 365,
-    "label": "Day 1, 06:05"
+    "minutes": 425,
+    "max": 425,
+    "label": "Day 1, 07:05"
   }
 }
