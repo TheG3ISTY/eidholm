@@ -51,7 +51,8 @@ function statKey(v) {
 
 // The main quest: built from the plot points at the start of a story, for the GM's eyes only.
 // Kept apart from STATE_FILES, which the players' codex reads.
-const LIVE_FIX = 2;   // bump to re-run normalize() on the sheets live on the table
+const LIVE_FIX = 2;
+const OVERCLOCK_ROUNDS = 3;   // "a minute" at the table: the next three rounds   // bump to re-run normalize() on the sheets live on the table
 const QUEST_FILES = { plotpoints: "world/plotpoints.md", quest: "campaign/quest.json" };
 
 // Difficulty is chosen as a word and the server sets the number, so the model can't
@@ -1797,6 +1798,9 @@ export class Table extends DurableObject {
         { role: "system", content: buildSystemPrompt(repo, sel, partyBlock(state, repo), questBlock(state.quest)) },
         ...buildConversation(state, { referee }),
       ];
+      ctx.inCombat = state.scene?.mode === "combat";
+      ctx.playersActed = state.messages.some((m) => m.round === round && m.kind === "act");
+      ctx.refereeFoeAttacks = (referee?.foeAttacks || []).length;
       result = await gmTurn(this.env, model, messages, { ...ctx, noRequests: !!referee });
       // No referee this round: the GM decided, and any cast it forgot is still rolled.
       if (!referee) {
@@ -1887,6 +1891,20 @@ export class Table extends DurableObject {
     for (const name of result.luckSpent || []) {
       const c = fresh.live?.loaded ? findSheet(fresh.live.list, name) : null;
       if (isSheet(c)) { c.luckUsed += 1; markDirty(fresh); addEvent(fresh, `${c.name} spends a lucky break: the roll against them is made again.`); }
+    }
+    // Overclocked gear: its minute runs down a round at a time; a d4 of 1 breaks it at the end.
+    for (const c of fresh.live?.list || []) {
+      if (!isSheet(c)) continue;
+      for (const it of c.items || []) {
+        if (!it?.overclock) continue;
+        it.overclock.rounds -= 1;
+        if (it.overclock.rounds > 0) continue;
+        const breaks = it.overclock.breaks;
+        delete it.overclock;
+        if (breaks) it.broken = true;
+        addEvent(fresh, breaks ? `${c.name}'s ${it.name} burns out and breaks: the overclock is over.` : `${c.name}'s ${it.name} settles back to normal: the overclock is over.`);
+        markDirty(fresh);
+      }
     }
     // A rest the players asked for takes its time, whatever the GM's tag said (never mid-fight).
     let elapsed = parseElapsed(tagged.scene?.time);
@@ -2053,6 +2071,17 @@ function performRequest(state, req, seat, { reroll = false } = {}) {
     return;
   }
 
+  // Overclock's d4: 1, the minute runs and then the device breaks; 2-3, a minute and it keeps working; 4, two minutes.
+  if (req.type === "overclock") {
+    const oc = rollDice("d4");
+    const item = sheet ? (sheet.items || []).find((i) => req.item && sameName(i.name, req.item)) : null;
+    const how = oc.total === 1 ? "double output for the minute, then it breaks" : oc.total === 4 ? "double output for two minutes, and it keeps working" : "double output for the minute, and it keeps working";
+    push(oc, { rtype: "overclock", label: `Overclock${item ? ` (${item.name})` : ""}: ${how}`, outcome: oc.total === 1 ? "breaks after" : oc.total === 4 ? "two minutes" : "holds" });
+    if (item) { item.overclock = { rounds: (oc.total === 4 ? OVERCLOCK_ROUNDS * 2 : OVERCLOCK_ROUNDS) + 1, breaks: oc.total === 1 }; markDirty(state); }
+    finishRequest(state, req, sheet);
+    return;
+  }
+
   // A damage roll unlocked by a hit (or a cast that worked): its own button, its own click.
   if (req.parent) {
     if (req.saveSpell) saveSpellHits(state, req, sheet, seat);
@@ -2194,12 +2223,21 @@ function castWorked(state, req, sheet, seat, tell) {
     if (req.duration === "scene") sheet.holding.scene = state.marks?.scene || 0;
     sheet.concentration = 0;
   }
-  // Overclock: a d4 after it works. 1 runs the minute then breaks; 2-3 as written; 4 runs two minutes.
+  // Overclock: the device runs at double output now; its d4 (how long, and whether it breaks) is its own roll.
   if (/^overclock$/i.test(req.spell)) {
-    const oc = rollDice("d4");
-    const how = oc.total === 1 ? "runs hot for the minute, then breaks" : oc.total === 4 ? "holds: double output for two minutes, and keeps working" : "double output for a minute, and keeps working";
-    state.messages.push({ id: state.nextId++, kind: "roll", ...base, rtype: "overclock", label: `Overclock: the device ${how}`, outcome: oc.total === 1 ? "breaks" : oc.total === 4 ? "doubled" : "holds",
-      expr: oc.expr, total: oc.total, parts: oc.parts, nat: oc.nat, mode: oc.mode, ts: Date.now() });
+    const item = itemNamed(sheet, `${req.label || ""} ${req.target || ""} ${actText(state, seat, req.round)}`, { device: true });
+    state.requests = state.requests.filter((r) => r.parent !== req.rid);
+    state.requests.push({
+      seatId: req.seatId, type: "overclock", parent: req.rid, label: `Overclock${item ? ` (${item.name})` : ""}: d4`, dice: "d4", item: item?.name,
+      mod: 0, dc: null, ac: null, adv: [], dis: [], marked: true,
+      rid: "r" + (state.nextRid++), round: state.round, order: (req.order || 0) + 0.5, status: "pending",
+    });
+    if (item) { item.overclock = { rounds: OVERCLOCK_ROUNDS + 1, breaks: false }; tell([`${sheet.name}'s ${item.name} is overclocked: double output.`]); }
+  }
+  // Mend on a broken item the caster names: it works again.
+  if (/^mend$/i.test(req.spell)) {
+    const item = itemNamed(sheet, `${req.label || ""} ${req.target || ""} ${actText(state, seat, req.round)}`, { broken: true });
+    if (item) { item.broken = false; delete item.overclock; tell([`${sheet.name} mends the ${item.name}: it works again.`]); }
   }
   markDirty(state);
 }
@@ -3000,7 +3038,7 @@ function buildSystemPrompt(state, sel, party, quest = "") {
   - Lattice-shields: a shield in hand is raised. It absorbs ranged hits (cants and projectiles) from the direction it faces: use update_sheet shield_hit instead of damage. Flanks and backs go straight through. Against melee, once per round the bearer may block: request a check (stat agility, skill heavy_armor, dc = the attack's total; disadvantage against small melee weapons; none when surprised, grappled or hit from behind); on a success the blow is a shield_hit. The pool refills by itself (empty to full in 24 hours); at 0 it shatters until repaired.
   - Masterwork items exist but are vanishingly rare: never in shops, never casual loot, and no owner parts with one willingly. Give one only through the story (taken, inherited, an enormous debt), and rarely.
   - Money: a payment bigger than the purse is refused. Loans and credit go on the sheet with add_debt (to whom, how much, terms); paying back is pay_debt. The bank's debts are always collected (the canon says how).
-  - Overclock rolls its own d4 when it works: on a 1 the device breaks after its minute (break_item, if it's on a sheet); on a 4 it runs two minutes.
+  - Overclock: when it works the device runs at double output (an overclocked weapon's damage dice are doubled by the server), for a minute: the next three rounds, six on a d4 of 4. The player rolls its d4 as its own button: on a 1 the device breaks when the minute is up, not before; the server breaks it then. Until then it works, so narrate it working. Mend on a broken item repairs it (the server does it).
   - Hands: a character holds at most two hands' worth (a two-hander is two, a one-hander or raised shield one; Titan's grip makes a two-hander one). The sheet shows what is in hand; don't narrate more than that.
   - Scars are pure story: when a sheet says a scar is OWED, write one that fits how it happened (one short line) with add_scar.
   - Lucky breaks: a player may say they spend one against a roll made against them. Reroll it with roll_dice and lucky_break set to their name; the new result stands. Their own rolls they reroll themselves.
@@ -3532,7 +3570,13 @@ function parseRequests(args, seats, party = [], book = [], foes = []) {
       // A character's weapon hits for what the sheet says it does; the server adds Strength to melee itself.
       if (type === "attack" && sheet?.stats && !req.spellTier) {
         const w = weaponFor(sheet, `${r.label || ""} ${r.weapon || ""}`, req.skill);
-        if (w?.damage) { req.damage = { dice: w.damage, mod: 0 }; if (!req.skill && w.skill) req.skill = w.skill; }
+        if (w?.damage) {
+          // Overclocked: double output, so double the damage dice.
+          const dice = w.overclock ? String(w.damage).replace(/(\d*)d(\d+)/g, (_, n, dd) => `${(Number(n) || 1) * 2}d${dd}`) : w.damage;
+          req.damage = { dice, mod: 0 };
+          if (w.overclock) req.label = `${req.label} (overclocked)`;
+          if (!req.skill && w.skill) req.skill = w.skill;
+        }
         else if (req.damage && MELEE_SKILLS.includes(req.skill)) req.damage = { dice: req.damage.dice.replace(/[+-]\d+(?![\dd])/gi, "") || req.damage.dice, mod: 0 };
       }
       if ((type === "damage" || type === "other")) { req.dice = String(r.dice || "d20").replace(/\s+/g, ""); rollDice(req.dice); }
@@ -3565,6 +3609,24 @@ function restWanted(text) {
 
 function restAsked(state, round) {
   return state.messages.filter((m) => m.round === round && m.kind === "act").reduce((mx, m) => Math.max(mx, restWanted(m.text)), 0);
+}
+
+// An item on a sheet named in some text ("Overclock on the monofilament blade", "Mend the sword"):
+// by its name's words; else the only weapon in hand. device: weapons and devices first; broken: only broken ones.
+function itemNamed(sheet, text, { device = false, broken = false } = {}) {
+  if (!sheet) return null;
+  const t = String(text || "").toLowerCase();
+  let items = (sheet.items || []).filter((i) => i && (broken ? i.broken : !i.broken));
+  const named = items.filter((i) => String(i.name).toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 3).some((w) => t.includes(w)));
+  if (named.length) return named.find((i) => i.equipped) || named[0];
+  if (broken) return items.length === 1 ? items[0] : null;
+  const held = items.filter((i) => i.equipped && (i.kind === "weapon" || (device && i.kind === "device")));
+  return held.length === 1 ? held[0] : null;
+}
+
+// What a player wrote this round (their action), for spells aimed at an item.
+function actText(state, seat, round) {
+  return state.messages.filter((m) => m.kind === "act" && m.seatId === seat.id && (round == null || m.round >= round - 1)).map((m) => m.text).join(" ");
 }
 
 // What a player says they take this round: "I pick up his monofilament blade", "I grab the shard",
@@ -3735,7 +3797,7 @@ async function gmTurn(env, model, messages, ctx = {}) {
   const questOps = [];
   ctx.foes = [...(ctx.foes || [])];   // grows as the GM adds foes this turn
   const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
-  let corrected = false, trackerAsked = false, itemsAsked = false;
+  let corrected = false, trackerAsked = false, itemsAsked = false, foesAsked = false;
   for (let i = 0; i <= MAX_GM_TOOL_ROUNDS; i++) {
     const data = await mistralRequest(env, {
       model, temperature: 0.8, max_tokens: 1000, messages: convo,
@@ -3771,6 +3833,15 @@ async function gmTurn(env, model, messages, ctx = {}) {
           convo.push({ role: "user", content: `(System: your reply hands ${given} something, but no update_sheet add_item (or purse, for coin) was made, so it isn't on their sheet and they can't use it. Call update_sheet now for everything given to a player character (add_item with name, kind, tier, quality; focus for a focus), then write your answer again. If something was only shown or offered and not yet theirs (still for sale, still being haggled over), make no update and write your answer again unchanged.)` });
           continue;
         }
+      }
+      // A fight where the foes just stand there: every foe still up gets its turn.
+      const standing = (ctx.foes || []).filter((f) => f.hp > 0);
+      const inFight = parseSceneTag(msg.content).scene?.mode === "combat" || ctx.inCombat;
+      if (!foesAsked && i < MAX_GM_TOOL_ROUNDS && inFight && standing.length && ctx.playersActed && !foeAttacks.length && !(ctx.refereeFoeAttacks || 0) && !foeOps.some((o) => o.remove)) {
+        foesAsked = true;
+        convo.push({ role: "assistant", content: msg.content });
+        convo.push({ role: "user", content: `(System: this is a fight and ${standing.map((f) => f.name).join(", ")} ${standing.length === 1 ? "is" : "are"} still standing, but nobody attacked the party. Foes never just stand there and take it: every foe still up acts on its turn. Call foe_attack for each one that attacks a player character (the server rolls it against their AC; a shield bash or a slam is an attack too, never narrate one landing without it), or have it do something real instead: fall back, take cover, guard someone, flee or surrender (then remove it with the foes tool). Then write your answer again.)` });
+        continue;
       }
       // A fight with nobody on the tracker: the foes go on it before the answer stands.
       const fighting = parseSceneTag(msg.content).scene?.mode === "combat" || (ctx.needFoes || []).length || requests.some((q) => q.type === "attack");

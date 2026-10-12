@@ -2559,7 +2559,7 @@
     // Equipped, slot by slot (empty slots shown), then everything else carried.
     const items = (c.items || []).map((it, i) => [it, i]);
     const row = ([it, i], slot) => {
-      const tags = [it.broken ? "BROKEN" : "", !slot && it.equipped ? (it.kind === "weapon" || it.kind === "shield" ? "in hand" : "worn") : "", it.twoHanded ? "two hands" : "", it.focus ? "focus +" + it.focus + " tier" : "", it.kind === "armor" ? (slot ? "" : (it.slot || "body") + " · ") + (it.armor === "heavy_armor" ? "heavy" : "light") : "", it.tier ? "tier " + it.tier : "", it.quality, it.legality && it.legality !== "Legal" ? it.legality : "",
+      const tags = [it.broken ? "BROKEN" : "", it.overclock ? `OVERCLOCKED · ${Math.max(0, it.overclock.rounds - 1)} round${it.overclock.rounds - 1 === 1 ? "" : "s"} left${it.overclock.breaks ? ", then it breaks" : ""}` : "", !slot && it.equipped ? (it.kind === "weapon" || it.kind === "shield" ? "in hand" : "worn") : "", it.twoHanded ? "two hands" : "", it.focus ? "focus +" + it.focus + " tier" : "", it.kind === "armor" ? (slot ? "" : (it.slot || "body") + " · ") + (it.armor === "heavy_armor" ? "heavy" : "light") : "", it.tier ? "tier " + it.tier : "", it.quality, it.legality && it.legality !== "Legal" ? it.legality : "",
         it.ac ? "AC +" + it.ac : "", it.damage ? it.damage : "", it.shieldPool ? "shield " + Math.floor(it.shieldLeft ?? it.shieldPool) + "/" + it.shieldPool : ""].filter(Boolean).join(" · ");
       const held = it.kind === "weapon" || it.kind === "shield";
       const tool = it.kind === "focus" || it.kind === "tool";

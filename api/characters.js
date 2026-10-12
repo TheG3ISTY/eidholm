@@ -529,7 +529,7 @@ export function sheetForGm(sheet) {
   const d = derive(sheet);
   const stats = STATS.map((s) => `${STAT_LABEL[s].slice(0, 3)} ${statValue(sheet, s)} (${fmt(statMod(sheet, s))})`).join(", ");
   const skills = Object.keys(SKILLS).filter((k) => skillRank(sheet, k) > 0).map((k) => rankLabel(sheet, k)).join(", ") || "none yet (untrained in everything)";
-  const items = (sheet.items || []).map((i) => `${i.name}${i.equipped ? (i.kind === "weapon" || i.kind === "shield" ? " (in hand)" : " (worn)") : ""}${i.kind === "shield" && i.shieldPool ? ` [shield ${Math.floor(i.shieldLeft ?? i.shieldPool)}/${i.shieldPool}]` : ""}${i.broken ? " [BROKEN]" : ""}`).join(", ") || "nothing";
+  const items = (sheet.items || []).map((i) => `${i.name}${i.equipped ? (i.kind === "weapon" || i.kind === "shield" ? " (in hand)" : " (worn)") : ""}${i.kind === "shield" && i.shieldPool ? ` [shield ${Math.floor(i.shieldLeft ?? i.shieldPool)}/${i.shieldPool}]` : ""}${i.broken ? " [BROKEN]" : ""}${i.overclock ? ` [OVERCLOCKED: double output, ${Math.max(0, i.overclock.rounds - 1)} more round(s)${i.overclock.breaks ? ", then it breaks" : ""}]` : ""}`).join(", ") || "nothing";
   const state = sheet.dead ? "DEAD" : sheet.dying ? (sheet.dying.stable ? "unconscious, stable" : `DYING (death saves ${sheet.dying.s} ok / ${sheet.dying.f} failed)`) : `${sheet.hp}/${d.maxHp} HP`;
   return [
     `### ${sheet.name}${sheet.player ? ` (played by ${sheet.player})` : ""}: level ${d.level}`,

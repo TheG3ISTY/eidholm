@@ -103,7 +103,7 @@ What the trade actually runs on: a guild engineer's daily cants, a League duelis
 | **Borrowed Eyes** | See and hear through a device or an animal within 100 m, for ten minutes. **Held.** | DC 12; devices may resist |
 | **Static Veil** | Devices and the senses of minds of glass slide past the caster for ten minutes. Eyes still see them. **Held.** | vs whatever watches |
 | **Machine Tongue** | Question a non-sapient device: what it saw, what it is for, who made it. | DC 12 |
-| **Overclock** | A device runs at double output for a minute. Then roll a **d4**: **1**, it breaks once the minute is up; **2–3**, it keeps working; **4**, the overclock lasts two minutes and it keeps working. | DC 12 |
+| **Overclock** | A device runs at double output for a minute. Then roll a **d4**: **1**, it breaks once the minute is up; **2–3**, it keeps working; **4**, the overclock lasts two minutes and it keeps working. At the table a minute is the next three rounds; an overclocked weapon rolls double damage dice. The d4 is its own roll, after the cast. | DC 12 |
 
 ## Tier 3 · 8 Resonance
 
