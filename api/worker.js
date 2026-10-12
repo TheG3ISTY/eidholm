@@ -2818,10 +2818,18 @@ function handedOver(text, party) {
   const names = (party || []).filter(isSheet).map((c) => c.name).filter(Boolean);
   if (!names.length) return "";
   const who = `(${names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")}|you|your|her|him|his|them|their)`;
-  const verbs = "(press(?:es|ed)?|hand(?:s|ed)?|give(?:s|n)?|gave|toss(?:es|ed)?|pass(?:es|ed)?|slip(?:s|ped)?|thrust(?:s)?|drop(?:s|ped)?|tuck(?:s|ed)?|place(?:s|d)?|push(?:es|ed)?|offer(?:s|ed)?|flick(?:s|ed)?)";
+  const verbs = "(press(?:es|ed)?|hand(?:s|ed)?|give(?:s|n)?|gave|toss(?:es|ed)?|pass(?:es|ed)?|slip(?:s|ped)?|thrust(?:s)?|drop(?:s|ped)?|tuck(?:s|ed)?|place(?:s|d)?|push(?:es|ed)?|offer(?:s|ed)?|flick(?:s|ed)?|slide(?:s|d)?|roll(?:s|ed)?|set(?:s)?|lay(?:s)?|laid|nudge(?:s|d)?|shove(?:s|d)?|lob(?:s|bed)?|throw(?:s|n)?|threw)";
   const into = new RegExp(`\\b${verbs}\\b[^.!?]{0,80}?\\b(?:into|in|to|onto)\\s+${who}(?:'s|’s)?\\s+(?:\\w+\\s+){0,2}(?:palm|palms|hand|hands|grip|fingers|pocket|pack|lap)\\b`, "i");
   const direct = new RegExp(`\\b${verbs}\\s+${who}\\s+(?:a|an|the|this|some|his|her|its|\\d+)\\b`, "i");
+  // "slides the black oak staff toward you", "the bead rolls across the wood toward you": an object pushed over
+  const toward = new RegExp(`\\b(?:the|a|an|this|that|his|her|its)\\s+(?:[\\w-]+\\s+){0,4}?(?:[\\w-]+)\\s+(?:${verbs.slice(1, -1)})\\b[^.!?]{0,60}?\\b(?:toward|towards|to)\\s+${who}\\b|\\b${verbs}\\s+(?:the|a|an|this|that|his|her|its)\\s+[^.!?]{1,60}?\\b(?:toward|towards|across\\s+to|over\\s+to)\\s+${who}\\b`, "i");
+  // "Take it." "It's yours." "Keep it.": said over an object
+  const yours = /(?:^|["“*\s])(?:take|keep|wear)\s+(?:it|them|this|these)\s*[.!,]|\b(?:it['’]?s|it is|they['’]?re|they are)\s+(?:all\s+)?yours\b/i;
+  // Gestures, weather and light move toward people too; they aren't things handed over.
+  const notThing = /\b(look|glance|gaze|nod|smile|grin|stare|frown|scowl|wink|shrug|fog|mist|smoke|wind|light|glow|sound|noise|wave|water|tide|shadow|shadows|darkness|heat|cold|silence|voice|whisper|crowd|cart|wagon|door|gate|eyes|attention|head)s?\b/i;
   let m = t.match(into);
+  if (!m) { const w = t.match(toward); if (w && !notThing.test(w[0])) m = w; }
+  if (!m && yours.test(t)) m = [t.match(yours)[0]];
   if (!m) {
     const d = t.match(direct);
     // "gives you a long look", "tosses her a grin": gestures, not items
@@ -3651,7 +3659,7 @@ async function gmTurn(env, model, messages, ctx = {}) {
         if (given && !logged) {
           itemsAsked = true;
           convo.push({ role: "assistant", content: msg.content });
-          convo.push({ role: "user", content: `(System: your reply hands ${given} something, but no update_sheet add_item (or purse, for coin) was made, so it isn't on their sheet and they can't use it. Call update_sheet now for everything given to a player character (add_item with name, kind, tier, quality; focus for a focus), then write your answer again.)` });
+          convo.push({ role: "user", content: `(System: your reply hands ${given} something, but no update_sheet add_item (or purse, for coin) was made, so it isn't on their sheet and they can't use it. Call update_sheet now for everything given to a player character (add_item with name, kind, tier, quality; focus for a focus), then write your answer again. If something was only shown or offered and not yet theirs (still for sale, still being haggled over), make no update and write your answer again unchanged.)` });
           continue;
         }
       }
