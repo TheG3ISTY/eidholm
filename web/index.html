@@ -289,6 +289,18 @@
   .kv dt { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: var(--ink-dim); text-transform: uppercase; padding-top: 3px; }
   .kv dd { margin: 0; }
   .muted { color: var(--ink-dim); font-style: italic; }
+  .quest-head { font-family: var(--display); font-weight: 600; font-size: 22px; color: var(--brass); margin: 0 0 4px; }
+  .quest-bar { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 16px; }
+  .beat { border: 1px solid var(--line); background: var(--bg-2); padding: 8px 10px; margin-bottom: 6px; display: grid; grid-template-columns: 2.2em 1fr; gap: 2px 8px; }
+  .beat .mk { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); padding-top: 3px; }
+  .beat b { font-size: 16px; }
+  .beat .id { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); letter-spacing: 0.08em; margin-right: 6px; }
+  .beat .note, .beat .txt { grid-column: 2; font-size: 14px; }
+  .beat .txt { color: var(--ink-dim); }
+  .beat.now { border-color: var(--ember); }
+  .beat.now .mk { color: var(--ember); }
+  .beat.done, .beat.skipped { opacity: 0.55; }
+  .beat.skipped b { text-decoration: line-through; }
 
   /* table tab */
   .seat-row { border: 1px solid var(--line); background: var(--bg-2); padding: 12px; margin-bottom: 10px; display: grid; gap: 8px; }
@@ -498,6 +510,7 @@
     <button type="button" data-tab="log">LOG</button>
     <button type="button" data-tab="rules">RULES</button>
     <button type="button" data-tab="canon">WORLD</button>
+    <button type="button" data-tab="gm" id="tab-gm" hidden>GAME MASTER</button>
     <button type="button" data-tab="settings">SETTINGS</button>
   </nav>
   <div class="codex-body" id="codex-body"></div>
@@ -1054,6 +1067,8 @@
     $("send").disabled = blocked;
     $("pass").disabled = blocked || (table.requests || []).some((r) => r.seatId === mySeat);
 
+    $("tab-gm").hidden = !(table.admin || table.gmRole);
+    if ($("codex").classList.contains("open") && codexTab === "gm") renderQuestTab();
     if ($("codex").classList.contains("open") && codexTab === "table") renderTableTab();
     if ($("codex").classList.contains("open") && codexTab === "party" && !(admin && admin.canWriteRepo)) renderPartyTab();
     if ($("codex").classList.contains("open") && codexTab === "settings" && !admin && gmCreds) {
@@ -1395,13 +1410,14 @@
     if (codexTab === "table") { renderTableTab(); return; }
     if (codexTab === "settings") { renderSettings(force); return; }
     if (codexTab === "people") { renderPeople(); return; }
+    if (codexTab === "gm") { renderQuestTab(); return; }
     if (!codexState || force) body.innerHTML = '<p class="muted">Loading…</p>';
     let st;
     try { st = await loadState(force); } catch (err) {
       if (err.message !== "locked") body.innerHTML = '<p class="muted">Could not read the repo: ' + escapeHtml(err.message) + "</p>";
       return;
     }
-    if (codexTab === "table" || codexTab === "settings" || codexTab === "people") return;
+    if (codexTab === "table" || codexTab === "settings" || codexTab === "people" || codexTab === "gm") return;
     body.className = "codex-body md";
     if (codexTab === "party") {
       if (admin && admin.canWriteRepo) { renderPartyEditor(st); return; }
@@ -1462,6 +1478,70 @@
       p.textContent = "Seats stay with the device that took them. To move to another seat or device, ask the GM to free yours.";
       body.appendChild(p);
     }
+  }
+
+  // ================= the Game Master tab: the main quest =================
+  // Sealed: only a GM login or an unsealed Settings device ever receives the quest from the server.
+  let questSig = "", questRebuild = false;
+  function renderQuestTab() {
+    const body = $("codex-body");
+    body.className = "codex-body";
+    if (!table || !(table.admin || table.gmRole)) {
+      questSig = "";
+      body.innerHTML = '<p class="muted">Sealed. Log in as GM, or unseal Settings, to see the main quest.</p>';
+      return;
+    }
+    const q = table.quest;
+    const sig = JSON.stringify([q, questRebuild, table.resolving]);
+    if (sig === questSig && body.querySelector(".quest-root")) return;
+    if (body.contains(document.activeElement) && document.activeElement.tagName === "TEXTAREA") return;
+    questSig = sig;
+    $("codex-status").textContent = "Live · the main quest, for the GM's eyes only";
+    const btn = (text, fn, title, cls = "ghost") => { const b = document.createElement("button"); b.type = "button"; b.className = cls; b.textContent = text; b.title = title || ""; b.addEventListener("click", fn); return b; };
+    body.innerHTML = '<div class="quest-root"></div>';
+    const root = body.querySelector(".quest-root");
+    const buildBox = (rebuild) => {
+      const box = document.createElement("div");
+      box.className = "card";
+      box.innerHTML = `<p class="small">${rebuild ? "Throw this quest away and build a new one from the plot points. Beats already played are forgotten." : "No main quest yet. It is built when you press Begin, or you can build it now."} The GM picks 15 to 25 plot points: a Hook first, a Climax last.</p>
+        <textarea class="field" rows="2" maxlength="600" placeholder="Optional: what you want from this story (a place, a faction, a mood)"></textarea>`;
+      const bar = document.createElement("div"); bar.className = "quest-bar";
+      bar.appendChild(btn(rebuild ? "Rebuild the quest" : "Build the quest", () => {
+        send({ t: "questBuild", rebuild, brief: box.querySelector("textarea").value });
+        questRebuild = false;
+        root.innerHTML = '<p class="muted">The GM is laying out the story…</p>';
+      }, "", "btn"));
+      if (rebuild) bar.appendChild(btn("Keep this one", () => { questRebuild = false; questSig = ""; renderQuestTab(); }));
+      box.appendChild(bar);
+      return box;
+    };
+    if (!q) { root.appendChild(buildBox(false)); return; }
+    const head = document.createElement("div");
+    const played = q.beats.filter((b) => b.status !== "todo").length;
+    head.innerHTML = `<div class="quest-head">${escapeHtml(q.title)}</div><p class="small">${escapeHtml(q.premise)}</p>
+      <p class="muted small">${q.at < q.beats.length ? `Beat ${q.at + 1} of ${q.beats.length}` : "Played through"} · ${played} played${q.by === "random" ? " · built at random (the model couldn't)" : ""}${q.unsaved ? " · changes since the last save" : ""}</p>`;
+    root.appendChild(head);
+    const bar = document.createElement("div"); bar.className = "quest-bar";
+    const live = q.at < q.beats.length;
+    const b1 = btn("Mark done", () => send({ t: "questMove", move: "done" }), "The party has played through this beat");
+    const b2 = btn("Skip", () => send({ t: "questMove", move: "skip" }), "The story went another way; move on");
+    const b3 = btn("Step back", () => send({ t: "questMove", move: "back" }), "Reopen the last beat that was closed");
+    b1.disabled = b2.disabled = !live; b3.disabled = !played;
+    bar.append(b1, b2, b3, btn("Rebuild…", () => { questRebuild = true; questSig = ""; renderQuestTab(); }));
+    root.appendChild(bar);
+    if (questRebuild) root.appendChild(buildBox(true));
+    const mark = { done: "✓", skipped: "✗", todo: "·" };
+    q.beats.forEach((b, i) => {
+      const now = i === q.at;
+      const row = document.createElement("div");
+      row.className = "beat " + (now ? "now" : b.status);
+      row.innerHTML = `<span class="mk">${now ? "▶ " + (i + 1) : (i + 1) + " " + mark[b.status]}</span>
+        <div><span class="id">${escapeHtml(b.id)}</span><b>${escapeHtml(b.title)}</b></div>
+        ${b.note ? `<div class="note">${escapeHtml(b.note)}</div>` : ""}
+        ${now ? `<div class="txt">${escapeHtml(b.text)}</div>` : ""}
+        ${b.reason ? `<div class="txt">${escapeHtml(b.status === "skipped" ? "Skipped: " : "")}${escapeHtml(b.reason)}</div>` : ""}`;
+      root.appendChild(row);
+    });
   }
 
   // ================= settings (Game Master only) =================

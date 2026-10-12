@@ -26,6 +26,7 @@ import {
   derive, normalize, createSheet, raiseStat, takeCapstone, addMark, takeDamage, heal, stabilize, deathSave,
   statMod, skillBonus, skillRank, equipped, clockLabel, parseElapsed, dawnsBetween, passTime, sheetForGm, findSheet,
 } from "./characters.js";
+import { parsePlotPoints, questFromArgs, randomQuest, currentBeat, moveQuest, questView, questFileText, parseQuestFile, questBlock, PLANNER_PROMPT, PLANNER_TOOL, QUEST_TOOL } from "./quest.js";
 import { parseSpellbook, findSpell, spellsInAction, spellDuration, miscantOn, learningFails, START_SPELLS } from "./spells.js";
 
 const STATE_FILES = {
@@ -39,6 +40,10 @@ const STATE_FILES = {
   party: "characters/party.json",
   log: "campaign/log.md",
 };
+// The main quest: built from the plot points at the start of a story, for the GM's eyes only.
+// Kept apart from STATE_FILES, which the players' codex reads.
+const QUEST_FILES = { plotpoints: "world/plotpoints.md", quest: "campaign/quest.json" };
+
 // Difficulty is chosen as a word and the server sets the number, so the model can't
 // drift every check up to 15+. A level-1 character has about +0 to +2.
 const DIFFICULTY = { very_easy: 7, easy: 8, fair: 10, moderate: 12, hard: 15, very_hard: 18 };
@@ -269,7 +274,7 @@ async function listSessionFiles(env) {
 // World wipe: the characters go too. Fixed figures are canon and always stay. The spend meter is never reset.
 // One commit, so the git history still holds everything.
 async function wipeCampaign(env, { hard }) {
-  const repo = await readFilesFresh(env, [STATE_FILES.party, STATE_FILES.cast]);
+  const repo = await readFilesFresh(env, [STATE_FILES.party, STATE_FILES.cast, QUEST_FILES.quest]);
   let party = {};
   try { party = JSON.parse(repo[STATE_FILES.party] || "{}"); } catch {}
   if (!party || typeof party !== "object" || Array.isArray(party)) party = {};
@@ -295,10 +300,11 @@ async function wipeCampaign(env, { hard }) {
     [STATE_FILES.log]: FRESH_LOG,
   };
   for (const path of sessions) files[path] = null;
+  if (repo[QUEST_FILES.quest]) files[QUEST_FILES.quest] = null;   // the main quest goes with the story
   await commitFiles(env, files, hard
-    ? `campaign: world wipe (${sessions.length} session file${sessions.length === 1 ? "" : "s"}, characters, log, people, clock)`
-    : `campaign: story wipe (${sessions.length} session file${sessions.length === 1 ? "" : "s"}, log, people, clock; characters kept)`);
-  for (const f of [STATE_FILES.party, STATE_FILES.cast, STATE_FILES.log]) {
+    ? `campaign: world wipe (${sessions.length} session file${sessions.length === 1 ? "" : "s"}, characters, log, people, clock, main quest)`
+    : `campaign: story wipe (${sessions.length} session file${sessions.length === 1 ? "" : "s"}, log, people, clock, main quest; characters kept)`);
+  for (const f of [STATE_FILES.party, STATE_FILES.cast, STATE_FILES.log, QUEST_FILES.quest]) {
     await caches.default.delete(new Request(`https://eidholm-state.cache/${env.GITHUB_BRANCH}/${f}`));
   }
   await tableCall(env, { t: "wipe", hard, data: party });
@@ -406,6 +412,7 @@ async function endSession(env, body) {
     } catch {}
   }
   if (partyText) files[STATE_FILES.party] = partyText;
+  if (scene.quest?.dirty) files[QUEST_FILES.quest] = questFileText(scene.quest);
 
   // All of it as ONE commit.
   const sha = await commitFiles(env, files, `session: end session ${sessionNo}: ${title}`);
@@ -414,6 +421,7 @@ async function endSession(env, body) {
     await caches.default.delete(new Request(`https://eidholm-state.cache/${env.GITHUB_BRANCH}/${f}`));
   }
   if (files[STATE_FILES.party]) await tableCall(env, { t: "partyCommitted", upTo: scene.exportedAt });
+  if (files[QUEST_FILES.quest]) await tableCall(env, { t: "questCommitted", upTo: scene.exportedAt });
   await tableCall(env, { t: "reset", upToId, castUpTo: scene.cast?.exportedAt || Date.now(), clearSeen: true });
   await tableCall(env, { t: "partyChanged" });
   return { ok: true, sessionNo, archivePath: path, commit: sha };
@@ -448,7 +456,9 @@ async function saveCheckpoint(env, seatId) {
       const repo = await readFilesFresh(env, [STATE_FILES.party]);
       files[STATE_FILES.party] = buildPartyFile(repo[STATE_FILES.party], scene.live);
     }
+    if (scene.quest?.dirty) files[QUEST_FILES.quest] = questFileText(scene.quest);
     await commitFiles(env, files, `session: save session ${session.no} (checkpoint by ${by})`);
+    if (files[QUEST_FILES.quest]) await tableCall(env, { t: "questCommitted", upTo: scene.exportedAt });
     if (files[STATE_FILES.party]) {
       await caches.default.delete(new Request(`https://eidholm-state.cache/${env.GITHUB_BRANCH}/${STATE_FILES.party}`));
       await tableCall(env, { t: "partyCommitted", upTo: scene.exportedAt });
@@ -837,7 +847,12 @@ export class Table extends DurableObject {
         return json({ ok: true });
       }
       if (msg.t === "export") {
-        return json({ seats: state.seats, messages: state.messages, round: state.round, spend: state.spend, resolving: isResolving(state), session: state.session, cast: { ...state.cast, exportedAt: Date.now() }, live: state.live, exportedAt: Date.now() });
+        return json({ seats: state.seats, messages: state.messages, round: state.round, spend: state.spend, resolving: isResolving(state), session: state.session, cast: { ...state.cast, exportedAt: Date.now() }, live: state.live, quest: state.quest, exportedAt: Date.now() });
+      }
+      if (msg.t === "questCommitted") {
+        if (state.quest?.dirty && state.quest.dirty <= (msg.upTo || 0)) state.quest.dirty = 0;
+        await this.commit(state);
+        return json({ ok: true });
       }
       if (msg.t === "liveParty") {
         const live = await this.ensureLive(state);
@@ -875,6 +890,8 @@ export class Table extends DurableObject {
         state.foes = [];
         state.begun = false;
         state.opening = null;
+        state.quest = null;
+        state.questLoaded = true;
         state.live = { loaded: true, list: p.list, clock: clockOf(p.data), dirty: 0 };
         if (msg.hard) for (const s of state.seats) s.character = "";
         // Housekeeping for the table only: the GM never hears of it, so it can't leak into the story.
@@ -1012,6 +1029,9 @@ export class Table extends DurableObject {
       foes: s.foes || [],               // the combat tracker: { name, hp, maxHp, ac, atk, dmg, downRound }     // rounds with actions and no roll asked for
       begun: !!s.begun,                // the opening scene has been asked for this session
       opening: s.opening || null,      // { id, brief }: the GM's private note for the opening round
+      quest: s.quest || null,          // the main quest: { title, premise, beats: [{ id, title, text, note, status }], at, dirty }
+      questLoaded: !!s.questLoaded,    // the repo's quest file has been read (or wiped) into this table
+      questBuilding: s.questBuilding || 0,
     };
   }
 
@@ -1043,6 +1063,7 @@ export class Table extends DurableObject {
       revealGmRolls: !!state.revealGmRolls,
       admin: !!att.admin,
       gmRole: gmView,
+      quest: gmView ? questView(state.quest) : null,   // the GM's tab only; players never get it
       requests: state.requests
         .filter((r) => r.round === state.round && r.status === "pending" && stillOwed(state, r))
         .map((r) => {
@@ -1101,10 +1122,53 @@ export class Table extends DurableObject {
     }
   }
 
+  // The main quest as the repo has it, read once into the table (a wipe marks it read and empty).
+  async questFromRepo(state) {
+    if (state.questLoaded) return;
+    try {
+      state.quest = parseQuestFile(await fetchRepoFile(this.env, QUEST_FILES.quest));
+      state.questLoaded = true;
+    } catch {}
+  }
+
+  // Ask the model to build the main quest from the plot points; a random one if it can't.
+  // Returns { quest, usage }; nothing on the table changes.
+  async planQuest(state, brief = "") {
+    const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+    const [plotText, repo] = await Promise.all([fetchRepoFile(this.env, QUEST_FILES.plotpoints), loadState(this.env)]);
+    const points = parsePlotPoints(plotText);
+    if (points.length < 15) throw new Error("world/plotpoints.md has fewer than 15 plot points, so no quest can be built.");
+    const party = (state.live?.list || []).filter(isSheet).filter((c) => !c.dead)
+      .map((c) => `- ${c.name}: ${c.backstory ? clean(c.backstory, 800, true) : "(no backstory)"}`).join("\n") || "(no characters yet)";
+    const log = String(repo.log || "").slice(-3000);
+    const input = `## PLOT POINTS\n${points.map((p) => `${p.id} (${p.kind}) · ${p.title}: ${p.text}`).join("\n")}\n\n## THE PARTY\n${party}\n\n` +
+      `## WHAT HAS HAPPENED SO FAR\n${log.trim() || "(nothing yet: a new story)"}\n\n` + (brief ? `## THE TABLE'S GM WANTS\n${brief}\n\n` : "") +
+      `## THE WORLD\n${stripDev(repo.canon || "").slice(0, 14000)}`;
+    const convo = [{ role: "system", content: PLANNER_PROMPT }, { role: "user", content: input }];
+    const model = state.tier === "large" ? this.env.MODEL_LARGE : this.env.MODEL;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let data;
+      try {
+        data = await mistralRequest(this.env, { model, temperature: 0.7, max_tokens: 3000, messages: convo, tools: [PLANNER_TOOL], tool_choice: this.env.LLM_FORCE_TOOL || "any" });
+      } catch (err) { console.log("quest planner:", err.message); break; }
+      for (const k of Object.keys(usage)) usage[k] += data?.usage?.[k] || 0;
+      const call = (data?.choices?.[0]?.message?.tool_calls || []).find((c) => c.function?.name === "build_quest");
+      if (!call) break;
+      let args = {};
+      try { args = typeof call.function.arguments === "string" ? JSON.parse(call.function.arguments) : call.function.arguments || {}; } catch {}
+      const { quest, problems } = questFromArgs(args, points);
+      if (quest) return { quest: { ...quest, dirty: Date.now() }, usage };
+      convo.push({ role: "assistant", content: "", tool_calls: [call] });
+      convo.push({ role: "tool", tool_call_id: call.id, name: "build_quest", content: JSON.stringify({ problems }) });
+      convo.push({ role: "user", content: "Fix those problems and call build_quest again with the whole quest." });
+    }
+    return { quest: { ...randomQuest(points), dirty: Date.now() }, usage };
+  }
+
   // ---------------- commands ----------------
 
   async handle(ws, msg) {
-    const state = await this.load();
+    let state = await this.load();
     const seat = (id) => state.seats.find((s) => s.id === id);
     const att = ws.deserializeAttachment() || {};
     // A seat answers only to the device holding its key, or to an unsealed GM.
@@ -1563,12 +1627,54 @@ export class Table extends DurableObject {
         if (state.gmMode === "human") throw new Error("A person is the GM tonight: open the scene yourself from the GM desk.");
         const why = beginBlocker(state);
         if (why) throw new Error(why);
+        // A new story gets its main quest before the first word: the opening is its first beat.
+        await this.questFromRepo(state);
+        if (!state.quest) {
+          state.resolvingSince = Date.now();
+          await this.commit(state);
+          let built = null, failed = "";
+          try { built = await this.planQuest(state, clean(msg.brief, 600, true) || ""); } catch (err) { failed = err.message; }
+          state = await this.load();
+          state.resolvingSince = 0;
+          if (!built) { await this.commit(state); throw new Error(failed || "The main quest couldn't be built. Try again."); }
+          const again = beginBlocker(state);
+          if (again) { await this.commit(state); throw new Error(again); }
+          state.quest = built.quest; state.questLoaded = true;
+          addSpend(state, state.tier, built.usage);
+        }
         const id = state.nextId++;
         const names = state.seats.filter((x) => x.present).map((x) => sheetFor(state, x).name);
         state.messages.push({ id, kind: "event", sub: "opening", round: state.round, text: `The story begins: ${names.join(", ")}.`, ts: Date.now() });
         state.begun = true;
         state.opening = { id, brief: clean(msg.brief, 600, true) || "" };
         return this.resolve(state);
+      }
+
+      case "questBuild": {
+        // The GM tab: build the main quest now (or throw the old one away and build again).
+        if (!(att.admin || att.gmRole)) throw new Error("Only the GM can build the main quest.");
+        await this.questFromRepo(state);
+        if (state.quest && !msg.rebuild) throw new Error("There is a main quest already. Rebuild it to start a new one.");
+        if (isResolving(state) || (state.questBuilding && Date.now() - state.questBuilding < STALE_RESOLVE_MS)) throw new Error("The GM is busy. Try again in a moment.");
+        state.questBuilding = Date.now();
+        await this.commit(state);
+        let built = null, failed = "";
+        try { built = await this.planQuest(state, clean(msg.brief, 600, true) || ""); } catch (err) { failed = err.message; }
+        state = await this.load();
+        state.questBuilding = 0;
+        if (built) { state.quest = built.quest; state.questLoaded = true; addSpend(state, state.tier, built.usage); }
+        await this.commit(state);
+        if (!built) throw new Error(failed || "The main quest couldn't be built. Try again.");
+        return;
+      }
+
+      case "questMove": {
+        if (!(att.admin || att.gmRole)) throw new Error("Only the GM can move the main quest.");
+        if (!["done", "skip", "back"].includes(msg.move)) throw new Error("Move the quest with done, skip or back.");
+        await this.questFromRepo(state);
+        moveQuest(state.quest, msg.move, { reason: clean(msg.reason, 200) });
+        state.quest.dirty = Date.now();
+        return this.commit(state);
       }
 
       case "tier": {
@@ -1623,6 +1729,8 @@ export class Table extends DurableObject {
     try {
       const repo = await loadState(this.env);
       if (!state.live?.loaded && await this.ensureLive(state)) await this.save(state);
+      if (!state.questLoaded) { await this.questFromRepo(state); if (state.questLoaded) await this.save(state); }
+      ctx.quest = state.quest;
       const library = buildLibrary(repo);
       const cast = gateCast(parseCast(mergeCast(repo.cast, state.cast, { sessionNo: 0, endOfSession: false }) ?? repo.cast), state);
       const sel = selectContext({ library, cast, scene: state.scene, recent: recentText(state) });
@@ -1658,7 +1766,7 @@ export class Table extends DurableObject {
         }
       }
       const messages = [
-        { role: "system", content: buildSystemPrompt(repo, sel, partyBlock(state, repo)) },
+        { role: "system", content: buildSystemPrompt(repo, sel, partyBlock(state, repo), questBlock(state.quest)) },
         ...buildConversation(state, { referee }),
       ];
       result = await gmTurn(this.env, model, messages, { ...ctx, noRequests: !!referee });
@@ -1725,6 +1833,10 @@ export class Table extends DurableObject {
     // Downed foes leave the tracker once the GM has answered the round they fell in.
     fresh.foes = (fresh.foes || []).filter((f) => !(f.hp <= 0 && f.downRound && f.downRound < round));
     for (const op of result.foeOps || []) applyFoeOp(fresh, op);
+    // The GM moved the main quest on (its tab shows it; the players never do).
+    for (const op of (result.questOps || []).slice(0, 1)) {
+      try { moveQuest(fresh.quest, op.beat, { reason: op.reason, note: op.note }); fresh.quest.dirty = Date.now(); } catch {}
+    }
     // Foes' attacks on player characters: rolled already, applied now.
     for (const a of result.foeAttacks || []) {
       const c = fresh.live?.loaded ? findSheet(fresh.live.list, a.character) : null;
@@ -2420,12 +2532,16 @@ function beginBlocker(state) {
 // The GM's instruction for the opening round. The brief is the GM's own and never shown to players.
 function openingLine(state, m) {
   const brief = state.opening?.id === m.id ? state.opening.brief : "";
+  const beat = currentBeat(state.quest);
   const who = state.seats.filter((x) => x.present).map((x) => { const c = sheetFor(state, x); return c ? `${c.name} (played by ${x.player})` : null; }).filter(Boolean);
   return `- (from the table's GM, not a player) OPEN THE STORY NOW. ${who.length} ${who.length === 1 ? "character is" : "characters are"} at the table: ${who.join(", ")}. ` +
     `Put every one of them in the same place at the same moment, and give each a reason to be there that grows out of their own backstory. ` +
-    (brief ? `The GM wants this: ${brief} ` : `No place was given: choose one in Eidholm that ties their backstories together. `) +
+    (brief ? `The GM wants this: ${brief} ` : "") +
+    (beat ? `This opening is beat ${beat.index + 1} of the MAIN QUEST: ${beat.id} · ${beat.title}${beat.note ? ` (your note: ${beat.note})` : ""}. Open on it; ${beat.index === 0 ? "it is how the story starts" : "pick up the story from where the campaign log left it, heading toward it"}. ` :
+      brief ? "" : `No place was given: choose one in Eidholm that ties their backstories together. `) +
     `If the campaign log already holds earlier sessions, open from where the last one ended instead of a first meeting. ` +
-    `Ground it in a real place from the canon with real people in it (an NPC of the party's own size, with a name, a face and a want), and give the party a concrete problem or offer in the first reply: no disembodied voices, no riddles in place of a hook. ` +
+    `START QUIET. An ordinary moment in a real place: work, a meal, a queue, a market, a meeting, an errand. No attack, ambush, explosion, chase, collapse or scream in this reply; danger can come later, once the players have had a chance to speak. ` +
+    `Ground it in a real place from the canon with real people in it (an NPC of the party's own size, with a name, a face and a want), and give the party a concrete offer, request or question in the first reply: no disembodied voices, no riddles in place of a hook. ` +
     `Set the place and time with the scene tag, introduce each character in a line or two, and end on something that pulls them to act together. Never act or speak for them.`;
 }
 
@@ -2774,7 +2890,7 @@ function partyBlock(state, repo) {
   ].filter(Boolean).join("\n\n");
 }
 
-function buildSystemPrompt(state, sel, party) {
+function buildSystemPrompt(state, sel, party, quest = "") {
   const logTail = state.log.length > LOG_TAIL_CHARS
     ? "[...earlier entries omitted...]\n" + state.log.slice(-LOG_TAIL_CHARS)
     : state.log;
@@ -2868,7 +2984,7 @@ ${sel.index.people.map((p) => "  - " + personLine(p)).join("\n") || "  - (nobody
 ${party || "(empty roster)"}
 
 ## CAMPAIGN LOG (most recent)
-${logTail || "(no sessions yet)"}`;
+${logTail || "(no sessions yet)"}${quest ? "\n\n" + quest : ""}`;
 }
 
 // The spellbook is only read when the Lattice is in play.
@@ -3153,6 +3269,7 @@ DICE_TOOLS.push({
     },
   },
 });
+DICE_TOOLS.push(QUEST_TOOL);
 const MAX_GM_TOOL_ROUNDS = 4;
 // When the referee has called the dice, the GM narrates without the request tool.
 const GM_TOOLS_NO_REQUESTS = DICE_TOOLS.filter((t) => t.function.name !== "request_rolls");
@@ -3478,6 +3595,7 @@ async function gmTurn(env, model, messages, ctx = {}) {
   const luckSpent = [];
   const foeOps = [];
   const foeAttacks = [];
+  const questOps = [];
   ctx.foes = [...(ctx.foes || [])];   // grows as the GM adds foes this turn
   const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
   let corrected = false, trackerAsked = false, itemsAsked = false;
@@ -3517,7 +3635,7 @@ async function gmTurn(env, model, messages, ctx = {}) {
         convo.push({ role: "user", content: "(System: your scene tag says this is a fight, but no foe is on the tracker, so nobody can see their HP and no hit can land. Call the foes tool now with every enemy in the fight (name, hp, ac, attack_bonus, damage_dice), then write your answer again.)" });
         continue;
       }
-      return { reply: msg.content, usage, rolls, requests, remember, sheetOps, luckSpent, foeOps, foeAttacks };
+      return { reply: msg.content, usage, rolls, requests, remember, sheetOps, luckSpent, foeOps, foeAttacks, questOps };
     }
     convo.push({ role: "assistant", content: msg.content || "", tool_calls: calls });
     for (const call of calls) {
@@ -3565,6 +3683,14 @@ async function gmTurn(env, model, messages, ctx = {}) {
         convo.push({ role: "tool", tool_call_id: call.id, name: "foes", content: JSON.stringify({
           tracker: foes.map((f) => `${f.name} ${f.hp}/${f.maxHp} HP, AC ${f.ac}`), problems: notes,
           note: "The table sees each foe's HP. Give player attacks the foe's name as target and their hits come off by themselves." }) });
+        continue;
+      }
+      if (call.function?.name === "quest") {
+        const ok = ctx.quest && currentBeat(ctx.quest) && !questOps.length && ["done", "skip"].includes(args.beat);
+        if (ok) questOps.push({ beat: args.beat, reason: clean(args.reason, 200), note: clean(args.next_note, 400) });
+        convo.push({ role: "tool", tool_call_id: call.id, name: "quest", content: JSON.stringify(ok
+          ? { moved: args.beat, note: "Recorded. Keep playing the scene; the next beat comes in its own time." }
+          : { error: !ctx.quest ? "There is no main quest." : !currentBeat(ctx.quest) ? "The quest is already played through." : questOps.length ? "Once per answer." : "beat must be done or skip." }) });
         continue;
       }
       if (call.function?.name === "foe_attack") {
