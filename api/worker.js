@@ -24,7 +24,7 @@ import {
 import {
   STATS, STAT_LABEL, SKILLS, ARMOR_AC, ARMOR_SLOTS, handsFor, handsUsed, MELEE_SKILLS, CANTING_SKILLS, SPELL_COST, BACKLASH, STARTER_ITEMS, CAPSTONES, RANKS, MARKS_TO_REACH,
   derive, normalize, createSheet, raiseStat, takeCapstone, addMark, takeDamage, heal, stabilize, deathSave,
-  statMod, skillBonus, skillRank, equipped, clockLabel, parseElapsed, dawnsBetween, passTime, sheetForGm, findSheet,
+  statMod, skillBonus, skillRank, equipped, toolType, fixHeldFocus, stowSameTool, clockLabel, parseElapsed, dawnsBetween, passTime, sheetForGm, findSheet,
 } from "./characters.js";
 import { parsePlotPoints, questFromArgs, villainFromArgs, randomQuest, currentBeat, moveQuest, questView, questFileText, parseQuestFile, questBlock, PLANNER_PROMPT, PLANNER_TOOL, QUEST_TOOL } from "./quest.js";
 import { parseSpellbook, findSpell, spellsInAction, spellDuration, miscantOn, learningFails, START_SPELLS } from "./spells.js";
@@ -1483,6 +1483,8 @@ export class Table extends DurableObject {
         }
         // One armor piece per slot: wearing a new one takes off whatever was in that slot.
         if (on && item.kind === "armor") for (const i of sheet.items) if (i.kind === "armor" && (i.slot || "body") === (item.slot || "body")) i.equipped = false;
+        // One tool of each type: taking up a focus or kit puts away the one of its type in use.
+        if (on) stowSameTool(sheet, item);
         item.equipped = on;
         const d = derive(sheet);
         sheet.pool = Math.min(sheet.pool, d.maxPool);
@@ -3210,8 +3212,8 @@ DICE_TOOLS.push({
           description: "An item gained",
           properties: {
             name: { type: "string" },
-            kind: { type: "string", enum: ["weapon", "armor", "shield", "focus", "tool", "device", "other"] },
-            focus: { type: "integer", minimum: 1, maximum: 3, description: "For a focus (bead, ring, staff, array): tiers it adds while worn or in hand. Common +1, Guild +2, Superior +3" },
+            kind: { type: "string", enum: ["weapon", "armor", "shield", "focus", "tool", "device", "other"], description: "tool: a kit used with a skill (lockpicks, medic's satchel); give its skill" },
+            focus: { type: "integer", minimum: 1, maximum: 3, description: "Tiers it adds as a focus: Common +1, Guild +2, Superior +3. kind focus is a WORN focus (bead, ring, amulet, circlet). A staff, wand or rod is kind weapon with skill ranged_canting, damage dice, and focus set (staves two_handed)" },
             tier: { type: "integer", minimum: 1, maximum: 5, description: "1 Common, 2 Guild, 3 Superior, 4 Relic, 5 Unique" },
             quality: { type: "string", enum: ["Crude", "Standard", "Fine", "Exceptional", "Masterwork"] },
             broken: { type: "boolean", description: "Found or given already broken" },
@@ -3568,6 +3570,7 @@ function parseSheetOp(args, party, book = []) {
     if (num(it.recovery)) item.recovery = Math.min(1, Math.max(0, num(it.recovery)));
     if (it.note) item.note = clean(String(it.note), 200);
     item.equipped = false;
+    fixHeldFocus(item);   // a staff or wand is a weapon that works as a focus, not a worn bead
     op.add_item = item;
   }
   if (args.remove_item) op.remove_item = clean(String(args.remove_item), 80);

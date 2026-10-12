@@ -129,6 +129,36 @@ export function handsUsed(sheet, except) {
 }
 
 // What's worn and actually working: a broken item does nothing until it's repaired.
+// Tools: foci and kits carried ready to use. Several at once, but only one of each type:
+// one focus, one Thievery kit, one Medicine kit, and so on.
+export function toolType(item) {
+  if (!item) return null;
+  if (item.kind === "focus") return "focus";
+  if (item.kind === "tool") return item.skill ? "tool:" + item.skill : "tool:" + String(item.name || "").trim().toLowerCase();
+  return null;
+}
+
+// A staff, wand or rod is held, not worn: a weapon that also works as a focus.
+const HELD_FOCUS = /\b(staff|staves|stave|quarterstaff|wand|rod|sceptre|scepter|crook)\b/i;
+export function fixHeldFocus(item) {
+  if (!item || item.kind !== "focus" || !HELD_FOCUS.test(item.name || "")) return item;
+  const wand = /\b(wand|rod|sceptre|scepter)\b/i.test(item.name);
+  item.kind = "weapon";
+  item.skill = "ranged_canting";
+  if (!item.damage) item.damage = wand ? "1d4" : "1d8";
+  if (!wand) item.twoHanded = true;
+  if (!item.focus) item.focus = 1;
+  item.equipped = false;
+  return item;
+}
+
+// Equipping a tool puts away whatever tool of the same type was in use.
+export function stowSameTool(sheet, item) {
+  const type = toolType(item);
+  if (!type) return;
+  for (const i of sheet.items || []) if (i !== item && i.equipped && toolType(i) === type) i.equipped = false;
+}
+
 export function equipped(sheet) {
   return (sheet.items || []).filter((i) => i && i.equipped && !i.broken);
 }
@@ -194,7 +224,8 @@ export function createSheet(input, player, tier1 = [], startSpells = 2) {
     const { id: _id, ...rest } = it;
     return [{ ...rest, ...kit(it), equipped: false }];
   });
-  for (const i of items) if (i.kind === "focus") i.equipped = true;   // worn: a bead on a cord takes no hand
+  // Tools are ready to hand from the start (a bead on a cord takes no hand), one of each type.
+  for (const i of items) if (toolType(i) && !items.some((x) => x !== i && x.equipped && toolType(x) === toolType(i))) i.equipped = true;
   for (const i of items) if (i.kind === "shield" && i.shieldPool) i.shieldLeft = i.shieldPool;
   // Weapons and the shield start in hand, as far as two hands allow.
   for (const i of items) if ((i.kind === "weapon" || i.kind === "shield") && handsUsed({ items }, i) + handsFor({}, i) <= 2) i.equipped = true;
@@ -246,6 +277,16 @@ export function normalize(sheet) {
     if (i.kind === "armor" && !ARMOR_SLOTS.includes(i.slot)) i.slot = "body";   // armor from before slots
     if ("condition" in i) { if (i.condition === "Broken") i.broken = true; delete i.condition; }   // the old condition ladder
     if (i.kind === "shield" && i.shieldPool && !Number.isFinite(i.shieldLeft)) i.shieldLeft = i.shieldPool;
+    fixHeldFocus(i);   // a staff once filed as a worn focus
+  }
+  // One tool of each type in use: if two are, the better focus (or the first) stays.
+  const inUse = new Map();
+  for (const i of sheet.items.filter((x) => x && x.equipped && toolType(x))) {
+    const t = toolType(i), had = inUse.get(t);
+    if (!had) { inUse.set(t, i); continue; }
+    const keep = (Number(i.focus) || 0) > (Number(had.focus) || 0) ? i : had;
+    (keep === i ? had : i).equipped = false;
+    inUse.set(t, keep);
   }
   if (!STATS.includes(sheet.capstone)) sheet.capstone = null;
   const d = derive(sheet);

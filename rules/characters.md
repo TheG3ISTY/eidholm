@@ -223,6 +223,8 @@ Every item points at a skill: what you carry is where you start learning.
 
 - **Armor:** an armor set is **one pick**, and only one set can be picked. The **leather set** is complete light armor, +2 AC. The **battered mail set** is complete heavy armor, +6 AC (coif, gauntlets, hauberk, chausses and sabatons, old and dented but whole). Worn from the start. **Shields are not starting gear**: they are bought, found or earned in play.
 - **Weapons:** dagger, baton and throwing knives 1d4; mace and bow 1d6; sword, crossbow and the cracked energy staff 1d8; halberd 1d10; greatsword 2d6. Greatswords, halberds, bows, crossbows and staves need two hands.
+- **Tools** are foci and kits kept ready to use: a focus bead, a pick-and-wire roll, a medic's satchel. A character can have several in use at once, but **only one of each type**: one focus, one Thievery kit, one Medicine kit. Using a new one stows the old. Starting tools are in use from the start.
+- **Staves, wands and rods are weapons**, held in hand, that also work as a focus (a staff takes both hands). A worn focus is a bead, ring, amulet or circlet.
 - The kit is picked on the **creation screen**, along with stats and backstory. The GM never builds a sheet.
 
 ## Dying

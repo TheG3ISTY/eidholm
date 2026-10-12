@@ -113,6 +113,7 @@
   .chip .hp { color: var(--glass); }
   .pts { color: var(--ember); }
   .items.slots li .slot { flex: 0 0 92px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: var(--ink-dim); }
+  .items.slots li.empty { margin: 0; max-width: none; text-align: left; font-style: normal; color: inherit; }
   .items.slots li.empty .muted { font-style: italic; }
   .items.slots li > span { flex: 1; }
   .chip .hp.low { color: var(--danger); }
@@ -2402,8 +2403,9 @@
       const tags = [it.broken ? "BROKEN" : "", !slot && it.equipped ? (it.kind === "weapon" || it.kind === "shield" ? "in hand" : "worn") : "", it.twoHanded ? "two hands" : "", it.focus ? "focus +" + it.focus + " tier" : "", it.kind === "armor" ? (slot ? "" : (it.slot || "body") + " · ") + (it.armor === "heavy_armor" ? "heavy" : "light") : "", it.tier ? "tier " + it.tier : "", it.quality, it.legality && it.legality !== "Legal" ? it.legality : "",
         it.ac ? "AC +" + it.ac : "", it.damage ? it.damage : "", it.shieldPool ? "shield " + Math.floor(it.shieldLeft ?? it.shieldPool) + "/" + it.shieldPool : ""].filter(Boolean).join(" · ");
       const held = it.kind === "weapon" || it.kind === "shield";
-      const wear = mine && ["armor", "shield", "device", "weapon", "focus"].includes(it.kind)
-        ? `<button type="button" class="ghost" data-equip="${i}">${held ? (it.equipped ? "Put away" : "Take up") : (it.equipped ? "Take off" : "Wear")}</button>` : "";
+      const tool = it.kind === "focus" || it.kind === "tool";
+      const wear = mine && ["armor", "shield", "device", "weapon", "focus", "tool"].includes(it.kind)
+        ? `<button type="button" class="ghost" data-equip="${i}">${held ? (it.equipped ? "Put away" : "Take up") : tool ? (it.equipped ? "Stow" : "Use") : (it.equipped ? "Take off" : "Wear")}</button>` : "";
       return `<li>${slot ? `<small class="slot">${slot}</small>` : ""}<span>${escapeHtml(it.name)} <small>${escapeHtml(tags)}</small></span>${wear}</li>`;
     };
     const empty = (slot) => `<li class="empty">${`<small class="slot">${slot}</small>`}<span class="muted">empty</span></li>`;
@@ -2426,11 +2428,14 @@
     }
     if (hands < 1) eqh += empty("MAIN HAND");
     if (hands < 2) eqh += empty("OFF HAND");
-    const foci = worn.filter(([it]) => it.kind === "focus");
-    foci.forEach((x) => used.add(x[1]));
-    eqh += foci.length ? foci.map((x) => row(x, "FOCUS")).join("") : (inHand.some(([it]) => it.focus) ? "" : empty("FOCUS"));
-    for (const x of worn.filter((x) => !used.has(x[1]))) eqh += row(x, "WORN");
+    for (const x of worn.filter((x) => !used.has(x[1]) && x[0].kind !== "focus" && x[0].kind !== "tool")) { used.add(x[1]); eqh += row(x, "WORN"); }
     h += '<h4>EQUIPPED</h4><ul class="items slots">' + eqh + "</ul>";
+    // Tools: foci and kits ready to use, one of each type.
+    const tools = worn.filter(([it]) => it.kind === "focus" || it.kind === "tool");
+    const toolLabel = (it) => it.kind === "focus" ? "FOCUS" : (SK[it.skill] || "TOOL").toUpperCase();
+    let th = tools.map((x) => row(x, toolLabel(x[0]))).join("");
+    if (!tools.some(([it]) => it.kind === "focus")) th = (inHand.some(([it]) => it.focus) ? `<li class="empty"><small class="slot">FOCUS</small><span class="muted">the ${escapeHtml(inHand.find(([it]) => it.focus)[0].name)} in hand</span></li>` : empty("FOCUS")) + th;
+    h += '<h4>TOOLS <small class="muted">one of each type</small></h4><ul class="items slots">' + th + "</ul>";
     const pack = items.filter(([it]) => !it.equipped);
     h += `<h4>INVENTORY${pack.length ? " · " + pack.length + " ITEM" + (pack.length === 1 ? "" : "S") : ""}</h4>`;
     h += pack.length ? '<ul class="items">' + pack.map((x) => row(x)).join("") + "</ul>" : '<p class="muted">Nothing else carried.</p>';
