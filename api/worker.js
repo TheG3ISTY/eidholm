@@ -42,6 +42,7 @@ const STATE_FILES = {
 };
 // The main quest: built from the plot points at the start of a story, for the GM's eyes only.
 // Kept apart from STATE_FILES, which the players' codex reads.
+const LIVE_FIX = 2;   // bump to re-run normalize() on the sheets live on the table
 const QUEST_FILES = { plotpoints: "world/plotpoints.md", quest: "campaign/quest.json" };
 
 // Difficulty is chosen as a word and the server sets the number, so the model can't
@@ -1005,7 +1006,18 @@ export class Table extends DurableObject {
 
   async load() {
     const s = (await this.ctx.storage.get("table")) || {};
+    // Sheets already live on the table get rule fixes once (a staff filed as a worn focus, two foci in use).
+    if (s.live?.loaded && (s.liveFix || 0) < LIVE_FIX) {
+      for (const c of s.live.list || []) {
+        if (!isSheet(c)) continue;
+        const before = JSON.stringify(c.items);
+        normalize(c);
+        if (JSON.stringify(c.items) !== before) s.live.dirty = Date.now();
+      }
+      s.liveFix = LIVE_FIX;
+    }
     return {
+      liveFix: s.liveFix || LIVE_FIX,
       seats: s.seats || [],
       messages: s.messages || [],
       round: s.round || 1,
