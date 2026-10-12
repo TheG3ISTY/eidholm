@@ -1,0 +1,148 @@
+{
+  "title": "The Choir's Ghost in the Wiring",
+  "premise": "A hearthmind begs the party to find its missing household; the trail leads into the quiet war over the dead. A rusted patron is anchoring the recently deceased to power a forbidden machine beneath Kalvane. The party must follow the stolen patterns through the Weave’s weak points — auction lots, feverish groves, and a parish that sells memory — before the next funeral becomes a machine. At stake is the Choir’s doctrine of clean decomposition, the bank’s trust in records, and the soul of the Emberreach itself.",
+  "villain": {
+    "name": "Veythas \"The Rustfather\" Durn",
+    "role": "Silent hegemon of the Rust Gospel’s undercathedral, *The Still Forge*",
+    "faction": "Rust Gospel splinter cell",
+    "face": "Gaunt, oil-stained, with a faceplate of fused glass and copper; one eye is a living hearthmind fragment embedded in his temple. Speaks in layered echoes of the dead.",
+    "want": "To build an unlicensed cathedral-engine beneath the Caldera House using anchored patterns of the recently dead to rewrite Weave decay protocols.",
+    "method": "Forged Choir registry entries, seized auction lots, devoted parishes, and covenant bribes. Uses silence notaries and forged covenants to bury traces.",
+    "secret": "A former Choir registrar who faked his own death decades ago to pursue his heresy.",
+    "weakness": "His embedded hearthmind fragment is still tied to its original licensee — that memory can be used to disrupt his control.",
+    "revealAt": 3
+  },
+  "beats": [
+    {
+      "id": "H2",
+      "title": "A hearthmind asks a favour",
+      "text": "A hearthmind in a rented room asks the party, very politely, to find out why its household stopped coming home. Its contract keeps it where it is. It can pay, a little.",
+      "kind": "hook",
+      "note": "A hearthmind in a rented room on the Emberreach’s edge asks the party, very politely, to find out why its household stopped coming home. It can pay, a little. The hearthmind’s contract keeps it where it is — but its household is missing. (Location: a rented room in a worker arcology, Emberreach. Stake: the integrity of household contracts and the first clue to the Rustfather’s network.)",
+      "status": "todo"
+    },
+    {
+      "id": "T1",
+      "title": "The flickering street",
+      "text": "A whole street's lights flicker in the rhythm of one dead person's heartbeat. Someone is leaking an ancestor into the wiring, and the neighbours want it stopped, or kept.",
+      "kind": "thread",
+      "note": "A whole street’s lights flicker in the rhythm of one dead person’s heartbeat. The party learns something is leaking an ancestor into the wiring — and the neighbours want it stopped. (Location: a worker tenement street, Emberreach. Stake: the Weave is being fed a pattern it shouldn’t hold — and it’s hungry.)",
+      "status": "todo"
+    },
+    {
+      "id": "T3",
+      "title": "An anchored soul",
+      "text": "Something the party carries turns out to hold a pattern that should have thinned years ago. Anchoring is the gravest crime in Choir law, and possession counts.",
+      "kind": "thread",
+      "note": "Something the party carries turns out to hold a pattern that should have thinned years ago. It’s anchoring — a crime in Choir law — and possession counts. (Location: anywhere the party is traveling. Stake: the pattern is fighting for control of the carrier — and the Rustfather’s signature is all over it.)",
+      "status": "todo"
+    },
+    {
+      "id": "R3",
+      "title": "It was a person all along",
+      "text": "An object, device or voice the party has been handling holds a mind or a pattern. Every choice they made about it was a choice about someone.",
+      "kind": "turn",
+      "note": "An object the party has been handling holds a mind or a pattern. Every choice they made about it was a choice about someone. (Location: party’s temporary lodgings or a safehouse. Stake: the party realizes they’ve been carrying a stolen piece of the dead — and it’s been trying to tell them.)",
+      "status": "todo"
+    },
+    {
+      "id": "H1",
+      "title": "The auction lot",
+      "text": "At a weekly bank auction, a seized lot goes under the hammer: a sealed crate of somebody's whole life. Something inside is addressed to one of the party, in a hand they know.",
+      "kind": "hook",
+      "note": "At a weekly bank auction in Kalvane, a seized lot goes under the hammer: a sealed crate of somebody’s whole life. Something inside is addressed to one of the party, in a hand they know. (Location: Kalvane Auction Hall, Emberreach. Stake: the crate contains the last effects of a recently deceased whose pattern was stolen — and the Rustfather’s ledger is inside.)",
+      "status": "todo"
+    },
+    {
+      "id": "T4",
+      "title": "The frozen account",
+      "text": "The bank freezes an account the party's work depends on, as it always does: nothing moves until the debtor is handed over. The party learns who the debtor is.",
+      "kind": "thread",
+      "note": "The bank freezes an account the party’s work depends on. Nothing moves until the debtor is handed over. The party learns the debtor is a Choir archivist who noticed too many recent registrations of ‘clean decomposition failure.’ (Location: Kalvane branch of the Bank. Stake: the archivist is missing; the freeze is a trap to flush out anyone who asks questions.)",
+      "status": "todo"
+    },
+    {
+      "id": "R2",
+      "title": "Same hand twice",
+      "text": "Two troubles the party met separately were set in motion by the same people. Now the party knows who, and they know the party knows.",
+      "kind": "turn",
+      "note": "Two troubles the party met separately — the flickering street and the frozen account — were set in motion by the same people. Now the party knows who, and they know the party knows. (Location: a dockside tavern or safehouse. Stake: the Rustfather’s network is larger than one undercathedral — it reaches into the Bank’s records and the Emberreach’s streets.)",
+      "status": "todo"
+    },
+    {
+      "id": "T5",
+      "title": "The feverish grove",
+      "text": "Wardens declare a forest feverish and close the road through it. The party's way runs through the trees, and the grove has started dreaming something with a face.",
+      "kind": "thread",
+      "note": "Wardens declare a forest feverish and close the road through it. The party’s way runs through the grove — and it’s started dreaming something with a face. The face is a pattern the Rustfather anchored, now trying to wake up. (Location: a Verdant League forest, on the Emberreach border. Stake: the anchored pattern is using the grove’s dreaming Weave to broadcast its presence — and the Rustfather’s ",
+      "status": "todo"
+    },
+    {
+      "id": "T8",
+      "title": "Renewal at the gate",
+      "text": "A mind of glass needs its license renewed at the Bastion Ledger by a set day. Someone wants it to miss the day, and the mind would rather choose for itself.",
+      "kind": "thread",
+      "note": "A mind of glass needs its license renewed at the Bastion Ledger by a set day. Someone wants it to miss the day — and the mind would rather choose for itself. The mind is the original licensee of the hearthmind fragment embedded in the Rustfather’s face. (Location: a League city on the border. Stake: the mind holds the key to disrupting the Rustfather’s control — and it’s being hunted.)",
+      "status": "todo"
+    },
+    {
+      "id": "H4",
+      "title": "The warm slot",
+      "text": "Word is the Corso Bell is coming to a League city. Before it lands, the hiring fair wants couriers, guards, witnesses and anyone who asks no questions.",
+      "kind": "hook",
+      "note": "Word is the Corso Bell is coming to a League city. Before it lands, the hiring fair wants couriers, guards, witnesses and anyone who asks no questions. The Bell’s arrival means the League’s succession duels are licensed — and the Rustfather’s agents are looking for a quiet courier to carry a packet to the Still Forge. (Location: League hiring fair, Emberreach border. Stake: the packet contains a f",
+      "status": "todo"
+    },
+    {
+      "id": "T7",
+      "title": "The succession duel",
+      "text": "A League house needs a proxy, a second or a witness for a sanctioned duel. Someone has paid for it to go wrong, and the party is the easiest way to do it.",
+      "kind": "thread",
+      "note": "A League house needs a proxy for a sanctioned duel. Someone has paid for it to go wrong — and the party is the easiest way to do it. The duel is for a seat on the League council that would let the Rustfather’s allies bypass the Cathedral Mind’s oversight. (Location: League dueling court, Emberreach border. Stake: the duel is a distraction — the real goal is to get a Rust Gospel Maintainer onto the",
+      "status": "todo"
+    },
+    {
+      "id": "T12",
+      "title": "The defector",
+      "text": "A hearthmind the party relies on switches employers mid-job and won't say why. Every intelligence service would love to know who it went to.",
+      "kind": "thread",
+      "note": "A hearthmind the party relies on switches employers mid-job and won’t say why. Every intelligence service would love to know who it went to. The hearthmind is fleeing the Still Forge — and it’s carrying a fragment of the Rustfather’s ledger. (Location: a League safehouse or tavern. Stake: the hearthmind is a witness — and the Rustfather’s agents are already hunting it.)",
+      "status": "todo"
+    },
+    {
+      "id": "R1",
+      "title": "The patron lied",
+      "text": "Whoever hired the party wanted something other than they said. The job was real; the reason was not.",
+      "kind": "turn",
+      "note": "Whoever hired the party wanted something other than they said. The job was real; the reason was not. The party realizes the ‘ordinary day’ they were hired to witness was the day the archivist disappeared — and the notary was a Rust Gospel plant. (Location: anywhere the party can reflect. Stake: the party’s own choices have been manipulated — and the Rustfather knows their methods.)",
+      "status": "todo"
+    },
+    {
+      "id": "T16",
+      "title": "The leaking parish",
+      "text": "A Rust Gospel parish is quietly selling the memory vaults of its interred dead. Someone recognises a voice from one of them.",
+      "kind": "thread",
+      "note": "A Rust Gospel parish is quietly selling the memory vaults of its interred dead. Someone recognizes a voice from one of them — a Choir registrar who faked his death. (Location: Rust Gospel undercathedral, Emberreach. Stake: the parish is a waypoint for anchored patterns — and the voice is the Rustfather’s first victim.)",
+      "status": "todo"
+    },
+    {
+      "id": "T14",
+      "title": "The enfranchisers",
+      "text": "A cell of Enfranchisement heretics is building bodies for the decomposed dead. One of the bodies is nearly finished, and it is asking for a name.",
+      "kind": "thread",
+      "note": "A cell of Enfranchisement heretics is building bodies for the decomposed dead. One of the bodies is nearly finished, and it is asking for a name. The body is a failed attempt to re-embody a pattern the Rustfather tried to anchor — it’s screaming through its incomplete nervous system. (Location: a hidden clinic, Emberreach slums. Stake: the heretics don’t know what they’re building — but the Rustfa",
+      "status": "todo"
+    },
+    {
+      "id": "C1",
+      "title": "Settled at the seat",
+      "text": "The trail ends at a seat of power: the Caldera House, the Corso Bell, the Wrackmother or the Bastion gate. It has to be settled there, in public, by its rules.",
+      "kind": "climax",
+      "note": "The trail ends at a seat of power: the Caldera House, the Corso Bell, the Wrackmother or the Bastion gate. It has to be settled there, in public, by its rules. The party has followed the stolen patterns to the heart of the Rust Gospel’s power — and the Still Forge is beneath the Caldera House itself. (Location: Caldera House, Emberreach. Stake: the party must expose the Rustfather where his allies",
+      "status": "todo"
+    }
+  ],
+  "at": 0,
+  "builtAt": 1791796003545,
+  "by": "gm"
+}
