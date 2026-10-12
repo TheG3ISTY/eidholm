@@ -1878,7 +1878,14 @@ export class Table extends DurableObject {
       const c = fresh.live?.loaded ? findSheet(fresh.live.list, name) : null;
       if (isSheet(c)) { c.luckUsed += 1; markDirty(fresh); addEvent(fresh, `${c.name} spends a lucky break: the roll against them is made again.`); }
     }
-    const elapsed = parseElapsed(tagged.scene?.time);
+    // A rest the players asked for takes its time, whatever the GM's tag said (never mid-fight).
+    let elapsed = parseElapsed(tagged.scene?.time);
+    const rest = fresh.scene?.mode === "combat" ? 0 : restAsked(fresh, round);
+    if (rest > elapsed) {
+      const n = rest >= 1440 ? Math.round(rest / 144) / 10 : Math.round(rest / 6) / 10, unit = rest >= 1440 ? "day" : "hour";
+      addEvent(fresh, `Rest: ${n === 1 ? `a ${unit} passes` : `${n} ${unit}s pass`}.`);
+      elapsed = rest;
+    }
     if (elapsed) advanceClock(fresh, elapsed);
     for (const r of result.remember || []) {
       const key = castKey(r.name);
@@ -2987,7 +2994,7 @@ function buildSystemPrompt(state, sel, party, quest = "") {
   - Hands: a character holds at most two hands' worth (a two-hander is two, a one-hander or raised shield one; Titan's grip makes a two-hander one). The sheet shows what is in hand; don't narrate more than that.
   - Scars are pure story: when a sheet says a scar is OWED, write one that fits how it happened (one short line) with add_scar.
   - Lucky breaks: a player may say they spend one against a roll made against them. Reroll it with roll_dice and lucky_break set to their name; the new result stands. Their own rolls they reroll themselves.
-  - TIME. Every scene tag carries time=<how much passed in this beat>: +2m for a few blows, +20m for a search, +3h for a march, +8h for a night's rest. The server keeps the clock, refills Resonance and resets daily things at dawn from it.
+  - TIME. Every scene tag carries time=<how much passed in this beat>: +2m for a few blows, +20m for a search, +3h for a march, +8h for a night's rest. When a character rests, the rest happens: give it its full time in the tag (+8h for a night, +24h for a day) and narrate waking from it; Resonance refills with the time. Never skip a rest the player asked for. The server keeps the clock, refills Resonance and resets daily things at dawn from it.
   - For everything else (NPCs, monsters, hazards, damage you deal, random tables) call the roll_dice tool and narrate from the number it returns. Never invent or adjust a die result.
   - Your own rolls may be hidden from the players; describe outcomes in the fiction rather than announcing your numbers.
 - The rules are adopted and the server enforces them. Never invent a mechanic for something the rules already cover. Only when a situation truly isn't covered, resolve it narratively or propose a ruling, mark it [PROVISIONAL], and let the table decide.
@@ -3523,6 +3530,31 @@ function parseRequests(args, seats, party = [], book = [], foes = []) {
     out.push(req);
   }
   return { requests: out, problems };
+}
+
+// How long the players said they rest this round, in minutes (0 if nobody rests). "I rest for a day",
+// "we sleep till dawn", "a short rest", "rest for 3 hours". The longest asked wins; at most three days.
+function restWanted(text) {
+  const t = String(text || "").toLowerCase().replace(/[’']/g, "'");
+  // "rest my hand on", "the rest is": not resting.
+  const verb = /(?<!\bthe\s)(?<!\bthe\s\w+\s)\b(rest(?:s|ing|ed)?|sleep(?:s|ing)?|slept|nap(?:s|ping)?|camp(?:s|ing)? for the night|bed down|turn in for the night|recuperat\w*)\b(?!\s+(?:is|are|was|of|my|his|her|their|our|your|its|it|them)\b)/;
+  const m = t.match(verb);
+  if (!m) return 0;
+  const after = t.slice(Math.max(0, m.index - 20), m.index + 80);
+  const num = (w) => ({ a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, eight: 8, ten: 10, twelve: 12 })[w] ?? Number(w);
+  let mins = 0;
+  const d = after.match(/\b(a|an|one|two|three|\d+)\s+(?:full\s+|whole\s+)?days?\b/);
+  const h = after.match(/\b(a|an|one|two|three|four|five|six|eight|ten|twelve|\d+)\s+(?:full\s+)?hours?\b/);
+  if (d) mins = num(d[1]) * 1440;
+  else if (h) mins = num(h[1]) * 60;
+  else if (/\b(night|overnight|till morning|until morning|till dawn|until dawn|long rest)\b/.test(after) || /^(sleep|slept|bed down|turn in)/.test(m[1])) mins = 480;
+  else if (/short rest|a while|a bit|briefly|catch my breath|catch our breath/.test(after) || /^nap/.test(m[1])) mins = 60;
+  else mins = 60;
+  return Math.min(mins, 3 * 1440);
+}
+
+function restAsked(state, round) {
+  return state.messages.filter((m) => m.round === round && m.kind === "act").reduce((mx, m) => Math.max(mx, restWanted(m.text)), 0);
 }
 
 // The weapon an attack is made with: one in hand named in the label, else the only one in hand for that skill.
