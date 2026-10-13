@@ -56,7 +56,7 @@
         },
         "artifice": {
           "rank": 5,
-          "marks": 0
+          "marks": 1
         },
         "survival": {
           "rank": 5,
@@ -85,7 +85,6 @@
           "kind": "weapon",
           "skill": "ranged_canting",
           "damage": "1d8",
-          "twoHanded": true,
           "quality": "Crude",
           "focus": 1,
           "tier": 1,
@@ -164,10 +163,10 @@
           "tier": 2,
           "quality": "Fine",
           "legality": "Licensed",
-          "equipped": false,
+          "equipped": true,
           "skill": "ranged_canting",
           "damage": "1d8",
-          "twoHanded": true
+          "broken": true
         },
         {
           "name": "Superior focus bead",
@@ -216,8 +215,8 @@
       "purse": 10050,
       "scars": [],
       "created": "2026-10-11",
-      "hp": 217,
-      "pool": 12,
+      "hp": 194,
+      "pool": 8,
       "luckUsed": 0,
       "enduranceUsed": false,
       "dying": "",
