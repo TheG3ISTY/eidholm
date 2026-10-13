@@ -1112,7 +1112,7 @@
     } else {
       const owes = (id) => (table.requests || []).some((r) => r.seatId === id);
       const waitingOn = table.seats.filter((s) => s.present && (!answered.has(s.id) || owes(s.id))).map(seatLabel);
-      if ((table.requests || []).some((r) => r.seatId === mySeat) && !pend.length) {
+      if ((table.requests || []).some((r) => r.seatId === mySeat && !r.optional) && !pend.length) {
         w.textContent = isPhone() ? "The GM wants rolls from you: they're in the dice tray below." : "The GM wants rolls from you. Use the buttons on the left, or /roll for all of them.";
       } else if (pend.length) {
         w.innerHTML = waitingOn.length
@@ -1135,7 +1135,7 @@
     }
     const blocked = !me || !me.present || table.resolving;
     $("send").disabled = blocked;
-    $("pass").disabled = blocked || (table.requests || []).some((r) => r.seatId === mySeat);
+    $("pass").disabled = blocked || (table.requests || []).some((r) => r.seatId === mySeat && !r.optional);
 
     $("tab-gm").hidden = !(table.admin || table.gmRole);
     if ($("codex").classList.contains("open") && codexTab === "gm") renderQuestTab();
@@ -1476,6 +1476,14 @@
       if (why.length) b.title = why.join("\n");
       b.addEventListener("click", () => send({ t: "rollRequest", rid: r.rid }));
       box.appendChild(b);
+      // Keeping a held spell is a choice: roll to keep it, or let it go (not rolling lets it go too).
+      if (r.concentration) {
+        b.querySelector("small").textContent += " · optional: skip it and the spell drops";
+        const lg = document.createElement("button");
+        lg.type = "button"; lg.className = "ghost rall"; lg.textContent = "Let it go"; lg.disabled = blocked;
+        lg.addEventListener("click", () => send({ t: "releaseHold", seatId: mySeat }));
+        box.appendChild(lg);
+      }
       // Its damage waits underneath, locked until the hit (or the cast) lands.
       if (r.dmgPreview) {
         const lk = document.createElement("button");

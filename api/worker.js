@@ -1478,6 +1478,7 @@ export class Table extends DurableObject {
         const name = sheet.holding.name;
         if (msg.t === "releaseHold") {
           sheet.holding = null; sheet.concentration = 0;
+          state.requests = state.requests.filter((r) => !(r.concentration && r.seatId === s.id && r.status === "pending"));
           addEvent(state, `${sheet.name} lets ${name} go.`, s);
         } else {
           const cost = sheet.holding.tier ? SPELL_COST[sheet.holding.tier] : 0;
@@ -1774,6 +1775,10 @@ export class Table extends DurableObject {
       }
       // What was just rolled: the GM may not ask for the same roll again in its answer.
       ctx.takes = takenThisRound(state, round);
+      // What each player wrote this round, and who named a spell in it: no roll may cast a spell nobody cast.
+      ctx.said = {};
+      for (const m of state.messages.filter((x) => x.round === round && x.kind === "act")) ctx.said[m.seatId] = `${ctx.said[m.seatId] || ""} ${m.text}`;
+      ctx.castBy = new Set([...spellsNamed(state, round, ctx)].filter(([, list]) => list.length).map(([id]) => id));
       ctx.rolled = state.messages.filter((m) => m.round === round && m.kind === "roll" && m.label)
         .map((m) => `${m.seatId}|${String(m.label).trim().toLowerCase()}`);
       const model = tier === "large" ? this.env.MODEL_LARGE : this.env.MODEL;
@@ -1921,7 +1926,16 @@ export class Table extends DurableObject {
       if (!fresh.cast.seen.includes(key)) fresh.cast.seen.push(key);
     }
     // Anything still owed from this round lapses; the GM's new requests open the next one.
-    for (const r of fresh.requests) if (r.round === round && r.status === "pending") r.status = "lapsed";
+    for (const r of fresh.requests) {
+      if (r.round !== round || r.status !== "pending") continue;
+      r.status = "lapsed";
+      // A concentration save left unrolled: the spell is let go.
+      if (r.concentration) {
+        const s = fresh.seats.find((x) => x.id === r.seatId);
+        const c = s ? sheetFor(fresh, s) : null;
+        if (c && c.holding) { addEvent(fresh, `${c.name} doesn't fight to hold ${c.holding.name}: it slips away.`, s); c.holding = null; c.concentration = 0; markDirty(fresh); }
+      }
+    }
     let order = 0;
     for (const q of result.requests || []) {
       const seat = fresh.seats.find((x) => x.id === q.seatId);
@@ -1943,7 +1957,7 @@ export class Table extends DurableObject {
     for (const s of fresh.seats.filter((x) => x.present)) {
       const c = sheetFor(fresh, s);
       if (c && c.holding && !c.holding.expired && c.concentration && !c.dying && !c.dead) {
-        fresh.requests.push({ seatId: s.id, type: "save", stat: "endurance", label: `Concentration: keep ${c.holding.name} going`, mod: 0, dc: c.concentration, ac: null, adv: [], dis: [], concentration: true, rid: "r" + (fresh.nextRid++), round: round + 1, order: order++, status: "pending" });
+        fresh.requests.push({ seatId: s.id, type: "save", stat: "endurance", label: `Concentration: keep ${c.holding.name} going`, mod: 0, dc: c.concentration, ac: null, adv: [], dis: [], concentration: true, optional: true, rid: "r" + (fresh.nextRid++), round: round + 1, order: order++, status: "pending" });
         c.concentration = 0;
         markDirty(fresh);
       }
@@ -2026,12 +2040,14 @@ function rollLine(m) {
 
 // Rolls a seat still owes the GM this round.
 function owedBy(state, seatId) {
-  return state.requests.filter((r) => r.round === state.round && r.status === "pending" && r.seatId === seatId && stillOwed(state, r));
+  // An optional roll (keeping a held spell) never holds up the round: not rolling it is a choice.
+  return state.requests.filter((r) => r.round === state.round && r.status === "pending" && r.seatId === seatId && !r.optional && stillOwed(state, r));
 }
 
 // A death save is only owed while that seat's character is still dying (healed,
 // stabilised, dead or deleted characters owe nothing).
 function stillOwed(state, r) {
+  if (r.concentration) { const h = sheetFor(state, state.seats.find((x) => x.id === r.seatId)); return !!(h && h.holding); }
   if (r.type !== "death") return true;
   const c = sheetFor(state, state.seats.find((x) => x.id === r.seatId));
   return !!(c && c.dying && !c.dying.stable && !c.dead);
@@ -2236,8 +2252,13 @@ function castWorked(state, req, sheet, seat, tell) {
   }
   // Mend on a broken item the caster names: it works again.
   if (/^mend$/i.test(req.spell)) {
-    const item = itemNamed(sheet, `${req.label || ""} ${req.target || ""} ${actText(state, seat, req.round)}`, { broken: true });
+    const text = `${req.label || ""} ${req.target || ""} ${actText(state, seat, req.round)}`;
+    const item = itemNamed(sheet, text, { broken: true });
     if (item) { item.broken = false; delete item.overclock; tell([`${sheet.name} mends the ${item.name}: it works again.`]); }
+    else {
+      const strained = itemNamed(sheet, text);
+      if (strained?.overclock?.breaks) { strained.overclock.breaks = false; tell([`${sheet.name} mends the strain in the ${strained.name}: it won't break when the overclock ends.`]); }
+    }
   }
   markDirty(state);
 }
@@ -2752,8 +2773,25 @@ function refereeInput(state) {
 
 // Parse and police the AI's roll requests: the same checks for the referee and the GM.
 function aiRequests(args, ctx) {
+  // A spell on a roll the player never cast (they named no spell, never said its name, never said "cast"):
+  // an attack loses the spell and stays a plain attack; anything else is refused.
+  const refused = [];
+  if (ctx.said && Array.isArray(args?.rolls)) {
+    args = { ...args, rolls: args.rolls.flatMap((r) => {
+      if (!r?.spell || r.fusion || r.freeform) return [r];
+      const seat = (ctx.seats || []).find((s) => sameName(s.character, r.character) || sameName(s.player, r.character)) ||
+        (ctx.seats || []).find((s) => { const c = findSheet(ctx.party || [], r.character); return c && sameName(s.character, c.name); });
+      const said = seat ? ctx.said[seat.id] : undefined;
+      if (said === undefined || ctx.castBy?.has(seat.id)) return [r];
+      const t = said.toLowerCase();
+      if (t.includes(String(r.spell).toLowerCase()) || /\b(cast|casts|casting|cant|cants|canting|spell)\b/.test(t)) return [r];
+      if (r.type === "attack") { const { spell, learning, spell_tier, held, ...rest } = r; return [rest]; }
+      refused.push(`${r.label}: ${r.character} didn't cast ${r.spell} this round (their action doesn't say so). Only roll what they actually do.`);
+      return [];
+    }) };
+  }
   const parsed = parseRequests(args, ctx.seats || [], ctx.party || [], ctx.book || [], ctx.foes || []);
-  const problems = parsed.problems;
+  const problems = [...refused, ...parsed.problems];
   const again = (q) => (ctx.rolled || []).includes(`${q.seatId}|${String(q.label || "").trim().toLowerCase()}`);
   const noDc = (q) => (q.type === "check" || q.type === "save") && q.dc == null && !q.spellTier && !q.spell;
   for (const q of parsed.requests.filter(again)) problems.push(`${q.label} was already rolled this round: its result is final. Narrate what it leads to instead.`);
@@ -2843,6 +2881,12 @@ function castsNotCalled(state, round, ctx, called) {
     const own = sheet.spells || [];
     if (/\b(fuse|fuses|fusing|fusion)\b|\bweav\w*\b.*\binto\b/i.test(m.text)) continue;   // a fusion is the GM's call
     const named = spellsInAction(m.text, [...own, ...(ctx.book || []).filter((b) => !findSpell(own, b.name) || findSpell(own, b.name).name !== b.name)]);
+    // "I mend my staff": a one-word spell the character knows, used as the verb, is that spell.
+    for (const sp of own) {
+      const w = String(sp.name || "");
+      if (/\s/.test(w) || named.includes(sp)) continue;
+      if (new RegExp(`\\b(?:i|we|${String(sheet.name).split(/\s+/)[0]})\\s+(?:quickly\\s+|carefully\\s+|then\\s+)?${w.replace(/[.*+?^${}()|[\]\\]/g, "")}\\b`, "i").test(m.text)) named.push(sp);
+    }
     for (const sp of named) {
       if (called.some((q) => q.seatId === seat.id && ((q.spell && findSpell([sp], q.spell)) || (q.fusion || []).some((f) => findSpell([sp], f))))) continue;
       const known = findSpell(own, sp.name);

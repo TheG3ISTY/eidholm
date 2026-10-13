@@ -67,7 +67,7 @@ Luck 13 removes only the natural 1, never the rest. Backlash always follows the 
 
 Every spell rolls **Attunement + Canting** (or **Ranged canting** for anything thrown at a target), against a DC or the target's AC; that roll is also where a miscant shows.
 
-**Held spells.** A spell marked **Held.** lasts only while the canter holds it, and a canter holds **one** at a time: casting another held spell lets go of the first. Taking damage while holding calls for an **Endurance save, DC 10 or half the damage** (whichever is higher), or the spell drops. Dropping to 0 HP lets go of it. It ends when its time runs out.
+**Held spells.** A spell marked **Held.** lasts only while the canter holds it, and a canter holds **one** at a time: casting another held spell lets go of the first. Taking damage while holding offers an **Endurance save, DC 10 or half the damage** (whichever is higher), to keep it. The save is optional: roll it to keep the spell, press **Let it go**, or just act on without rolling, and the spell drops. Dropping to 0 HP lets go of it. It ends when its time runs out.
 
 **Spell save DC = 8 + Attunement modifier + Canting bonus** (Ranged canting for ranged cants). When a spell says "vs Agility save" or the like, the caster's roll only decides whether it miscants; the targets roll their save against the caster's DC. A fresh Resonance 5 canter has DC 8; a Resonance 10 Legend has DC 20.
 
