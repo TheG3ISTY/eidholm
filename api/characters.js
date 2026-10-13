@@ -74,7 +74,7 @@ export const STARTER_ITEMS = [
   { id: "tinker_case", name: "Tinker's case", kind: "tool", skill: "creation" },
   { id: "salvage_gauge", name: "Salvage gauge", kind: "tool", skill: "artifice" },
   { id: "focus_bead", name: "Focus bead", kind: "focus", skill: "canting", focus: 1 },
-  { id: "energy_staff", name: "Cracked energy staff", kind: "weapon", skill: "ranged_canting", damage: "1d8", twoHanded: true, quality: "Crude", focus: 1 },
+  { id: "energy_staff", name: "Cracked energy staff", kind: "weapon", skill: "ranged_canting", damage: "1d8", quality: "Crude", focus: 1 },   // one hand: a staff in one, a sword or a cant in the other
 ];
 
 // ---------------------------------------------------------------- numbers
@@ -138,7 +138,7 @@ export function toolType(item) {
   return null;
 }
 
-// A staff, wand or rod is held, not worn: a weapon that also works as a focus.
+// A staff, wand or rod is held, not worn: a one-handed weapon that also works as a focus.
 const HELD_FOCUS = /\b(staff|staves|stave|quarterstaff|wand|rod|sceptre|scepter|crook)\b/i;
 export function fixHeldFocus(item) {
   if (!item || item.kind !== "focus" || !HELD_FOCUS.test(item.name || "")) return item;
@@ -146,7 +146,6 @@ export function fixHeldFocus(item) {
   item.kind = "weapon";
   item.skill = "ranged_canting";
   if (!item.damage) item.damage = wand ? "1d4" : "1d8";
-  if (!wand) item.twoHanded = true;
   if (!item.focus) item.focus = 1;
   item.equipped = false;
   return item;
@@ -278,6 +277,7 @@ export function normalize(sheet) {
     if ("condition" in i) { if (i.condition === "Broken") i.broken = true; delete i.condition; }   // the old condition ladder
     if (i.kind === "shield" && i.shieldPool && !Number.isFinite(i.shieldLeft)) i.shieldLeft = i.shieldPool;
     fixHeldFocus(i);   // a staff once filed as a worn focus
+    if (i.kind === "weapon" && i.twoHanded && /\b(staff|staves|stave|quarterstaff)\b/i.test(i.name || "")) delete i.twoHanded;   // staves are one-handed now
   }
   // One tool of each type in use: if two are, the better focus (or the first) stays.
   const inUse = new Map();

@@ -51,7 +51,7 @@ function statKey(v) {
 
 // The main quest: built from the plot points at the start of a story, for the GM's eyes only.
 // Kept apart from STATE_FILES, which the players' codex reads.
-const LIVE_FIX = 2;
+const LIVE_FIX = 3;
 const OVERCLOCK_ROUNDS = 3;   // "a minute" at the table: the next three rounds   // bump to re-run normalize() on the sheets live on the table
 const QUEST_FILES = { plotpoints: "world/plotpoints.md", quest: "campaign/quest.json" };
 
@@ -3282,7 +3282,7 @@ DICE_TOOLS.push({
           properties: {
             name: { type: "string" },
             kind: { type: "string", enum: ["weapon", "armor", "shield", "focus", "tool", "device", "other"], description: "tool: a kit used with a skill (lockpicks, medic's satchel); give its skill" },
-            focus: { type: "integer", minimum: 1, maximum: 3, description: "Tiers it adds as a focus: Common +1, Guild +2, Superior +3. kind focus is a WORN focus (bead, ring, amulet, circlet). A staff, wand or rod is kind weapon with skill ranged_canting, damage dice, and focus set (staves two_handed)" },
+            focus: { type: "integer", minimum: 1, maximum: 3, description: "Tiers it adds as a focus: Common +1, Guild +2, Superior +3. kind focus is a WORN focus (bead, ring, amulet, circlet). A staff, wand or rod is kind weapon with skill ranged_canting, damage dice, and focus set (staves are one-handed)" },
             tier: { type: "integer", minimum: 1, maximum: 5, description: "1 Common, 2 Guild, 3 Superior, 4 Relic, 5 Unique" },
             quality: { type: "string", enum: ["Crude", "Standard", "Fine", "Exceptional", "Masterwork"] },
             broken: { type: "boolean", description: "Found or given already broken" },
@@ -3292,7 +3292,7 @@ DICE_TOOLS.push({
             slot: { type: "string", enum: ["head", "hands", "body", "legs", "feet"], description: "For armor: the slot it's worn in. AC follows from slot and weight unless given." },
             ac: { type: "integer", description: "For armor: AC it adds, only to override the standard (light: body +1, legs +1, others 0; heavy: body +2, others +1)" },
             damage: { type: "string", description: "For weapons: damage dice" },
-            two_handed: { type: "boolean", description: "For weapons that need both hands (greatswords, halberds, bows, crossbows, staves)" },
+            two_handed: { type: "boolean", description: "For weapons that need both hands (greatswords, halberds, bows, crossbows). Staves are one-handed" },
             pool: { type: "integer", description: "For Resonance gear: pool it adds while worn" },
             recovery: { type: "number", description: "For Resonance gear: extra recovery per hour, as a fraction of the pool (0.05 = 5%)" },
             note: { type: "string" },
